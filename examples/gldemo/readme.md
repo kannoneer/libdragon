@@ -9,7 +9,7 @@
 
 This test draws a cube 20 times in a loop with and without Z-testing. Tested with a PAL console, 64drive, average of single runs 31 samples. Speedup means here the formula
 
-    speedup = 100 % * before / (before - after)
+    speedup = 100 % * (before - after) / before
 
 
 The test rendering is a zoomed-in cube:
