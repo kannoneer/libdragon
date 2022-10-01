@@ -16,6 +16,20 @@ The test rendering is a zoomed-in cube:
 
 ![test scene](report/scene.png)
 
+The render loop is
+
+```c
+uint32_t t_start = TICKS_READ();
+for (int i = 0; i < num_overdraw; i++) {
+    render_just_cube();
+}
+rspq_flush();
+uint32_t t_end = TICKS_READ();
+```
+
+See [gldemo.c](https://github.com/kannoneer/libdragon/blob/ztester/examples/gldemo/gldemo.c) for details.
+
+
 ## Caveats
 
 - The "overdraw" rendering loop may not be close to reality and loop iterations are probably interfering with each other
