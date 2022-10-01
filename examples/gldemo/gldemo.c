@@ -5,7 +5,6 @@
 #include <math.h>
 
 #include "cube.h"
-#include "sphere.h"
 
 static uint32_t animation = 3283;
 static uint32_t texture_index = 0;
@@ -42,9 +41,6 @@ void setup()
     {
         sprites[i] = sprite_load(texture_path[i]);
     }
-
-    setup_sphere();
-    make_sphere_mesh();
 
     setup_cube();
 
@@ -94,35 +90,20 @@ void setup()
     }
 }
 
-void render()
+void render_just_cube()
 {
-    glClearColor(0.3f, 0.1f, 0.6f, 1.f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
     float rotation = animation * 0.5f;
 
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 
-    glPushMatrix();
-
-    glRotatef(rotation*0.23f, 1, 0, 0);
-    glRotatef(rotation*0.98f, 0, 0, 1);
-    glRotatef(rotation*1.71f, 0, 1, 0);
-
     glEnable(GL_LIGHTING);
     glEnable(GL_TEXTURE_2D);
     glCullFace(GL_FRONT);
 
-    glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
-
-    draw_sphere();
-
-    glPopMatrix();
-
     glPushMatrix();
 
-    glTranslatef(0, sinf(rotation*0.02f), -3.5f + cosf(rotation*0.01f)*1);
+    glTranslatef(0, 0.f, -3.0f);
     glRotatef(rotation*0.46f, 0, 1, 0);
     glRotatef(rotation*1.35f, 1, 0, 0);
     glRotatef(rotation*1.81f, 0, 0, 1);
@@ -151,6 +132,10 @@ int main()
 
     controller_init();
 
+    // a hacky zoom-in for smaller FoV so that the cube fills the whole screen
+    glMatrixMode(GL_PROJECTION);
+    glScalef(4.0f, 4.0f, 1.0f);
+
     while (1)
     {
         controller_scan();
@@ -174,35 +159,46 @@ int main()
             glShadeModel(shade_model);
         }
 
-        if (down.c[0].C_up) {
-            if (sphere_rings < SPHERE_MAX_RINGS) {
-                sphere_rings++;
-            }
-
-            if (sphere_segments < SPHERE_MAX_SEGMENTS) {
-                sphere_segments++;
-            }
-
-            make_sphere_mesh();
-        }
-
-        if (down.c[0].C_down) {
-            if (sphere_rings > SPHERE_MIN_RINGS) {
-                sphere_rings--;
-            }
-
-            if (sphere_segments > SPHERE_MIN_SEGMENTS) {
-                sphere_segments--;
-            }
-            
-            make_sphere_mesh();
-        }
-
         if (down.c[0].C_right) {
             texture_index = (texture_index + 1) % 4;
         }
 
-        render();
+        #define NUM_TESTS (2)
+
+        uint32_t results[NUM_TESTS];
+        const char* test_names[] = {"depth test on", "depth test off"};
+        const int num_overdraw = 20;
+
+
+        for (int test = 0; test < 2; test++) {
+            if (test == 0) {
+                glEnable(GL_DEPTH_TEST);
+            }
+            else if (test == 1) {
+                glDisable(GL_DEPTH_TEST);
+            }
+            else {
+                debugf("BUG\n");
+                return 1;
+            }
+            glClearColor(0.3f, 0.1f, 0.6f, 1.f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+            uint32_t t_start = TICKS_READ();
+            for (int i = 0; i < num_overdraw; i++) {
+                render_just_cube();
+            }
+            rspq_flush();
+            uint32_t t_end = TICKS_READ();
+            results[test] = TICKS_DISTANCE(t_start, t_end);
+        }
+
+        for (int test = 0; test < 2; test++) {
+            uint32_t took = results[test];
+            float millis = (float)(took * 1000) / TICKS_PER_SECOND;
+            debugf("[%s] ticks: %lu = %.5f ms\n", test_names[test], took, millis);
+        }
+        
 
         gl_swap_buffers();
     }
