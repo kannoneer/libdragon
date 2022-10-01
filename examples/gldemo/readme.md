@@ -3,9 +3,9 @@
 *01 Oct 2022*
 *Written by tykkiman*
 
-**Question:** How much does disabling the Z-buffer speed up triangle drawing on the N64?
+**Question:** How much does not using the Z-buffer speed up triangle drawing on the N64?
 
-**Answer**: Disabling Z-test gives a **24% speedup**, varying between 12% and 34%.
+**Answer**: Disabling the Z-test and writes gives a **24% speedup**, varying between 12% and 34%.
 
 This test draws a cube 20 times in a loop with and without Z-testing. Tested with a PAL console, 64drive, average of single runs 31 samples. Speedup means here the formula
 
