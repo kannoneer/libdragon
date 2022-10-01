@@ -169,36 +169,31 @@ int main()
         const char* test_names[] = {"depth test on", "depth test off"};
         const int num_overdraw = 20;
 
+        int test = 0; // toggle this to switch between the two tests
 
-        for (int test = 0; test < 2; test++) {
-            if (test == 0) {
-                glEnable(GL_DEPTH_TEST);
-            }
-            else if (test == 1) {
-                glDisable(GL_DEPTH_TEST);
-            }
-            else {
-                debugf("BUG\n");
-                return 1;
-            }
-            glClearColor(0.3f, 0.1f, 0.6f, 1.f);
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-            uint32_t t_start = TICKS_READ();
-            for (int i = 0; i < num_overdraw; i++) {
-                render_just_cube();
-            }
-            rspq_flush();
-            uint32_t t_end = TICKS_READ();
-            results[test] = TICKS_DISTANCE(t_start, t_end);
+        if (test == 0) {
+            glEnable(GL_DEPTH_TEST);
         }
-
-        for (int test = 0; test < 2; test++) {
-            uint32_t took = results[test];
-            float millis = (float)(took * 1000) / TICKS_PER_SECOND;
-            debugf("[%s] ticks: %lu = %.5f ms\n", test_names[test], took, millis);
+        else if (test == 1) {
+            glDisable(GL_DEPTH_TEST);
         }
-        
+        else {
+            debugf("BUG\n");
+            return 1;
+        }
+        glClearColor(0.3f, 0.1f, 0.6f, 1.f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        uint32_t t_start = TICKS_READ();
+        for (int i = 0; i < num_overdraw; i++) {
+            render_just_cube();
+        }
+        rspq_flush();
+        uint32_t t_end = TICKS_READ();
+        results[test] = TICKS_DISTANCE(t_start, t_end);
+        uint32_t took = results[test];
+        float millis = (float)(took * 1000) / TICKS_PER_SECOND;
+        debugf("[%s] ticks: %lu = %.5f ms\n", test_names[test], took, millis);
 
         gl_swap_buffers();
     }
