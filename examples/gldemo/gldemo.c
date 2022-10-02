@@ -169,7 +169,7 @@ int main()
         const char* test_names[] = {"depth test on", "depth test off"};
         const int num_overdraw = 20;
 
-        int test = 0; // toggle this to switch between the two tests
+        int test = 1; // toggle this to switch between the two tests
 
         if (test == 0) {
             glEnable(GL_DEPTH_TEST);
@@ -188,7 +188,7 @@ int main()
         for (int i = 0; i < num_overdraw; i++) {
             render_just_cube();
         }
-        rspq_flush();
+        glFinish();
         uint32_t t_end = TICKS_READ();
         results[test] = TICKS_DISTANCE(t_start, t_end);
         uint32_t took = results[test];
