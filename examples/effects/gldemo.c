@@ -19,11 +19,14 @@ static uint32_t texture_index = 0;
 static float distance = 1.0f;
 static float cam_rotate = 0.0f;
 
+static xm64player_t xm;
+
 static GLuint textures[4];
 
 static GLenum shade_model = GL_SMOOTH;
 
-static const GLfloat environment_color[] = { 0.1f, 0.03f, 0.05f, 1.f };
+// static const GLfloat originial_environment_color[] = { 0.1f, 0.03f, 0.05f, 1.f };
+static const GLfloat environment_color[] = { 0.07f, 0.03f, 0.05f, 0.07f };
 // static const GLfloat environment_color[] = { 1.0f, 1.0f, 1.0f, 0.0f };
 
 static const GLfloat light_pos[8][4] = {
@@ -57,6 +60,18 @@ static const char *texture_path[4] = {
 
 static sprite_t *sprites[4];
 
+static void poll_audio(bool block)
+{
+    if (block) {
+        while (!audio_can_write()) {}
+    }
+
+    if (audio_can_write()) {    	
+        short *buf = audio_write_begin();
+        mixer_poll(buf, audio_get_buffer_length());
+        audio_write_end();
+    }
+}
 
 void load_texture(GLenum target, sprite_t *sprite)
 {
@@ -230,59 +245,20 @@ static int compare_stars(void* ctx, const void* ptr_a, const void* ptr_b)
 
 void render()
 {
+    float tone = 0.6 + 0.4f * sin(time*0.2+0.1);
+    float envred = 0.5f * environment_color[0] + 0.5f * environment_color[0] * tone;
+    // glClearColor(envred, environment_color[1], environment_color[2], environment_color[3]);
     glClearColor(environment_color[0], environment_color[1], environment_color[2], environment_color[3]);
     // glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
-    // glRotatef(45, 1, 0, 0);
     glTranslatef(0, 0, distance);
-    // glRotatef(cam_rotate, 0, 1, 0);
-
-    float rotation = animation * 0.5f;
-
-    // glPushMatrix();
-
-    // glRotatef(rotation*5.43f, 0, 1, 0);
-
-    // for (uint32_t i = 0; i < 8; i++)
-    // {
-    //     glLightfv(GL_LIGHT0 + i, GL_POSITION, light_pos[i]);
-    // }
-
-    // glPopMatrix();
-
-    glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
-
-    // glEnable(GL_LIGHTING);
-    // glEnable(GL_TEXTURE_2D);
-
-    // glPushMatrix();
-    // glColor3f(1, 1, 1);
-    // // draw_plane();
-    // glTranslatef(0,-1.f,0);
-    // glEnable(GL_COLOR_MATERIAL);
-    // // draw_cube();
-    // glDisable(GL_COLOR_MATERIAL);
-    // glPopMatrix();
-
-    // glPushMatrix();
-
-    // glRotatef(rotation*0.23f, 1, 0, 0);
-    // glRotatef(rotation*0.98f, 0, 0, 1);
-    // glRotatef(rotation*1.71f, 0, 1, 0);
-
-    // glCullFace(GL_FRONT);
-    // // draw_sphere();
-    // glCullFace(GL_BACK);
-
-    // glPopMatrix();
+    glRotatef(sin(time*0.5) * 10, 0.25, 1, 0);
+    // glRotatef(cos(time) * 15, 1, 0, 0);
 
     glPushMatrix();
-
-    glTranslatef(0, 0, 0);
-    // glRotatef(-rotation*2.46f, 0, 1, 0);
 
     glDisable(GL_CULL_FACE);
     glDisable(GL_LIGHTING);
@@ -291,46 +267,47 @@ void render()
     // glBindTexture(GL_TEXTURE_2D, textures[1]);
     glDisable(GL_DEPTH_TEST);
 
+    glEnable(GL_DITHER);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);  
     // glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);  
     // glBlendFunc(GL_SRC_ALPHA, GL_ONE);  
 
-    glRotatef(time*10.f + 90.0f * sin(time*0.2f), 0.0f, 0.0f, -1.0f);
+    glRotatef(time*10.f + 90.0f * sin(time*0.15f), 0.0f, 0.0f, -1.0f);
 
-    // prim_test();
-    // glPushMatrix();
-    set_rnd_seed(130);
+    set_rnd_seed(132);
     // const float far = 5.0f;
+    float spread = 35.0 + 15 * cos(time*.3f + sin(time*0.1));
 
     int noise1=1;
     int noise2=1;
     for (int i=0;i<NUM_STARS;i++) {
         order[i] = i;
-        float travel = (i*3.123 + time * 0.1f);
+        float travel = (i*3.123 + time * 0.4f);
         int rounds = (int)travel;
         // if (i == 5) debugf("[%d] %f -->", i, travel);
         travel = fmodf(travel, 1.0f);
         // if (i==5) debugf(" %f\n", travel);
-        float z = -(60 + 10.0*sin(time*0.2))*(1.0f-travel);
+        float z = -(60 + 20.0*cos(time*0.5))*(1.0f-travel);
         noise1 += i*16807;
         noise2 += i*48271;
         float xofs = ((noise1) & 0xff) / 255.f - 0.5f;
         float yofs = ((noise2) & 0xff) / 255.f - 0.5f;
-        float x = (xofs + get_rndf_signed()) * 50.0f * 0.5f;
-        float y = (yofs + get_rndf_signed()) * 50.0f * 0.5f;
+        float x = (xofs + get_rndf_signed()) * spread;
+        float y = (yofs + get_rndf_signed()) * spread;
         (void)get_rndf_signed();
         // debugf("[%d] %i, (%f, %f)\n", i, rounds, x, y);
         stars[i].x = x;
         stars[i].y = y;
         stars[i].z = z;
-        stars[i].r = (i+1 % 32) / 32.0f;
+        stars[i].r = tone * ((i+1 % 32) / 32.0f);
         stars[i].g = (i+3 % 64) / 256.0f;
-        stars[i].b = (i+2 % 64) / 64.0f;
-        float alpha = travel*2; // will be clipped by opengl
+        stars[i].b = ((i+2 % 64) / 64.0f);
+        float alpha = travel*2;
+        if (alpha > 1) alpha = 1.0f;
         // if (time < 5.0) alpha *= time*0.2f;
         const float limit = 0.9;
-        if (travel > limit) alpha -= (travel - limit) * 40;
+        if (travel > limit && travel <= 1.1f) alpha -= (travel - limit) * 40;
         stars[i].alpha = alpha;
         // stars[i].scale = 1.0f + 0.5f*sin(i*2);
     }
@@ -340,6 +317,8 @@ void render()
             sizeof(order[0]),
             (void *)stars,
             compare_stars);
+    
+    poll_audio(false);
 
     glPushMatrix();
         for (int i=0;i<NUM_STARS;i++) {
@@ -349,7 +328,7 @@ void render()
             //glRotatef(10, 0, 0, -1);
             glPushMatrix();
             glTranslatef(star->x, star->y, star->z);
-            glRotatef(idx*10.0f - time*4.0f*sin(idx), 0.0f, 0.0f, -1.0f);
+            glRotatef(idx*10.0f + time*60.0f*sin(idx), 0.0f, 0.0f, -1.0f);
             // draw_quad();
             // glScalef(star->scale, star->scale, star->scale);
             glScalef(2,2,2);
@@ -361,6 +340,7 @@ void render()
 
     glPopMatrix();
 
+    glDisable(GL_DITHER);
     glDisable(GL_BLEND);
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
@@ -377,6 +357,15 @@ int main()
     dfs_init(DFS_DEFAULT_LOCATION);
 
     display_init(RESOLUTION_320x240, DEPTH_16_BPP, 3, GAMMA_NONE, ANTIALIAS_RESAMPLE_FETCH_ALWAYS);
+    timer_init();
+
+	audio_init(44100, 4);
+	mixer_init(32);
+
+    xm64player_open(&xm, "rom:/asd.xm64");
+    xm64player_play(&xm, 0);
+
+    poll_audio(false);
 
     gl_init();
 
@@ -393,69 +382,16 @@ int main()
     while (1)
 #endif
     {
+
         controller_scan();
         struct controller_data pressed = get_keys_pressed();
         struct controller_data down = get_keys_down();
 
         time = get_ticks_ms()/1000.0f;
 
-
-        if (pressed.c[0].A) {
-            animation++;
-        }
-
-        if (pressed.c[0].B) {
-            animation--;
-        }
-
-        if (down.c[0].start) {
-            debugf("%ld\n", animation);
-        }
-
-        if (down.c[0].R) {
-            shade_model = shade_model == GL_SMOOTH ? GL_FLAT : GL_SMOOTH;
-            glShadeModel(shade_model);
-        }
-
-        if (down.c[0].C_up) {
-            if (sphere_rings < SPHERE_MAX_RINGS) {
-                sphere_rings++;
-            }
-
-            if (sphere_segments < SPHERE_MAX_SEGMENTS) {
-                sphere_segments++;
-            }
-
-            make_sphere_mesh();
-        }
-
-        if (down.c[0].C_down) {
-            if (sphere_rings > SPHERE_MIN_RINGS) {
-                sphere_rings--;
-            }
-
-            if (sphere_segments > SPHERE_MIN_SEGMENTS) {
-                sphere_segments--;
-            }
-            
-            make_sphere_mesh();
-        }
-
-        if (down.c[0].C_right) {
-            texture_index = (texture_index + 1) % 4;
-        }
-
-        float y = pressed.c[0].y / 128.f;
-        float x = pressed.c[0].x / 128.f;
-        float mag = x*x + y*y;
-
-        if (fabsf(mag) > 0.01f) {
-            distance += y * 0.2f;
-            cam_rotate = cam_rotate - x * 1.2f;
-        }
-
         render();
 
         gl_swap_buffers();
+
     }
 }
