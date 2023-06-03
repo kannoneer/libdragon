@@ -78,13 +78,11 @@ struct Model {
         float x, y, z;
         uint32_t color;
     }* verts;
-    // struct Vertex* verts;
     uint16_t* indices;
 } model;
 
-void load_model()
+void load_model(const char* model_path)
 {
-    const char* model_path = "rom:/baked_random.binm";
     FILE* fp = fopen(model_path, "rb");
     if (!fp) {
         debugf("Failed to open file %s\n", model_path);
@@ -118,13 +116,29 @@ void load_model()
     assert(numread == verts_byte_size);
 
     fseek(fp, (uint32_t)model.indices, SEEK_SET);
-    uint32_t indices_byte_size = sizeof(model.indices[0]) * model.vertex_count;
+    uint32_t indices_byte_size = sizeof(model.indices[0]) * model.index_count;
     model.indices = malloc(indices_byte_size);
     assert(model.indices);
     numread = fread(model.indices, 1, indices_byte_size, fp);
     assert(numread == indices_byte_size);
 
     fclose(fp);
+}
+
+void draw_model()
+{
+    glBindBufferARB(GL_ARRAY_BUFFER_ARB, 0);
+    glBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB, 0);
+
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    glDisableClientState(GL_NORMAL_ARRAY);
+    glEnableClientState(GL_COLOR_ARRAY);
+
+    glVertexPointer(3, GL_FLOAT, sizeof(struct Vertex), (void*)(0*sizeof(float) + (void*)model.verts));
+    glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(struct Vertex), (void*)(3*sizeof(float) + (void*)model.verts));
+
+    glDrawElements(GL_TRIANGLES, model.index_count, GL_UNSIGNED_SHORT, model.indices);
 }
 
 void setup()
@@ -136,7 +150,7 @@ void setup()
         sprites[i] = sprite_load(texture_path[i]);
     }
 
-    load_model("rom:/baked_random.binm");
+    load_model("rom://baked.binm");
 
     for (int i=0;i<3;i++) {
         struct Vertex* v = &model.verts[i];
@@ -261,6 +275,16 @@ void render()
 
     glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
 
+    debugf("Model\n");
+    glDisable(GL_LIGHTING);
+    glDisable(GL_TEXTURE_2D);
+    glEnable(GL_COLOR_MATERIAL);
+    glPushMatrix();
+    glTranslatef(-2.0f,2.f,-1.0f);
+    glScalef(2.0f, 2.0f, 2.0f);
+    draw_model();
+    glPopMatrix();
+
     glEnable(GL_LIGHTING);
     glEnable(GL_TEXTURE_2D);
 
@@ -269,23 +293,23 @@ void render()
     glColor3f(1, 1, 1);
     rdpq_debug_log_msg("Plane");
     draw_plane();
-    glTranslatef(0,-1.f,0);
-    rdpq_debug_log_msg("Cube");
-    draw_cube();
+    // glTranslatef(0,-1.f,0);
+    // rdpq_debug_log_msg("Cube");
+    // draw_cube();
     glPopMatrix();
 
-    glPushMatrix();
-    glTranslatef(0, 0, 6);
-    glRotatef(35, 0, 1, 0);
-    glScalef(3, 3, 3);
-    glColor4f(1.0f, 0.4f, 0.2f, 0.5f);
-    glDepthFunc(GL_EQUAL);
-    glDepthMask(GL_FALSE);
-    rdpq_debug_log_msg("Decal");
-    draw_quad();
-    glDepthMask(GL_TRUE);
-    glDepthFunc(GL_LESS);
-    glPopMatrix();
+    // glPushMatrix();
+    // glTranslatef(0, 0, 6);
+    // glRotatef(35, 0, 1, 0);
+    // glScalef(3, 3, 3);
+    // glColor4f(1.0f, 0.4f, 0.2f, 0.5f);
+    // glDepthFunc(GL_EQUAL);
+    // glDepthMask(GL_FALSE);
+    // rdpq_debug_log_msg("Decal");
+    // draw_quad();
+    // glDepthMask(GL_TRUE);
+    // glDepthFunc(GL_LESS);
+    // glPopMatrix();
 
     glDisable(GL_COLOR_MATERIAL);
 
@@ -315,9 +339,9 @@ void render()
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    rdpq_debug_log_msg("Primitives");
-    glColor4f(1, 1, 1, 0.4f);
-    prim_test();
+    // rdpq_debug_log_msg("Primitives");
+    // glColor4f(1, 1, 1, 0.4f);
+    // prim_test();
 
     glEnable(GL_CULL_FACE);
     glDisable(GL_BLEND);
