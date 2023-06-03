@@ -5,6 +5,8 @@ src = gldemo.c
 assets_png = $(wildcard assets/*.png)
 
 assets_conv = $(addprefix filesystem/,$(notdir $(assets_png:%.png=%.sprite)))
+assets_conv := $(assets_conv) $(wildcard filesystem/*.binm)
+$(info assets is $(assets_conv))
 
 MKSPRITE_FLAGS ?=
 

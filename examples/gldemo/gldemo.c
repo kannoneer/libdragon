@@ -69,6 +69,64 @@ void load_texture(GLenum target, sprite_t *sprite)
     }
 }
 
+struct Model {
+    uint32_t magic; // "BINM"
+    uint32_t version; // 20230603
+    uint32_t vertex_count;
+    uint32_t index_count;
+    __attribute__((packed)) struct Vertex {
+        float x, y, z;
+        uint32_t color;
+    }* verts;
+    // struct Vertex* verts;
+    uint16_t* indices;
+} model;
+
+void load_model()
+{
+    const char* model_path = "rom:/baked_random.binm";
+    FILE* fp = fopen(model_path, "rb");
+    if (!fp) {
+        debugf("Failed to open file %s\n", model_path);
+    }
+
+    fread(&model, sizeof(struct Model), 1, fp);
+
+    if (model.magic != 0x42494e4d) {
+        debugf("Model magic didn't match, got: %lu instead\n", model.magic);
+        return;
+    }
+    if (model.version != 20230603) {
+        debugf("Model version didn't match, got: %lu instead\n", model.version);
+        return;
+    }
+
+    debugf("vertex_count: %u\n", offsetof(struct Model, vertex_count));
+    debugf("index_count: %u\n", offsetof(struct Model, index_count));
+    debugf("verts: %u\n", offsetof(struct Model, verts));
+    debugf("indices: %u\n", offsetof(struct Model, indices));
+    debugf("size: %u\n", sizeof(struct Model));
+
+    debugf("counts: verts, inds: %lu, %lu\n", model.vertex_count, model.index_count);
+    debugf("start:  verts, inds: %lu, %lu\n", (uint32_t)model.verts, (uint32_t)model.indices);
+
+    fseek(fp, (uint32_t)model.verts, SEEK_SET);
+    uint32_t verts_byte_size = sizeof(struct Vertex) * model.vertex_count;
+    model.verts = malloc(verts_byte_size);
+    assert(model.verts);
+    size_t numread = fread(model.verts, 1, verts_byte_size, fp);
+    assert(numread == verts_byte_size);
+
+    fseek(fp, (uint32_t)model.indices, SEEK_SET);
+    uint32_t indices_byte_size = sizeof(model.indices[0]) * model.vertex_count;
+    model.indices = malloc(indices_byte_size);
+    assert(model.indices);
+    numread = fread(model.indices, 1, indices_byte_size, fp);
+    assert(numread == indices_byte_size);
+
+    fclose(fp);
+}
+
 void setup()
 {
     zbuffer = surface_alloc(FMT_RGBA16, display_get_width(), display_get_height());
@@ -76,6 +134,17 @@ void setup()
     for (uint32_t i = 0; i < 4; i++)
     {
         sprites[i] = sprite_load(texture_path[i]);
+    }
+
+    load_model("rom:/baked_random.binm");
+
+    for (int i=0;i<3;i++) {
+        struct Vertex* v = &model.verts[i];
+        debugf("[%d] (%f, %f, %f), RGBA=%lu\n", i, v->x, v->y, v->z, v->color);
+    }
+
+    for (int i=0;i<6;i+=3) {
+        debugf("(%d, %d, %d)\n", model.indices[i], model.indices[i+1], model.indices[i+2]);
     }
 
     setup_sphere();
