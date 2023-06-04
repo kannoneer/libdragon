@@ -17,7 +17,7 @@
 static uint32_t animation = 3283;
 static uint32_t texture_index = 0;
 static float distance = -10.0f;
-static float cam_rotate = 0.0f;
+static float cam_rotate = -90.f;
 static surface_t zbuffer;
 
 static GLuint textures[4];
@@ -150,7 +150,8 @@ void setup()
         sprites[i] = sprite_load(texture_path[i]);
     }
 
-    load_model("rom://baked.binm");
+    // load_model("rom://baked.binm");
+    load_model("rom://cornellbox_alpha02.binm");
 
     for (int i=0;i<3;i++) {
         struct Vertex* v = &model.verts[i];
@@ -172,10 +173,11 @@ void setup()
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
     glEnable(GL_NORMALIZE);
+    glEnable(GL_MULTISAMPLE_ARB);
 
     float aspect_ratio = (float)display_get_width() / (float)display_get_height();
     float near_plane = 1.0f;
-    float far_plane = 50.0f;
+    float far_plane = 25.0f;
 
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
@@ -255,7 +257,7 @@ void render()
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
     gluLookAt(
-        0, -distance, -distance,
+        0, 2.0f, -distance,
         0, 0, 0,
         0, 1, 0);
     glRotatef(cam_rotate, 0, 1, 0);
@@ -275,13 +277,12 @@ void render()
 
     glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
 
-    debugf("Model\n");
     glDisable(GL_LIGHTING);
     glDisable(GL_TEXTURE_2D);
     glEnable(GL_COLOR_MATERIAL);
     glPushMatrix();
-    glTranslatef(-2.0f,2.f,-1.0f);
-    glScalef(2.0f, 2.0f, 2.0f);
+    glTranslatef(8.0f,6.75f,0.0f);
+    glScalef(1.0f, 1.0f, 1.0f);
     draw_model();
     glPopMatrix();
 
@@ -292,7 +293,7 @@ void render()
     glPushMatrix();
     glColor3f(1, 1, 1);
     rdpq_debug_log_msg("Plane");
-    draw_plane();
+    // draw_plane();
     // glTranslatef(0,-1.f,0);
     // rdpq_debug_log_msg("Cube");
     // draw_cube();
@@ -323,7 +324,7 @@ void render()
 
     glCullFace(GL_FRONT);
     rdpq_debug_log_msg("Sphere");
-    draw_sphere();
+    // draw_sphere();
     glCullFace(GL_BACK);
 
     glPopMatrix();
