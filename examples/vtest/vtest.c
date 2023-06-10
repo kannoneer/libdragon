@@ -110,7 +110,126 @@ void init_n64(void)
     controller_init();
 }
 
-/* main code entry point */
+// statement expressions: https://stackoverflow.com/a/58532788
+#define max(a,b)             \
+({                           \
+    __typeof__ (a) _a = (a); \
+    __typeof__ (b) _b = (b); \
+    _a > _b ? _a : _b;       \
+})
+
+#define min(a,b)             \
+({                           \
+    __typeof__ (a) _a = (a); \
+    __typeof__ (b) _b = (b); \
+    _a < _b ? _a : _b;       \
+})
+
+
+typedef struct vec2
+{
+	int x, y;
+} vec2_t;
+
+vec2_t vec2_add(vec2_t a, vec2_t b) {
+	vec2_t c = {a.x+b.x, a.y+b.y};
+	return c;
+}
+
+vec2_t vec2_sub(vec2_t a, vec2_t b) {
+	vec2_t c = {a.x-b.x, a.y-b.y};
+	return c;
+}
+
+vec2_t vec2_mul(vec2_t a, vec2_t b) {
+	vec2_t c = {a.x*b.x, a.y*b.y};
+	return c;
+}
+
+vec2_t vec2_muls(vec2_t a, float s) {
+	vec2_t c = {a.x*s, a.y * s};
+	return c;
+}
+
+vec2_t vec2_div(vec2_t a, vec2_t b) {
+	vec2_t c = {a.x/b.x, a.y/b.y};
+	return c;
+}
+
+vec2_t vec2_divs(vec2_t a, int s) {
+	vec2_t c = {a.x/s, a.y/s};
+	return c;
+}
+
+static int cross2d(vec2_t a, vec2_t b) {
+	return a.x * b.y - a.y * b.x;
+}
+
+/* The determinant of a 2D matrix
+ * [ a b ]
+ * [ c d ]
+ **/
+static int det2d(int a, int b, int c, int d)
+{
+	return a*d - b*c;
+}
+
+static int orient2d(vec2_t a, vec2_t b, vec2_t c) {
+	// The 2D cross product of vectors a->b and a->p
+	// See https://fgiesen.wordpress.com/2013/02/08/triangle-rasterization-in-practice/
+	return (b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x);
+	//return det2d(b.x - a.x, c.x - a.x,
+	//             b.y - a.y, c.y - a.y);
+	// vec2_t ab = vec2_sub(b, a);
+	// vec2_t ac = vec2_sub(c, a);
+	// return cross2d(ab, ac);
+}
+
+//TODO subpixel accuracy
+
+// In screen coordinates the Y-axis grows down so a counter clockwise
+// wound triangle area is always negative. To make the areas positive
+// we swap two vertices when computing orient2d(), effectively 
+// flipping the winding of the triangle.
+
+void draw_tri(
+	vec2_t v0,
+	vec2_t v1,
+	vec2_t v2,
+	surface_t* screen,
+	unsigned int color)
+{
+	vec2_t minb = {min(v0.x, min(v1.x, v2.x)), min(v0.y, min(v1.y, v2.y))};
+	vec2_t maxb = {max(v0.x, max(v1.x, v2.x)), max(v0.y, max(v1.y, v2.y))};
+
+	int screen_width = (int)display_get_width();
+	int screen_height= (int)display_get_height();
+
+	if (minb.x < 0) minb.x = 0;
+	if (minb.y < 0) minb.y = 0;
+	if (maxb.x > screen_width-1) maxb.x = screen_width-1;
+	if (maxb.y > screen_height-1) maxb.y = screen_height-1;
+
+	int area = orient2d(v0, v2, v1) / 2;
+	debugf("Area: %d\n", area);
+
+	for (int y=minb.y;y<=maxb.y;y++) {
+		for (int x=minb.x;x<=maxb.x;x++) {
+			vec2_t p = {x,y};
+			int w0 = orient2d(v2, v1, p);
+			int w1 = orient2d(v0, v2, p);
+			int w2 = orient2d(v1, v0, p);
+
+			if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
+				graphics_draw_pixel(screen, x, y, color);
+			}
+		}
+	}
+
+}
+
+#define INT_TO_FIXED16(x) (x<<16)
+
 int main(void)
 {
     display_context_t _dc;
@@ -118,6 +237,8 @@ int main(void)
 	int res = 0;
 	unsigned short buttons, previous = 0;
 
+	debug_init_usblog();
+	debug_init_isviewer();
     init_n64();
 
     while (1)
@@ -140,8 +261,17 @@ int main(void)
 		graphics_draw_line(_dc, 0, 0, width[res]-1, height[res]-1, color);
 		graphics_draw_line(_dc, 0, height[res]-1, width[res]-1, 0, color);
 
+		color = graphics_make_color(255,0,255,255);
+		draw_tri(
+			(vec2_t){100, 30},
+			(vec2_t){20, 60},
+			(vec2_t){105, 150},
+			_dc,
+			color);
+
 		color = graphics_make_color(0x00, 0x00, 0x00, 0xFF);
 		graphics_set_color(color, 0);
+
 
         printText(_dc, "Video Resolution Test", width[res]/16 - 10, 3);
 		switch (res)
