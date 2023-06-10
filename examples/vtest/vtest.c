@@ -303,12 +303,6 @@ void draw_tri2(
 	surface_t* screen,
 	unsigned int color)
 {
-	//HACK: Flip winding because with pixel coordinates all the math applies only
-	//      to clockwise wound triangles.
-	vec2 temp = v2;
-	v2 = v1;
-	v1 = temp;
-
 	vec2 minb = {min(v0.x, min(v1.x, v2.x)), min(v0.y, min(v1.y, v2.y))};
 	vec2 maxb = {max(v0.x, max(v1.x, v2.x)), max(v0.y, max(v1.y, v2.y))};
 
@@ -325,9 +319,9 @@ void draw_tri2(
 	debugf("minb: (%d, %d), maxb: (%d, %d)\n", minb.x, minb.y, maxb.x, maxb.y);
 
     // Triangle setup
-    int A01 = v0.y - v1.y, B01 = v1.x - v0.x;
-    int A12 = v1.y - v2.y, B12 = v2.x - v1.x;
-    int A20 = v2.y - v0.y, B20 = v0.x - v2.x;
+    int A01 = -(v0.y - v1.y), B01 = -(v1.x - v0.x);
+    int A12 = -(v1.y - v2.y), B12 = -(v2.x - v1.x);
+    int A20 = -(v2.y - v0.y), B20 = -(v0.x - v2.x);
 
 	debugf("A01: %d\nA12: %d\nA20: %d\n", A01, A12, A20);
 	debugf("B01: %d\nB12: %d\nB20: %d\n", B01, B12, B20);
@@ -335,13 +329,14 @@ void draw_tri2(
     vec2 p = minb;
 
     // Barycentric coordinates at minX/minY corner
-    int w0_row = orient2d(v1, v2, p);
-    int w1_row = orient2d(v2, v0, p);
-    int w2_row = orient2d(v0, v1, p);
 
-	int bias0 = isTopLeftScreenClockwise(v1, v2) ? 0 : -1;
-	int bias1 = isTopLeftScreenClockwise(v2, v0) ? 0 : -1;
-	int bias2 = isTopLeftScreenClockwise(v0, v1) ? 0 : -1;
+    int w0_row = -orient2d(v1, v2, p);
+    int w1_row = -orient2d(v2, v0, p);
+    int w2_row = -orient2d(v0, v1, p);
+
+	int bias0 = isTopLeftEdge(v1, v2) ? 0 : -1;
+	int bias1 = isTopLeftEdge(v2, v0) ? 0 : -1;
+	int bias2 = isTopLeftEdge(v0, v1) ? 0 : -1;
 
 	w0_row += bias0;
 	w1_row += bias1;
@@ -354,11 +349,6 @@ void draw_tri2(
 	// wound triangle area is always negative. To make the areas positive
 	// we swap two vertices when computing orient2d(), effectively 
 	// flipping the winding of the triangle.
-
-	// The "isTopLeftEdge" function is written for counter-clockwise triangles.
-	// But our inputs are effectively clockwise thanks to the flipped Y axis!
-	// So let's swap the edge directions when calling "isTopLeftEdge" to compensate.
-	// I.e. we pass in (v1, v0) instead of (v0, v1).
 
     for (p.y = minb.y; p.y <= maxb.y; p.y++) {
         // Barycentric coordinates at start of row
