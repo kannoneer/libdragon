@@ -129,39 +129,39 @@ void init_n64(void)
 typedef struct vec2
 {
 	int x, y;
-} vec2_t;
+} vec2;
 
-vec2_t vec2_add(vec2_t a, vec2_t b) {
-	vec2_t c = {a.x+b.x, a.y+b.y};
+vec2 vec2_add(vec2 a, vec2 b) {
+	vec2 c = {a.x+b.x, a.y+b.y};
 	return c;
 }
 
-vec2_t vec2_sub(vec2_t a, vec2_t b) {
-	vec2_t c = {a.x-b.x, a.y-b.y};
+vec2 vec2_sub(vec2 a, vec2 b) {
+	vec2 c = {a.x-b.x, a.y-b.y};
 	return c;
 }
 
-vec2_t vec2_mul(vec2_t a, vec2_t b) {
-	vec2_t c = {a.x*b.x, a.y*b.y};
+vec2 vec2_mul(vec2 a, vec2 b) {
+	vec2 c = {a.x*b.x, a.y*b.y};
 	return c;
 }
 
-vec2_t vec2_muls(vec2_t a, float s) {
-	vec2_t c = {a.x*s, a.y * s};
+vec2 vec2_muls(vec2 a, float s) {
+	vec2 c = {a.x*s, a.y * s};
 	return c;
 }
 
-vec2_t vec2_div(vec2_t a, vec2_t b) {
-	vec2_t c = {a.x/b.x, a.y/b.y};
+vec2 vec2_div(vec2 a, vec2 b) {
+	vec2 c = {a.x/b.x, a.y/b.y};
 	return c;
 }
 
-vec2_t vec2_divs(vec2_t a, int s) {
-	vec2_t c = {a.x/s, a.y/s};
+vec2 vec2_divs(vec2 a, int s) {
+	vec2 c = {a.x/s, a.y/s};
 	return c;
 }
 
-static int cross2d(vec2_t a, vec2_t b) {
+static int cross2d(vec2 a, vec2 b) {
 	return a.x * b.y - a.y * b.x;
 }
 
@@ -174,7 +174,11 @@ static int det2d(int a, int b, int c, int d)
 	return a*d - b*c;
 }
 
-static int orient2d(vec2_t a, vec2_t b, vec2_t c) {
+// Need x+y+1 bits to represent this result, where x and y are bit widths
+// of the two input coordinates.
+// Source: Ben Pye at https://fgiesen.wordpress.com/2013/02/08/triangle-rasterization-in-practice/#comment-21823
+static int orient2d(vec2 a, vec2 b, vec2 c)
+{
 	// The 2D cross product of vectors a->b and a->p
 	// See https://fgiesen.wordpress.com/2013/02/08/triangle-rasterization-in-practice/
 	return (b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x);
@@ -186,21 +190,46 @@ static int orient2d(vec2_t a, vec2_t b, vec2_t c) {
 }
 
 //TODO subpixel accuracy
+//TODO center the vertex coordinates for more uniform precision?
+//TODO pixel center
 
-// In screen coordinates the Y-axis grows down so a counter clockwise
-// wound triangle area is always negative. To make the areas positive
-// we swap two vertices when computing orient2d(), effectively 
-// flipping the winding of the triangle.
+bool isTopLeftEdge(vec2 a, vec2 b)
+{
+	// "In a counter-clockwise triangle, a top edge is an edge that is exactly horizontal
+	//  and goes towards the left, i.e. its end point is left of its start point."
+	if (a.y == b.y && b.x < a.x) return true;
+
+	// "In a counter-clockwise triangle, a left edge is an edge that goes down,
+	//  i.e. its end point is strictly below its start point."
+
+	// But note that on the screen Y axis grows downwards so we check if the end point
+	// Y coordinate is greater than start point Y.
+	if (b.y > a.y) return true;
+	return false;
+}
+
+bool isTopLeftEdgeTextbook(vec2 a, vec2 b)
+{
+	// "In a counter-clockwise triangle, a top edge is an edge that is exactly horizontal
+	//  and goes towards the left, i.e. its end point is left of its start point."
+	if (a.y == b.y && b.x < a.x) return true;
+
+	// "In a counter-clockwise triangle, a left edge is an edge that goes down,
+	//  i.e. its end point is strictly below its start point."
+	if (b.y < a.y) return true;
+	return false;
+}
+
 
 void draw_tri(
-	vec2_t v0,
-	vec2_t v1,
-	vec2_t v2,
+	vec2 v0,
+	vec2 v1,
+	vec2 v2,
 	surface_t* screen,
 	unsigned int color)
 {
-	vec2_t minb = {min(v0.x, min(v1.x, v2.x)), min(v0.y, min(v1.y, v2.y))};
-	vec2_t maxb = {max(v0.x, max(v1.x, v2.x)), max(v0.y, max(v1.y, v2.y))};
+	vec2 minb = {min(v0.x, min(v1.x, v2.x)), min(v0.y, min(v1.y, v2.y))};
+	vec2 maxb = {max(v0.x, max(v1.x, v2.x)), max(v0.y, max(v1.y, v2.y))};
 
 	int screen_width = (int)display_get_width();
 	int screen_height= (int)display_get_height();
@@ -210,22 +239,151 @@ void draw_tri(
 	if (maxb.x > screen_width-1) maxb.x = screen_width-1;
 	if (maxb.y > screen_height-1) maxb.y = screen_height-1;
 
+	// In screen coordinates the Y-axis grows down so a counter clockwise
+	// wound triangle area is always negative. To make the areas positive
+	// we swap two vertices when computing orient2d(), effectively 
+	// flipping the winding of the triangle.
+
+	// The "isTopLeftEdge" function is written for counter-clockwise triangles.
+	// But our inputs are effectively clockwise thanks to the flipped Y axis!
+	// So let's swap the edge directions when calling "isTopLeftEdge" to compensate.
+	// I.e. we pass in (v1, v0) instead of (v0, v1).
+
+	int bias0 = isTopLeftEdge(v1, v2) ? 0 : -1;
+	int bias1 = isTopLeftEdge(v2, v0) ? 0 : -1;
+	int bias2 = isTopLeftEdge(v0, v1) ? 0 : -1;
+
+	#if 0
+	v0.y *= -1;
+	v1.y *= -1;
+	v2.y *= -1;
+	int bias0b = isTopLeftEdgeTextbook(v1, v2) ? 0 : -1;
+	int bias1b = isTopLeftEdgeTextbook(v2, v0) ? 0 : -1;
+	int bias2b = isTopLeftEdgeTextbook(v0, v1) ? 0 : -1;
+
+	debugf("0: %d vs %d\n1: %d vs %d\n2: %d vs %d\n",
+		bias0, bias0b, bias1, bias1b, bias2, bias2b);
+
+	v0.y *= -1;
+	v1.y *= -1;
+	v2.y *= -1;
+	#endif
+
 	int area = orient2d(v0, v2, v1) / 2;
 	debugf("Area: %d\n", area);
 
 	for (int y=minb.y;y<=maxb.y;y++) {
 		for (int x=minb.x;x<=maxb.x;x++) {
-			vec2_t p = {x,y};
-			int w0 = orient2d(v2, v1, p);
-			int w1 = orient2d(v0, v2, p);
-			int w2 = orient2d(v1, v0, p);
+			vec2 p = {x,y};
+			int w0 = orient2d(v2, v1, p) + bias0;
+			int w1 = orient2d(v0, v2, p) + bias1;
+			int w2 = orient2d(v1, v0, p) + bias2;
 
 			if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
+				//FIXME: adjust barycentrics after biasing
 				graphics_draw_pixel(screen, x, y, color);
 			}
 		}
 	}
 
+}
+
+bool isTopLeftScreenClockwise(vec2 a, vec2 b)
+{
+	if (a.y == b.y && b.x > a.x) return true;
+	if (b.y < a.y) return true;
+	return false;
+}
+
+
+void draw_tri2(
+	vec2 v0,
+	vec2 v1,
+	vec2 v2,
+	surface_t* screen,
+	unsigned int color)
+{
+	//HACK: Flip winding because with pixel coordinates all the math applies only
+	//      to clockwise wound triangles.
+	vec2 temp = v2;
+	v2 = v1;
+	v1 = temp;
+
+	vec2 minb = {min(v0.x, min(v1.x, v2.x)), min(v0.y, min(v1.y, v2.y))};
+	vec2 maxb = {max(v0.x, max(v1.x, v2.x)), max(v0.y, max(v1.y, v2.y))};
+
+	int screen_width = (int)display_get_width();
+	int screen_height= (int)display_get_height();
+
+	if (minb.x < 0) minb.x = 0;
+	if (minb.y < 0) minb.y = 0;
+	if (maxb.x > screen_width-1) maxb.x = screen_width-1;
+	if (maxb.y > screen_height-1) maxb.y = screen_height-1;
+
+	debugf("v0: (%d, %d), v1: (%d, %d), v2: (%d, %d)\n",
+		v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
+	debugf("minb: (%d, %d), maxb: (%d, %d)\n", minb.x, minb.y, maxb.x, maxb.y);
+
+    // Triangle setup
+    int A01 = v0.y - v1.y, B01 = v1.x - v0.x;
+    int A12 = v1.y - v2.y, B12 = v2.x - v1.x;
+    int A20 = v2.y - v0.y, B20 = v0.x - v2.x;
+
+	debugf("A01: %d\nA12: %d\nA20: %d\n", A01, A12, A20);
+	debugf("B01: %d\nB12: %d\nB20: %d\n", B01, B12, B20);
+
+    vec2 p = minb;
+
+    // Barycentric coordinates at minX/minY corner
+    int w0_row = orient2d(v1, v2, p);
+    int w1_row = orient2d(v2, v0, p);
+    int w2_row = orient2d(v0, v1, p);
+
+	int bias0 = isTopLeftScreenClockwise(v1, v2) ? 0 : -1;
+	int bias1 = isTopLeftScreenClockwise(v2, v0) ? 0 : -1;
+	int bias2 = isTopLeftScreenClockwise(v0, v1) ? 0 : -1;
+
+	w0_row += bias0;
+	w1_row += bias1;
+	w2_row += bias2;
+
+	debugf("w0_row: %d\nw1_row: %d\nw2_row: %d\n", w0_row, w1_row, w2_row);
+	debugf("bias0: %d\nbias1: %d\nbias2: %d\n", bias0, bias1, bias2);
+
+	// In screen coordinates the Y-axis grows down so a counter clockwise
+	// wound triangle area is always negative. To make the areas positive
+	// we swap two vertices when computing orient2d(), effectively 
+	// flipping the winding of the triangle.
+
+	// The "isTopLeftEdge" function is written for counter-clockwise triangles.
+	// But our inputs are effectively clockwise thanks to the flipped Y axis!
+	// So let's swap the edge directions when calling "isTopLeftEdge" to compensate.
+	// I.e. we pass in (v1, v0) instead of (v0, v1).
+
+    for (p.y = minb.y; p.y <= maxb.y; p.y++) {
+        // Barycentric coordinates at start of row
+        int w0 = w0_row;
+        int w1 = w1_row;
+        int w2 = w2_row;
+
+        for (p.x = minb.x; p.x <= maxb.x; p.x++) {
+			// debugf("p=(%d,%d)\n", p.x, p.y);
+			if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
+				//FIXME: adjust barycentrics after biasing
+				graphics_draw_pixel(screen, p.x, p.y, color);
+			}
+
+			// One step to the right
+            w0 += A12;
+            w1 += A20;
+            w2 += A01;
+        }
+
+        // One row step
+        w0_row += B12;
+        w1_row += B20;
+        w2_row += B01;
+    }
 }
 
 #define INT_TO_FIXED16(x) (x<<16)
@@ -243,7 +401,6 @@ int main(void)
 
     while (1)
     {
-		int j;
 		int width[6] = { 320, 640, 256, 512, 512, 640 };
 		int height[6] = { 240, 480, 240, 480, 240, 240 };
 		unsigned int color;
@@ -261,50 +418,17 @@ int main(void)
 		graphics_draw_line(_dc, 0, 0, width[res]-1, height[res]-1, color);
 		graphics_draw_line(_dc, 0, height[res]-1, width[res]-1, 0, color);
 
-		color = graphics_make_color(255,0,255,255);
-		draw_tri(
-			(vec2_t){100, 30},
-			(vec2_t){20, 60},
-			(vec2_t){105, 150},
-			_dc,
-			color);
+		vec2 v0 = {100, 30};
+		vec2 v1 = {20, 30};
+		vec2 v2 = {135, 150};
+		vec2 v3 = {155, 40};
+
+		draw_tri2( v0, v1, v2, _dc, graphics_make_color(255,0,255,255));
+		draw_tri2( v2, v3, v0, _dc, graphics_make_color(0,255,0,255));
 
 		color = graphics_make_color(0x00, 0x00, 0x00, 0xFF);
 		graphics_set_color(color, 0);
 
-
-        printText(_dc, "Video Resolution Test", width[res]/16 - 10, 3);
-		switch (res)
-		{
-			case 0:
-				printText(_dc, "320x240p", width[res]/16 - 3, 5);
-				break;
-			case 1:
-				printText(_dc, "640x480i", width[res]/16 - 3, 5);
-				break;
-			case 2:
-				printText(_dc, "256x240p", width[res]/16 - 3, 5);
-				break;
-			case 3:
-				printText(_dc, "512x480i", width[res]/16 - 3, 5);
-				break;
-			case 4:
-				printText(_dc, "512x240p", width[res]/16 - 3, 5);
-				break;
-			case 5:
-				printText(_dc, "640x240p", width[res]/16 - 3, 5);
-				break;
-		}
-
-		for (j=0; j<8; j++)
-		{
-			sprintf(temp, "Line %d", j);
-			printText(_dc, temp, 3, j);
-			sprintf(temp, "Line %d", height[res]/8 - j - 1);
-			printText(_dc, temp, 3, height[res]/8 - j - 1);
-		}
-		printText(_dc, "0123456789", 0, 16);
-		printText(_dc, "9876543210", width[res]/8 - 10, 16);
 
         unlockVideo(_dc);
 
