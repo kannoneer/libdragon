@@ -250,6 +250,9 @@ void draw_tri2(
 	vec2 v0,
 	vec2 v1,
 	vec2 v2,
+	float z0,
+	float z1,
+	float z2,
 	surface_t* screen,
 	unsigned int color)
 {
@@ -305,12 +308,8 @@ void draw_tri2(
 	// See https://tutorial.math.lamar.edu/classes/calciii/eqnsofplanes.aspx
 	// and https://fgiesen.wordpress.com/2011/07/08/a-trip-through-the-graphics-pipeline-2011-part-7/
 
-	float vz0 = 0.0f;
-	float vz1 = 0.5f;
-	float vz2 = 1.0f;
-
-	vec3f v01 = vec3f_sub((vec3f){v1.x, v1.y, vz1}, (vec3f){v0.x, v0.y, vz0});
-	vec3f v02 = vec3f_sub((vec3f){v2.x, v2.y, vz2}, (vec3f){v0.x, v0.y, vz0});
+	vec3f v01 = vec3f_sub((vec3f){v1.x, v1.y, z1}, (vec3f){v0.x, v0.y, z0});
+	vec3f v02 = vec3f_sub((vec3f){v2.x, v2.y, z2}, (vec3f){v0.x, v0.y, z0});
 
 	vec3f N = cross3df(v01, v02);
 
@@ -329,9 +328,9 @@ void draw_tri2(
 	// Compute Z at top-left corner of bounding box.
 	// Undo fill rule biases already here because they are a constant offset anyway.
 	float zf_row = 
-		  (w0_row - bias0) * vz0
-		+ (w1_row - bias1) * vz1
-		+ (w2_row - bias2) * vz2;
+		  (w0_row - bias0) * z0
+		+ (w1_row - bias1) * z1
+		+ (w2_row - bias2) * z2;
 	zf_row /= (float)area2x;
 	int32_t z_row_fixed32 = FLOAT_TO_FIXED32(zf_row);
 
@@ -339,6 +338,8 @@ void draw_tri2(
 	debugf("zf_row: %f\n", zf_row);
 	debugf("w0_row: %d\nw1_row: %d\nw2_row: %d\n", w0_row, w1_row, w2_row);
 	debugf("bias0: %d\nbias1: %d\nbias2: %d\n", bias0, bias1, bias2);
+
+	float worst_relerror = 0.0f;
 
     for (p.y = minb.y; p.y <= maxb.y; p.y++) {
         // Barycentric coordinates at start of row
@@ -364,6 +365,11 @@ void draw_tri2(
 				float lambda0 = (float)(w0 - bias0) / area2x;
 				float lambda1 = (float)(w1 - bias1) / area2x;
 				float lambda2 = (float)(w2 - bias2) / area2x;
+				float zf = lambda0 * z0 + lambda1 * z1 + lambda2 * z2;
+				float zfi = z_fixed32 / (float)0xffff;
+				float error = (zf - zfi);
+				float relerror = error / max(zf, 1e-6);
+				worst_relerror = max(worst_relerror, relerror);
 
 				#if 0
 				int red = lambda0 * 255;
@@ -398,6 +404,8 @@ void draw_tri2(
         zf_row += dzdy;
 		z_row_fixed32 += dzdy_fixed32;
     }
+
+	debugf("worst_relerror: %f %%\n", 100 * worst_relerror);
 }
 
 #define INT_TO_FIXED16(x) (x<<16)
@@ -434,11 +442,21 @@ int main(void)
 
 		vec2 v0 = {100, 30};
 		vec2 v1 = {20, 30};
-		vec2 v2 = {135, 150};
+		vec2 v2 = {135, 190};
 		vec2 v3 = {155, 40};
+		float z0 = 0.0f;
+		float z1 = 0.25f;
+		float z2 = 0.5;
+		float z3 = 1.0;
 
-		draw_tri2( v0, v1, v2, _dc, graphics_make_color(255,0,255,255));
-		draw_tri2( v2, v3, v0, _dc, graphics_make_color(0,255,0,255));
+		draw_tri2(
+			v0, v1, v2,
+			z0, z1, z2, 
+			_dc, graphics_make_color(255,0,255,255));
+		draw_tri2(
+			v2, v3, v0,
+			z2, z3, z0,
+			_dc, graphics_make_color(0,255,0,255));
 
 		color = graphics_make_color(0x00, 0x00, 0x00, 0xFF);
 		graphics_set_color(color, 0);
