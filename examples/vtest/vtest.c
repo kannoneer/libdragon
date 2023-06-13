@@ -131,6 +131,16 @@ typedef struct vec2
 	int x, y;
 } vec2;
 
+typedef struct vec3
+{
+	int x, y, z;
+} vec3;
+
+typedef struct vec3f
+{
+	float x, y, z;
+} vec3f;
+
 vec2 vec2_add(vec2 a, vec2 b) {
 	vec2 c = {a.x+b.x, a.y+b.y};
 	return c;
@@ -163,6 +173,32 @@ vec2 vec2_divs(vec2 a, int s) {
 
 static int cross2d(vec2 a, vec2 b) {
 	return a.x * b.y - a.y * b.x;
+}
+
+vec3 cross3d(vec3 a, vec3 b) {
+	vec3 c;
+	c.x = a.y * b.z - a.z * b.y;
+	c.y = a.z * b.x - a.x * b.z;
+	c.z = a.x * b.y - a.y * b.x;
+	return c;
+}
+
+vec3f cross3df(vec3f a, vec3f b) {
+	vec3f c;
+	c.x = a.y * b.z - a.z * b.y;
+	c.y = a.z * b.x - a.x * b.z;
+	c.z = a.x * b.y - a.y * b.x;
+	return c;
+}
+
+vec3 vec3_sub(vec3 a, vec3 b) {
+	vec3 c = {a.x-b.x, a.y-b.y, a.z-b.z};
+	return c;
+}
+
+vec3f vec3f_sub(vec3f a, vec3f b) {
+	vec3f c = {a.x-b.x, a.y-b.y, a.z-b.z};
+	return c;
 }
 
 /* The determinant of a 2D matrix
@@ -208,93 +244,7 @@ bool isTopLeftEdge(vec2 a, vec2 b)
 	return false;
 }
 
-bool isTopLeftEdgeTextbook(vec2 a, vec2 b)
-{
-	// "In a counter-clockwise triangle, a top edge is an edge that is exactly horizontal
-	//  and goes towards the left, i.e. its end point is left of its start point."
-	if (a.y == b.y && b.x < a.x) return true;
-
-	// "In a counter-clockwise triangle, a left edge is an edge that goes down,
-	//  i.e. its end point is strictly below its start point."
-	if (b.y < a.y) return true;
-	return false;
-}
-
-
-void draw_tri(
-	vec2 v0,
-	vec2 v1,
-	vec2 v2,
-	surface_t* screen,
-	unsigned int color)
-{
-	vec2 minb = {min(v0.x, min(v1.x, v2.x)), min(v0.y, min(v1.y, v2.y))};
-	vec2 maxb = {max(v0.x, max(v1.x, v2.x)), max(v0.y, max(v1.y, v2.y))};
-
-	int screen_width = (int)display_get_width();
-	int screen_height= (int)display_get_height();
-
-	if (minb.x < 0) minb.x = 0;
-	if (minb.y < 0) minb.y = 0;
-	if (maxb.x > screen_width-1) maxb.x = screen_width-1;
-	if (maxb.y > screen_height-1) maxb.y = screen_height-1;
-
-	// In screen coordinates the Y-axis grows down so a counter clockwise
-	// wound triangle area is always negative. To make the areas positive
-	// we swap two vertices when computing orient2d(), effectively 
-	// flipping the winding of the triangle.
-
-	// The "isTopLeftEdge" function is written for counter-clockwise triangles.
-	// But our inputs are effectively clockwise thanks to the flipped Y axis!
-	// So let's swap the edge directions when calling "isTopLeftEdge" to compensate.
-	// I.e. we pass in (v1, v0) instead of (v0, v1).
-
-	int bias0 = isTopLeftEdge(v1, v2) ? 0 : -1;
-	int bias1 = isTopLeftEdge(v2, v0) ? 0 : -1;
-	int bias2 = isTopLeftEdge(v0, v1) ? 0 : -1;
-
-	#if 0
-	v0.y *= -1;
-	v1.y *= -1;
-	v2.y *= -1;
-	int bias0b = isTopLeftEdgeTextbook(v1, v2) ? 0 : -1;
-	int bias1b = isTopLeftEdgeTextbook(v2, v0) ? 0 : -1;
-	int bias2b = isTopLeftEdgeTextbook(v0, v1) ? 0 : -1;
-
-	debugf("0: %d vs %d\n1: %d vs %d\n2: %d vs %d\n",
-		bias0, bias0b, bias1, bias1b, bias2, bias2b);
-
-	v0.y *= -1;
-	v1.y *= -1;
-	v2.y *= -1;
-	#endif
-
-	int area = orient2d(v0, v2, v1) / 2;
-	debugf("Area: %d\n", area);
-
-	for (int y=minb.y;y<=maxb.y;y++) {
-		for (int x=minb.x;x<=maxb.x;x++) {
-			vec2 p = {x,y};
-			int w0 = orient2d(v2, v1, p) + bias0;
-			int w1 = orient2d(v0, v2, p) + bias1;
-			int w2 = orient2d(v1, v0, p) + bias2;
-
-			if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
-				//FIXME: adjust barycentrics after biasing
-				graphics_draw_pixel(screen, x, y, color);
-			}
-		}
-	}
-
-}
-
-bool isTopLeftScreenClockwise(vec2 a, vec2 b)
-{
-	if (a.y == b.y && b.x > a.x) return true;
-	if (b.y < a.y) return true;
-	return false;
-}
-
+#define FLOAT_TO_FIXED32(f) (int32_t)(f * 0xffff)
 
 void draw_tri2(
 	vec2 v0,
@@ -314,11 +264,18 @@ void draw_tri2(
 	if (maxb.x > screen_width-1) maxb.x = screen_width-1;
 	if (maxb.y > screen_height-1) maxb.y = screen_height-1;
 
+	debugf("\n%s\n", __FUNCTION__);
 	debugf("v0: (%d, %d), v1: (%d, %d), v2: (%d, %d)\n",
 		v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
 	debugf("minb: (%d, %d), maxb: (%d, %d)\n", minb.x, minb.y, maxb.x, maxb.y);
 
+    float vertex_z0 = 0.0f;
+    float vertex_z1 = 0.5f;
+    float vertex_z2 = 1.0f;
+
     // Triangle setup
+	// Sign flipped when compared to Fabian Giesen's example code to make it work
+	// for counter clockwise triangles in screen coordinates with flipped Y.
     int A01 = -(v0.y - v1.y), B01 = -(v1.x - v0.x);
     int A12 = -(v1.y - v2.y), B12 = -(v2.x - v1.x);
     int A20 = -(v2.y - v0.y), B20 = -(v0.x - v2.x);
@@ -327,6 +284,8 @@ void draw_tri2(
 	debugf("B01: %d\nB12: %d\nB20: %d\n", B01, B12, B20);
 
     vec2 p = minb;
+
+	int area2x = -orient2d(v0, v1, v2);
 
     // Barycentric coordinates at minX/minY corner
 
@@ -341,14 +300,45 @@ void draw_tri2(
 	w0_row += bias0;
 	w1_row += bias1;
 	w2_row += bias2;
+	
+	// Setup Z interpolation
+	// See https://tutorial.math.lamar.edu/classes/calciii/eqnsofplanes.aspx
+	// and https://fgiesen.wordpress.com/2011/07/08/a-trip-through-the-graphics-pipeline-2011-part-7/
 
+	float vz0 = 0.0f;
+	float vz1 = 0.5f;
+	float vz2 = 1.0f;
+
+	vec3f v01 = vec3f_sub((vec3f){v1.x, v1.y, vz1}, (vec3f){v0.x, v0.y, vz0});
+	vec3f v02 = vec3f_sub((vec3f){v2.x, v2.y, vz2}, (vec3f){v0.x, v0.y, vz0});
+
+	vec3f N = cross3df(v01, v02);
+
+	debugf("v01: (%f, %f, %f)\n", v01.x, v01.y, v01.z);
+	debugf("v02: (%f, %f, %f)\n", v02.x, v02.y, v02.z);
+	debugf("N: (%f, %f, %f)\n", N.x, N.y, N.z);
+
+	float dzdx = -N.x/N.z;
+	float dzdy = -N.y/N.z;
+
+	debugf("dzdx, dxdy: (%f, %f)\n", dzdx, dzdy);
+
+	int32_t dzdx_fixed32 = FLOAT_TO_FIXED32(-N.x/N.z);
+	int32_t dzdy_fixed32 = FLOAT_TO_FIXED32(-N.y/N.z);
+
+	// Compute Z at top-left corner of bounding box.
+	// Undo fill rule biases already here because they are a constant offset anyway.
+	float zf_row = 
+		  (w0_row - bias0) * vz0
+		+ (w1_row - bias1) * vz1
+		+ (w2_row - bias2) * vz2;
+	zf_row /= (float)area2x;
+	int32_t z_row_fixed32 = FLOAT_TO_FIXED32(zf_row);
+
+
+	debugf("zf_row: %f\n", zf_row);
 	debugf("w0_row: %d\nw1_row: %d\nw2_row: %d\n", w0_row, w1_row, w2_row);
 	debugf("bias0: %d\nbias1: %d\nbias2: %d\n", bias0, bias1, bias2);
-
-	// In screen coordinates the Y-axis grows down so a counter clockwise
-	// wound triangle area is always negative. To make the areas positive
-	// we swap two vertices when computing orient2d(), effectively 
-	// flipping the winding of the triangle.
 
     for (p.y = minb.y; p.y <= maxb.y; p.y++) {
         // Barycentric coordinates at start of row
@@ -356,23 +346,57 @@ void draw_tri2(
         int w1 = w1_row;
         int w2 = w2_row;
 
+        float zf = zf_row;
+		int32_t z_fixed32 = z_row_fixed32;
+		// debugf("(%d, %d) = %f\n", p.x, p.y, zf);
+
         for (p.x = minb.x; p.x <= maxb.x; p.x++) {
-			// debugf("p=(%d,%d)\n", p.x, p.y);
+			if (
+				(p.x == v0.x && p.y == v0.y)
+				|| (p.x == v1.x && p.y == v1.y)
+				|| (p.x == v2.x && p.y == v2.y)
+				) {
+				debugf("(%d, %d) = %f\n", p.x, p.y, zf);
+			}
+
 			if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
-				//FIXME: adjust barycentrics after biasing
-				graphics_draw_pixel(screen, p.x, p.y, color);
+				// adjust barycentrics after biasing
+				float lambda0 = (float)(w0 - bias0) / area2x;
+				float lambda1 = (float)(w1 - bias1) / area2x;
+				float lambda2 = (float)(w2 - bias2) / area2x;
+
+				#if 0
+				int red = lambda0 * 255;
+				int green = lambda1 * 255;
+				int blue = lambda2 * 255;
+				#else
+				int red = 0;
+				// int green = zf * 255;
+				int green = z_fixed32 >> 8;
+				int blue = 0;
+				#endif
+
+				unsigned int pixelcolor = graphics_make_color(red, green, blue, 255);
+
+				graphics_draw_pixel(screen, p.x, p.y, pixelcolor);
 			}
 
 			// One step to the right
             w0 += A12;
             w1 += A20;
             w2 += A01;
+
+            zf += dzdx;
+			z_fixed32 += dzdx_fixed32;
         }
 
         // One row step
         w0_row += B12;
         w1_row += B20;
         w2_row += B01;
+
+        zf_row += dzdy;
+		z_row_fixed32 += dzdy_fixed32;
     }
 }
 
