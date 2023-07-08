@@ -187,7 +187,84 @@ void render()
     rdpq_detach_show();
 }
 
+static int audio_volume_level = 0;
+static uint32_t audio_sample_time = 0;
+
+void audio_poll(void) {	
+	if (audio_can_write()) {    	
+		short *buf = audio_write_begin();
+        int bufsize = audio_get_buffer_length();
+		mixer_poll(buf, bufsize);
+        int maximum = 0;
+        for (int i=0;i<bufsize;i++) {
+            int val = buf[i*2];
+            if (val <0) val=-val;
+            if (val > maximum) { maximum = val; }
+        }
+        audio_volume_level = maximum;
+
+        audio_sample_time += (uint32_t)bufsize;
+		audio_write_end();
+	}
+}
+
 int main()
+{
+	debug_init_isviewer();
+	debug_init_usblog();
+    dfs_init(DFS_DEFAULT_LOCATION);
+    display_init(RESOLUTION_320x240, DEPTH_16_BPP, 3, GAMMA_NONE, ANTIALIAS_RESAMPLE_FETCH_ALWAYS);
+    rdpq_init();
+    controller_init();
+    //console_init();
+
+	audio_init(44100, 4);
+	mixer_init(1);
+
+    static wav64_t music_wav;
+    const char* songpath = "/break_it_down_again.wav64";
+    wav64_open(&music_wav, songpath);
+    wav64_play(&music_wav, 0);
+
+    debugf("playing\n");
+
+    int last_level = 0;
+
+    while (1)
+    {
+        //wait_ms(1); // A workaround for Ares
+        if (audio_volume_level != last_level) {
+            //console_clear();
+            display_context_t dc = display_get();
+            if (dc) {
+                unsigned int color = graphics_make_color(0x8, 0x8, 0x8, 0xFF);
+                graphics_fill_screen(dc, color);
+                float level=(float)(audio_volume_level)/0x7FFF;
+                int boxes = level * 30;
+                char msg[100];
+
+                for (int i=0;i<boxes;i++) {
+                    msg[i] = '|';
+                }
+
+                msg[boxes+1] = '\0';
+
+                float playback_pos = audio_sample_time;
+                char posmsg[100];
+                sprintf(posmsg, "%.3f s", playback_pos / music_wav.wave.frequency);
+                graphics_draw_text(dc, 10, 10, songpath);
+                graphics_draw_text(dc, 10, 20, posmsg);
+                graphics_draw_text(dc, 10, 30, msg);
+                display_show(dc);
+                last_level = audio_volume_level;
+            }
+            //console_render();
+        }
+        audio_poll();
+    }
+}
+
+int old_main()
 {
 	debug_init_isviewer();
 	debug_init_usblog();
@@ -207,6 +284,12 @@ int main()
     setup();
 
     controller_init();
+
+    static wav64_t music_wav;
+	audio_init(44100, 4);
+	mixer_init(8);
+    wav64_open(&music_wav, "/elysium.wav64");
+    wav64_play(&music_wav, 0);
 
 #if !DEBUG_RDP
     while (1)
@@ -278,6 +361,8 @@ int main()
             camera.distance += y * 0.2f;
             camera.rotation = camera.rotation - x * 1.2f;
         }
+
+        audio_poll();
 
         render();
         if (DEBUG_RDP)
