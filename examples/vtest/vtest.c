@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <libdragon.h>
 
+#include "transforms.h"
+
 /* hardware definitions */
 // Pad buttons
 #define A_BUTTON(a)     ((a) & 0x8000)
@@ -278,7 +280,7 @@ void draw_tri2(
 
     // Triangle setup
 	// Sign flipped when compared to Fabian Giesen's example code to make it work
-	// for counter clockwise triangles in screen coordinates with flipped Y.
+	// for counter clockwise triangles in screen coordinates with a flipped Y coord.
     int A01 = -(v0.y - v1.y), B01 = -(v1.x - v0.x);
     int A12 = -(v1.y - v2.y), B12 = -(v2.x - v1.x);
     int A20 = -(v2.y - v0.y), B20 = -(v0.x - v2.x);
@@ -334,7 +336,6 @@ void draw_tri2(
 	zf_row /= (float)area2x;
 	int32_t z_row_fixed32 = FLOAT_TO_FIXED32(zf_row);
 
-
 	debugf("zf_row: %f\n", zf_row);
 	debugf("w0_row: %d\nw1_row: %d\nw2_row: %d\n", w0_row, w1_row, w2_row);
 	debugf("bias0: %d\nbias1: %d\nbias2: %d\n", bias0, bias1, bias2);
@@ -360,7 +361,7 @@ void draw_tri2(
 				debugf("(%d, %d) = %f\n", p.x, p.y, zf);
 			}
 
-			if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
+			if ((w0|w1|w2) >= 0) {
 				// adjust barycentrics after biasing
 				float lambda0 = (float)(w0 - bias0) / area2x;
 				float lambda1 = (float)(w1 - bias1) / area2x;
@@ -408,6 +409,87 @@ void draw_tri2(
 	debugf("worst_relerror: %f %%\n", 100 * worst_relerror);
 }
 
+void draw_cube(display_context_t dc)
+{
+	cpu_glViewport(0, 0, display_get_width(), display_get_height(), display_get_width(), display_get_height());
+	cpu_glDepthRange(0, 1);
+
+    const float aspect_ratio = (float)display_get_width() / (float)display_get_height();
+    const float near_plane = 1.0f;
+    const float far_plane = 50.0f;
+
+	matrix_t proj = cpu_glFrustum(-near_plane*aspect_ratio, near_plane*aspect_ratio, -near_plane, near_plane, near_plane, far_plane);
+	matrix_t view = cpu_glTranslatef(0.0f, 0.0f, -8.0f);
+	matrix_t mvp = cpu_glLoadIdentity();
+	matrix_mult_full(&mvp, &view, &proj);
+
+	debugf("Projection matrix:\n");
+	for (int i=0;i<4;i++) {
+		for (int j=0;j<4;j++) {
+			debugf("%f ", mvp.m[i][j]);
+		}
+		debugf("\n");
+	}
+
+	for (int is=0; is < sizeof(cube_indices)/sizeof(cube_indices[0]); is+=3) {
+		uint16_t* inds = &cube_indices[is];
+		vtx_t verts[3] = {0};
+
+		for (int i=0;i<3;i++) {
+			verts[i].obj_attributes = cube_vertices[inds[i]];
+			verts[i].obj_attributes.position[3] = 1.0f; // TODO where does cpu pipeline set this?
+			TODO miksi w on 1.1 cs_posissa? luulisi ett' se oli z eik' y
+			debugf("i=%d, pos[3] = %f\n", i, verts[i].obj_attributes.position[3]);
+		}
+
+		// verts[0].obj_attributes.position[3] = 123;
+		debugf("pos=(%f, %f, %f, %f)\n",
+			verts[0].obj_attributes.position[0],
+			verts[0].obj_attributes.position[1],
+			verts[0].obj_attributes.position[2],
+			verts[0].obj_attributes.position[3]
+		);
+
+		for (int i=0;i<3;i++) {
+			vertex_pre_tr(&verts[i], &mvp);
+			vertex_calc_screenspace(&verts[i]);
+		}
+
+		debugf("pos=(%f, %f, %f, %f), cs_pos=(%f, %f, %f, %f), clip_code=%d\n",
+			verts[0].obj_attributes.position[0],
+			verts[0].obj_attributes.position[1],
+			verts[0].obj_attributes.position[2],
+			verts[0].obj_attributes.position[3],
+			verts[0].cs_pos[0],
+			verts[0].cs_pos[1],
+			verts[0].cs_pos[2],
+			verts[0].cs_pos[3],
+			verts[0].clip_code
+			);
+		debugf("screen_pos: (%f, %f), depth=%f, inv_w=%f\n",
+			verts[0].screen_pos[0], 
+			verts[0].screen_pos[1], 
+			verts[0].depth,
+			verts[0].inv_w);
+
+		vec2 screenverts[3];
+		float screenzs[3];
+		for (int i=0;i<3;i++) {
+			screenverts[i].x = verts[i].screen_pos[0]; // FIXME: float2int conversion?
+			screenverts[i].y = verts[i].screen_pos[1];
+			screenzs[i] = verts[i].depth;
+		}
+
+		draw_tri2(
+			screenverts[0], screenverts[1], screenverts[2],
+			screenzs[0], screenzs[1], screenzs[2],
+			dc, graphics_make_color(255,0,255,255));
+
+		return;
+
+	}
+}
+
 #define INT_TO_FIXED16(x) (x<<16)
 
 int main(void)
@@ -440,27 +522,28 @@ int main(void)
 		graphics_draw_line(_dc, 0, 0, width[res]-1, height[res]-1, color);
 		graphics_draw_line(_dc, 0, height[res]-1, width[res]-1, 0, color);
 
-		vec2 v0 = {100, 30};
-		vec2 v1 = {20, 30};
-		vec2 v2 = {135, 190};
-		vec2 v3 = {155, 40};
-		float z0 = 0.0f;
-		float z1 = 0.25f;
-		float z2 = 0.5;
-		float z3 = 1.0;
+		// vec2 v0 = {100, 30};
+		// vec2 v1 = {20, 30};
+		// vec2 v2 = {135, 190};
+		// vec2 v3 = {155, 40};
+		// float z0 = 0.0f;
+		// float z1 = 0.25f;
+		// float z2 = 0.5;
+		// float z3 = 1.0;
 
-		draw_tri2(
-			v0, v1, v2,
-			z0, z1, z2, 
-			_dc, graphics_make_color(255,0,255,255));
-		draw_tri2(
-			v2, v3, v0,
-			z2, z3, z0,
-			_dc, graphics_make_color(0,255,0,255));
+		// draw_tri2(
+		// 	v0, v1, v2,
+		// 	z0, z1, z2, 
+		// 	_dc, graphics_make_color(255,0,255,255));
+		// draw_tri2(
+		// 	v2, v3, v0,
+		// 	z2, z3, z0,
+		// 	_dc, graphics_make_color(0,255,0,255));
 
 		color = graphics_make_color(0x00, 0x00, 0x00, 0xFF);
 		graphics_set_color(color, 0);
 
+		draw_cube(_dc);
 
         unlockVideo(_dc);
 
