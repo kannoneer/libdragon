@@ -1,0 +1,18 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"malloc.h": "c",
+			"controller.h": "c",
+			"bsptree.h": "c",
+			"libdragon.h": "c",
+			"eepromfs.h": "c",
+			"dragonfs.h": "c"
+		},
+		"workbench.colorTheme": "Tomorrow Night Blue"
+	}
+}
