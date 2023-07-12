@@ -148,10 +148,19 @@ void set_light_positions(float rotation)
 }
 
 #define SIM_NUM_POINTS (10)
+#define MAX_SPRINGS (10)
 
 static struct Simulation {
     float x[SIM_NUM_POINTS*3];
     float oldx[SIM_NUM_POINTS*3];
+
+    struct Spring {
+        int from;
+        int to;
+        float lengthSqr;
+    } springs[MAX_SPRINGS];
+
+    int num_springs;
 } sim;
 
 void sim_init()
@@ -166,6 +175,13 @@ void sim_init()
     }
 
     memcpy(sim.oldx, sim.x, sizeof(sim.x));
+    sim.num_springs = SIM_NUM_POINTS - 1;
+
+    for (int i=0;i<SIM_NUM_POINTS-1;i++) {
+        const float length = 0.1f;
+        sim.springs[i] = (struct Spring){i, i+1, length*length};
+    }
+
 }
 
 void sim_update()
@@ -208,28 +224,29 @@ void sim_update()
     // Satisfy constraints
 
     for (int iter = 0; iter < num_iters; iter++) {
-        for (int i=0;i<SIM_NUM_POINTS-1;i++) {
-            int idx_a = i*3;
-            int idx_b = (i+1)*3;
+        for (int i=0;i<sim.num_springs;i++) {
+            struct Spring spring = sim.springs[i];
+            float* pa = &sim.x[spring.from*3];
+            float* pb = &sim.x[spring.to*3];
 
             float delta[3] = {
-                sim.x[idx_b + 0] - sim.x[idx_a + 0],
-                sim.x[idx_b + 1] - sim.x[idx_a + 1],
-                sim.x[idx_b + 2] - sim.x[idx_a + 2]
+                pb[0] - pa[0],
+                pb[1] - pa[1],
+                pb[2] - pa[2]
             };
 
-            float length = sqrtf(delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]);
+            float lengthSqr = delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2];
 
             //TODO use squaredmag
-            if (length > part_length) {
+            if (lengthSqr > spring.lengthSqr) {
                 float scale_a = spring_damping; 
                 float scale_b = -spring_damping;
-                sim.x[idx_a + 0] += scale_a * delta[0];
-                sim.x[idx_a + 1] += scale_a * delta[1];
-                sim.x[idx_a + 2] += scale_a * delta[2];
-                sim.x[idx_b + 0] += scale_b * delta[0];
-                sim.x[idx_b + 1] += scale_b * delta[1];
-                sim.x[idx_b + 2] += scale_b * delta[2];
+                pa[0] += scale_a * delta[0];
+                pa[1] += scale_a * delta[1];
+                pa[2] += scale_a * delta[2];
+                pb[0] += scale_b * delta[0];
+                pb[1] += scale_b * delta[1];
+                pb[2] += scale_b * delta[2];
             }
         }
     }
