@@ -147,6 +147,17 @@ void set_light_positions(float rotation)
     glPopMatrix();
 }
 
+#define RAND_MAX (0xffffffffU)
+
+static uint32_t rand_state = 1;
+static uint32_t rand(void) {
+	uint32_t x = rand_state;
+	x ^= x << 13;
+	x ^= x >> 7;
+	x ^= x << 5;
+	return rand_state = x;
+}
+
 #define SIM_MAX_POINTS (100)
 #define MAX_SPRINGS (20)
 
@@ -162,6 +173,8 @@ static struct Simulation {
     } springs[MAX_SPRINGS];
 
     int num_springs;
+    float root[3];
+    int num_updates_done;
 } sim;
 
 void sim_init()
@@ -207,6 +220,9 @@ void sim_init()
         sim.x[idx + 2] = i*0.15f;
     }
 
+    sim.root[0] = 0.0f;
+    sim.root[1] = 0.0f;
+    sim.root[2] = 0.0f;
 }
 
 void sim_update()
@@ -217,12 +233,12 @@ void sim_update()
 
     // Verlet integration
 
-    sim.x[0] = 0.0f;
-    sim.x[1] = 0.0f;
-    sim.x[2] = 0.0f;
-    sim.oldx[0] = 0.0f;
-    sim.oldx[1] = 0.0f;
-    sim.oldx[2] = 0.0f;
+    sim.x[0] = sim.root[0];
+    sim.x[1] = sim.root[1];
+    sim.x[2] = sim.root[2];
+    // sim.oldx[0] = sim.root[0];
+    // sim.oldx[1] = sim.root[1];
+    // sim.oldx[2] = sim.root[2];
 
     for (int i = 0; i < sim.num_points; i++) {
         int idx = i * 3;
@@ -245,9 +261,9 @@ void sim_update()
         old[2] = temp[2];
     }
 
-    sim.x[0] = 0.0f;
-    sim.x[1] = 0.0f;
-    sim.x[2] = 0.0f;
+    // sim.x[0] = 0.0f;
+    // sim.x[1] = 0.0f;
+    // sim.x[2] = 0.0f;
 
     // Satisfy constraints
 
@@ -276,9 +292,16 @@ void sim_update()
         }
     }
 
-    sim.x[0] = 0.0f;
-    sim.x[1] = 0.0f;
-    sim.x[2] = 0.0f;
+    sim.x[0] = sim.root[0];
+    sim.x[1] = sim.root[1];
+    sim.x[2] = sim.root[2];
+
+    sim.num_updates_done++;
+
+    if (sim.num_updates_done % 75 == 0) {
+        sim.root[0] = ((float)rand()/RAND_MAX) * 6.0f - 3.0f;
+        debugf("root[0] = %f\n", sim.root[0]);
+    }
 
     for (int i=0;i<sim.num_points;i++) {
         // float* pos = &sim.x[i*3];
