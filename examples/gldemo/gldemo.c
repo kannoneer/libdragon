@@ -147,12 +147,13 @@ void set_light_positions(float rotation)
     glPopMatrix();
 }
 
-#define SIM_NUM_POINTS (6)
-#define MAX_SPRINGS (10)
+#define SIM_MAX_POINTS (100)
+#define MAX_SPRINGS (20)
 
 static struct Simulation {
-    float x[SIM_NUM_POINTS*3];
-    float oldx[SIM_NUM_POINTS*3];
+    float x[SIM_MAX_POINTS*3];
+    float oldx[SIM_MAX_POINTS*3];
+    int num_points;
 
     struct Spring {
         int from;
@@ -167,13 +168,6 @@ void sim_init()
 {
     memset(&sim, 0, sizeof(sim));
 
-    for (int i=0;i<SIM_NUM_POINTS-1;i++) {
-        int idx = i*3;
-        sim.x[idx + 0] = i*0.5f;
-        sim.x[idx + 1] = i*0.1f;
-        sim.x[idx + 2] = i*0.15f;
-    }
-
     memcpy(sim.oldx, sim.x, sizeof(sim.x));
 
     //sim.num_springs = SIM_NUM_POINTS - 1;
@@ -181,24 +175,44 @@ void sim_init()
     //    const float length = 0.1f;
     //    sim.springs[i] = (struct Spring){i, i+1, length*length};
     //}
-    const float side = 1.0f;
+    const float rope_segment = 0.5f;
+    const float side = 2.0f;
     const float diag = sqrt(2.f) * side;
 
-    sim.springs[sim.num_springs++] = (struct Spring){0, 1, side};
-    sim.springs[sim.num_springs++] = (struct Spring){1, 2, side};
-    sim.springs[sim.num_springs++] = (struct Spring){2, 3, side};
-    sim.springs[sim.num_springs++] = (struct Spring){3, 4, side};
+    int h=-1;
+    for (int i=1;i<4;i++) {
+        sim.springs[sim.num_springs++] = (struct Spring){i-1, i, rope_segment};
+        h = i;
+    }
 
-    sim.springs[sim.num_springs++] = (struct Spring){5, 2, side};
-    sim.springs[sim.num_springs++] = (struct Spring){5, 3, diag};
-    sim.springs[sim.num_springs++] = (struct Spring){2, 4, diag};
+    sim.springs[sim.num_springs++] = (struct Spring){h, h+1,   side};
+    sim.springs[sim.num_springs++] = (struct Spring){h, h+2,   side};
+    sim.springs[sim.num_springs++] = (struct Spring){h, h+3,   side};
+    sim.springs[sim.num_springs++] = (struct Spring){h+1, h+2,   side};
+    sim.springs[sim.num_springs++] = (struct Spring){h+2, h+3,   side};
+    sim.springs[sim.num_springs++] = (struct Spring){h+3, h+1,   side};
+
+    sim.springs[sim.num_springs++] = (struct Spring){h+1, h+4,   side};
+    sim.springs[sim.num_springs++] = (struct Spring){h+2, h+4,   side};
+    sim.springs[sim.num_springs++] = (struct Spring){h+3, h+4,   side};
+    // sim.springs[sim.num_springs++] = (struct Spring){h+1, h+4, diag};
+    // sim.springs[sim.num_springs++] = (struct Spring){h+3, h+4, diag};
+
+    sim.num_points = h+5;
+
+    for (int i=0;i<sim.num_points-1;i++) {
+        int idx = i*3;
+        sim.x[idx + 0] = i*0.5f;
+        sim.x[idx + 1] = i*0.1f;
+        sim.x[idx + 2] = i*0.15f;
+    }
+
 }
 
 void sim_update()
 {
     const float part_length = 0.1f;
-    const int num_iters = 2;
-    const float spring_damping = 0.3f;
+    const int num_iters = 3;
     const float gravity = -0.1f;
 
     // Verlet integration
@@ -210,7 +224,7 @@ void sim_update()
     sim.oldx[1] = 0.0f;
     sim.oldx[2] = 0.0f;
 
-    for (int i = 0; i < SIM_NUM_POINTS; i++) {
+    for (int i = 0; i < sim.num_points; i++) {
         int idx = i * 3;
         float* pos = &sim.x[idx];
         float* old = &sim.oldx[idx];
@@ -266,8 +280,8 @@ void sim_update()
     sim.x[1] = 0.0f;
     sim.x[2] = 0.0f;
 
-    for (int i=0;i<SIM_NUM_POINTS;i++) {
-        float* pos = &sim.x[i*3];
+    for (int i=0;i<sim.num_points;i++) {
+        // float* pos = &sim.x[i*3];
         // debugf("[%d] (%f, %f, %f)\n", i,
         //     pos[0], pos[1], pos[2]
         // );
