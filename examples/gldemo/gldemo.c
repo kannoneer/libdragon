@@ -26,10 +26,15 @@ static surface_t zbuffer;
 
 static float time_secs = 0.0f;
 
-static GLuint textures[4];
+#define NUM_TEXTURES (5)
+#define TEX_CEILING (4)
+
+static GLuint textures[NUM_TEXTURES];
 
 static GLenum shade_model = GL_SMOOTH;
 static bool fog_enabled = false;
+
+static model64_t* model_gemstone = NULL;
 
 static const GLfloat environment_color[] = { 0.1f, 0.03f, 0.2f, 1.f };
 
@@ -55,14 +60,15 @@ static const GLfloat light_diffuse[8][4] = {
     { 1.0f, 1.0f, 1.0f, 1.0f },
 };
 
-static const char *texture_path[4] = {
-    "rom:/circle0.sprite",
-    "rom:/diamond0.sprite",
-    "rom:/pentagon0.sprite",
-    "rom:/triangle0.sprite",
+static const char *texture_path[NUM_TEXTURES] = {
+    "rom:/circle0.rgba16.sprite",
+    "rom:/diamond0.rgba16.sprite",
+    "rom:/pentagon0.rgba16.sprite",
+    "rom:/triangle0.rgba16.sprite",
+    "rom:/ceiling2.ci4.sprite",
 };
 
-static sprite_t *sprites[4];
+static sprite_t *sprites[NUM_TEXTURES];
 
 void setup()
 {
@@ -71,7 +77,7 @@ void setup()
 
     zbuffer = surface_alloc(FMT_RGBA16, display_get_width(), display_get_height());
 
-    for (uint32_t i = 0; i < 4; i++)
+    for (uint32_t i = 0; i < NUM_TEXTURES; i++)
     {
         sprites[i] = sprite_load(texture_path[i]);
     }
@@ -115,7 +121,7 @@ void setup()
     glFogf(GL_FOG_END, 20);
     glFogfv(GL_FOG_COLOR, environment_color);
 
-    glGenTextures(4, textures);
+    glGenTextures(NUM_TEXTURES, textures);
 
     #if 0
     GLenum min_filter = GL_LINEAR_MIPMAP_LINEAR;
@@ -123,8 +129,7 @@ void setup()
     GLenum min_filter = GL_LINEAR;
     #endif
 
-
-    for (uint32_t i = 0; i < 4; i++)
+    for (uint32_t i = 0; i < NUM_TEXTURES; i++)
     {
         glBindTexture(GL_TEXTURE_2D, textures[i]);
 
@@ -133,6 +138,9 @@ void setup()
 
         glSpriteTextureN64(GL_TEXTURE_2D, sprites[i], &(rdpq_texparms_t){.s.repeats = REPEAT_INFINITE, .t.repeats = REPEAT_INFINITE});
     }
+
+    model_gemstone = model64_load("rom:/gemstone.model64");
+    assert(model_gemstone);
 }
 
 void set_light_positions(float rotation)
@@ -409,7 +417,8 @@ void sim_render()
     basis[15] = 1.0f;
     vec3_copy(&basis[0], sim.pose.u);
     vec3_copy(&basis[4], sim.pose.n);
-    vec3_copy(&basis[8], sim.pose.v);
+    vec3_cross(&basis[8], sim.pose.u, sim.pose.n);
+    //vec3_copy(&basis[8], sim.pose.v);
 
     debugf("u: (%f, %f, %f)\n", sim.pose.u[0], sim.pose.u[1], sim.pose.u[2]);
     debugf("v: (%f, %f, %f)\n", sim.pose.v[0], sim.pose.v[1], sim.pose.v[2]);
@@ -420,13 +429,30 @@ void sim_render()
         debugf("[ %f %f %f %f ]\n", basis[i], basis[i+4], basis[i+8], basis[i+12]);
     }
 
+    glEnable(GL_LIGHTING);
+    glBindTexture(GL_TEXTURE_2D, textures[TEX_CEILING]);
+
+    glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
+    glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
+    glEnable(GL_TEXTURE_GEN_S);
+    glEnable(GL_TEXTURE_GEN_T);
+
     glPushMatrix();
     glTranslatef(sim.pose.origin[0], sim.pose.origin[1], sim.pose.origin[2]);
-    glScalef(-1.0f, -1.0f, -1.0f); // Q: Why do we need to flip the transform here?
+    // glScalef(1.0f, -1.0f, -1.0f); // Q: Why do we need to flip the transform here?
+    //glTranslatef(0.0f, -1.5f, 0.0f);
     glMultMatrixf(basis);
-    glTranslatef(-0.5f, -0.5f, -0.5f);
     // glScalef(sim.pose.ulength, sim.pose.ulength, sim.pose.ulength);
-    render_diamond();
+
+    //render_diamond();
+    
+
+    model64_draw(model_gemstone);
+
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_TEXTURE_GEN_S);
+    glDisable(GL_TEXTURE_GEN_T);
+    
     glPopMatrix();
 
     glPopMatrix();
