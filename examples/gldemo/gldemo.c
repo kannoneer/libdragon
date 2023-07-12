@@ -17,10 +17,14 @@
 // The demo will only run for a single frame and stop.
 #define DEBUG_RDP 0
 
+static const bool music_enabled = false;
+
 static uint32_t animation = 3283;
 static uint32_t texture_index = 0;
 static camera_t camera;
 static surface_t zbuffer;
+
+static float time_secs = 0.0f;
 
 static GLuint textures[4];
 
@@ -143,6 +147,137 @@ void set_light_positions(float rotation)
     glPopMatrix();
 }
 
+#define SIM_NUM_POINTS (10)
+
+static struct Simulation {
+    float x[SIM_NUM_POINTS*3];
+    float oldx[SIM_NUM_POINTS*3];
+} sim;
+
+void sim_init()
+{
+    memset(&sim, 0, sizeof(sim));
+
+    for (int i=0;i<SIM_NUM_POINTS-1;i++) {
+        int idx = i*3;
+        sim.x[idx + 0] = i*0.5f;
+        sim.x[idx + 1] = i*0.1f;
+        sim.x[idx + 2] = i*0.15f;
+    }
+
+    memcpy(sim.oldx, sim.x, sizeof(sim.x));
+}
+
+void sim_update()
+{
+    const float part_length = 0.1f;
+    const int num_iters = 2;
+    const float spring_damping = 0.3f;
+    const float gravity = -0.1f;
+
+    // Verlet integration
+
+    sim.x[0] = 0.0f;
+    sim.x[1] = 0.0f;
+    sim.x[2] = 0.0f;
+    sim.oldx[0] = 0.0f;
+    sim.oldx[1] = 0.0f;
+    sim.oldx[2] = 0.0f;
+
+    for (int i = 0; i < SIM_NUM_POINTS; i++) {
+        int idx = i * 3;
+        float* pos = &sim.x[idx];
+        float* old = &sim.oldx[idx];
+
+        float acc[3] = {0.0f, gravity, 0.0f};
+        float temp[3];
+
+        temp[0] = pos[0];
+        temp[1] = pos[1];
+        temp[2] = pos[2];
+
+        pos[0] += pos[0] - old[0] + acc[0];
+        pos[1] += pos[1] - old[1] + acc[1];
+        pos[2] += pos[2] - old[2] + acc[2];
+
+        old[0] = temp[0];
+        old[1] = temp[1];
+        old[2] = temp[2];
+    }
+
+    // Satisfy constraints
+
+    for (int iter = 0; iter < num_iters; iter++) {
+        for (int i=0;i<SIM_NUM_POINTS-1;i++) {
+            int idx_a = i*3;
+            int idx_b = (i+1)*3;
+
+            float delta[3] = {
+                sim.x[idx_b + 0] - sim.x[idx_a + 0],
+                sim.x[idx_b + 1] - sim.x[idx_a + 1],
+                sim.x[idx_b + 2] - sim.x[idx_a + 2]
+            };
+
+            float length = sqrtf(delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]);
+
+            //TODO use squaredmag
+            if (length > part_length) {
+                float scale_a = spring_damping; 
+                float scale_b = -spring_damping;
+                sim.x[idx_a + 0] += scale_a * delta[0];
+                sim.x[idx_a + 1] += scale_a * delta[1];
+                sim.x[idx_a + 2] += scale_a * delta[2];
+                sim.x[idx_b + 0] += scale_b * delta[0];
+                sim.x[idx_b + 1] += scale_b * delta[1];
+                sim.x[idx_b + 2] += scale_b * delta[2];
+            }
+        }
+    }
+
+    for (int i=0;i<SIM_NUM_POINTS;i++) {
+        float* pos = &sim.x[i*3];
+        // debugf("[%d] (%f, %f, %f)\n", i,
+        //     pos[0], pos[1], pos[2]
+        // );
+    }
+}
+
+
+void sim_render()
+{
+    glPushMatrix();
+    glTranslatef(0, 8, 0);
+    uint8_t colors[] = {
+        255, 0, 0, 
+        0, 255, 0, 
+        0, 0, 255, 
+        0, 255, 255, 
+    };
+
+    glBegin(GL_LINE_STRIP);
+    for (int i = 0; i < SIM_NUM_POINTS; i++) {
+        float* pos = &sim.x[i*3];
+        glVertex3f(pos[0], pos[1], pos[2]);
+        //glColor3bv(&colors[(i%4)*3]);
+        glColor3f(i % 2, (i % 3)/2.0f, (i%4)/4.0f);
+    }
+    glEnd();
+    glPopMatrix();
+}
+
+void render_wires()
+{
+    glPushMatrix();
+    glTranslatef(0, 6, 0);
+    glBegin(GL_LINE_STRIP);
+    glVertex3f(0.0f, 0.0f, 0.0f);
+    glVertex3f(0.0f, 1.0f, 0.0f);
+    glVertex3f(0.0f, 2.0f, 1.0f);
+    glVertex3f(1.0f, 3.0f, 0.0f);
+    glEnd();
+    glPopMatrix();
+}
+
 void render()
 {
     surface_t *disp = display_get();
@@ -171,16 +306,28 @@ void render()
     glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
     
     render_plane();
-    render_decal();
-    render_cube();
-    render_skinned(&camera, animation);
+    // render_decal();
+
+    // glPushMatrix();
+    // for (int i=0;i<3;i++) {
+    //     glTranslatef(4.0f, 2.0f, 0.f);
+    //     glRotatef(20.0f, 0.1f, 0.0f, 0.2f);
+    //     glScalef(0.5f, 0.5f, 0.5f);
+    //     render_cube(time_secs);
+    // }
+    // glPopMatrix();
+    // render_skinned(&camera, animation);
 
     glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
     render_sphere(rotation);
 
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
-    render_primitives(rotation);
+    // render_primitives(rotation);
+
+    sim_update();
+    sim_render();
+    // render_wires();
 
     gl_context_end();
 
@@ -212,62 +359,6 @@ int main()
 {
 	debug_init_isviewer();
 	debug_init_usblog();
-    dfs_init(DFS_DEFAULT_LOCATION);
-    display_init(RESOLUTION_320x240, DEPTH_16_BPP, 3, GAMMA_NONE, ANTIALIAS_RESAMPLE_FETCH_ALWAYS);
-    rdpq_init();
-    controller_init();
-    //console_init();
-
-	audio_init(44100, 4);
-	mixer_init(1);
-
-    static wav64_t music_wav;
-    const char* songpath = "/break_it_down_again.wav64";
-    wav64_open(&music_wav, songpath);
-    wav64_play(&music_wav, 0);
-
-    debugf("playing\n");
-
-    int last_level = 0;
-
-    while (1)
-    {
-        //wait_ms(1); // A workaround for Ares
-        if (audio_volume_level != last_level) {
-            //console_clear();
-            display_context_t dc = display_get();
-            if (dc) {
-                unsigned int color = graphics_make_color(0x8, 0x8, 0x8, 0xFF);
-                graphics_fill_screen(dc, color);
-                float level=(float)(audio_volume_level)/0x7FFF;
-                int boxes = level * 30;
-                char msg[100];
-
-                for (int i=0;i<boxes;i++) {
-                    msg[i] = '|';
-                }
-
-                msg[boxes+1] = '\0';
-
-                float playback_pos = audio_sample_time;
-                char posmsg[100];
-                sprintf(posmsg, "%.3f s", playback_pos / music_wav.wave.frequency);
-                graphics_draw_text(dc, 10, 10, songpath);
-                graphics_draw_text(dc, 10, 20, posmsg);
-                graphics_draw_text(dc, 10, 30, msg);
-                display_show(dc);
-                last_level = audio_volume_level;
-            }
-            //console_render();
-        }
-        audio_poll();
-    }
-}
-
-int old_main()
-{
-	debug_init_isviewer();
-	debug_init_usblog();
     
     dfs_init(DFS_DEFAULT_LOCATION);
 
@@ -284,18 +375,27 @@ int old_main()
     setup();
 
     controller_init();
+    timer_init();
+
+	audio_init(22050, 4);
+	mixer_init(1);
 
     static wav64_t music_wav;
-	audio_init(44100, 4);
-	mixer_init(8);
-    wav64_open(&music_wav, "/elysium.wav64");
-    wav64_play(&music_wav, 0);
+    if (music_enabled) {
+        const char* songpath = "/break_it_down_again.wav64"; //TODO need to move to filesystem again
+        wav64_open(&music_wav, songpath);
+        wav64_play(&music_wav, 0);
+    }
+
+    sim_init();
 
 #if !DEBUG_RDP
     while (1)
 #endif
     {
+        time_secs = TIMER_MICROS(timer_ticks()) / 1e6;
         controller_scan();
+
         struct controller_data pressed = get_keys_pressed();
         struct controller_data down = get_keys_down();
 
@@ -362,7 +462,9 @@ int old_main()
             camera.rotation = camera.rotation - x * 1.2f;
         }
 
-        audio_poll();
+        if (music_enabled) {
+            audio_poll();
+        }
 
         render();
         if (DEBUG_RDP)

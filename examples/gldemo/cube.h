@@ -70,7 +70,8 @@ void draw_cube()
     glNormalPointer(GL_FLOAT, sizeof(vertex_t), (void*)(5*sizeof(float) + (void*)cube_vertices));
     glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(vertex_t), (void*)(8*sizeof(float) + (void*)cube_vertices));
 
-    glDrawElements(GL_TRIANGLES, sizeof(cube_indices) / sizeof(uint16_t), GL_UNSIGNED_SHORT, cube_indices);
+    //glDrawElements(GL_TRIANGLES, sizeof(cube_indices) / sizeof(uint16_t), GL_UNSIGNED_SHORT, cube_indices);
+    glDrawElements(GL_LINES, sizeof(cube_indices) / sizeof(uint16_t), GL_UNSIGNED_SHORT, cube_indices);
 
     glDisableClientState(GL_VERTEX_ARRAY);
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
@@ -78,11 +79,12 @@ void draw_cube()
     glDisableClientState(GL_COLOR_ARRAY);
 }
 
-void render_cube()
+void render_cube(float secs)
 {
     rdpq_debug_log_msg("Cube");
     glPushMatrix();
     glTranslatef(0,-1.f,0);
+    glRotatef(secs * 360.0f * 0.5f, 0.5f, -0.5f, 0.0f);
 
     // Apply vertex color as material color.
     // Because the cube has colors set per vertex, we can color each face seperately
