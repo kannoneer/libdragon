@@ -5,7 +5,7 @@
 #include <GL/gl.h>
 #include "vertex.h"
 
-static const float cube_size = 3.0f;
+static const float cube_size = 0.5f;
 
 static const vertex_t cube_vertices[] = {
     // +X
@@ -70,8 +70,28 @@ void draw_cube()
     glNormalPointer(GL_FLOAT, sizeof(vertex_t), (void*)(5*sizeof(float) + (void*)cube_vertices));
     glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(vertex_t), (void*)(8*sizeof(float) + (void*)cube_vertices));
 
-    //glDrawElements(GL_TRIANGLES, sizeof(cube_indices) / sizeof(uint16_t), GL_UNSIGNED_SHORT, cube_indices);
-    glDrawElements(GL_LINES, sizeof(cube_indices) / sizeof(uint16_t), GL_UNSIGNED_SHORT, cube_indices);
+    glDrawElements(GL_TRIANGLES, sizeof(cube_indices) / sizeof(uint16_t), GL_UNSIGNED_SHORT, cube_indices);
+
+    glDisableClientState(GL_VERTEX_ARRAY);
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    glDisableClientState(GL_NORMAL_ARRAY);
+    glDisableClientState(GL_COLOR_ARRAY);
+}
+
+
+void draw_diamond()
+{
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    glEnableClientState(GL_NORMAL_ARRAY);
+    glEnableClientState(GL_COLOR_ARRAY);
+
+    glVertexPointer(3, GL_FLOAT, sizeof(vertex_t), (void*)(0*sizeof(float) + (void*)cube_vertices));
+    glTexCoordPointer(2, GL_FLOAT, sizeof(vertex_t), (void*)(3*sizeof(float) + (void*)cube_vertices));
+    glNormalPointer(GL_FLOAT, sizeof(vertex_t), (void*)(5*sizeof(float) + (void*)cube_vertices));
+    glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(vertex_t), (void*)(8*sizeof(float) + (void*)cube_vertices));
+
+    glDrawElements(GL_TRIANGLES, sizeof(cube_indices) / sizeof(uint16_t), GL_UNSIGNED_SHORT, cube_indices);
 
     glDisableClientState(GL_VERTEX_ARRAY);
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
@@ -98,6 +118,35 @@ void render_cube(float secs)
     glDisable(GL_COLOR_MATERIAL);
 
     glPopMatrix();
+}
+
+void render_unit_cube()
+{
+    rdpq_debug_log_msg("Unit Cube");
+    //glTranslatef(cube_size, -cube_size, -cube_size); // Cube center almost at origin
+    // Apply vertex color as material color.
+    // Because the cube has colors set per vertex, we can color each face seperately
+    glEnable(GL_COLOR_MATERIAL);
+
+    // Apply to ambient and diffuse material properties
+    glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+
+    draw_cube();
+    
+    glDisable(GL_COLOR_MATERIAL);
+}
+
+void render_diamond()
+{
+    glEnable(GL_COLOR_MATERIAL);
+
+    // Apply to ambient and diffuse material properties
+    glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+
+    draw_diamond();
+
+    
+    glDisable(GL_COLOR_MATERIAL);
 }
 
 #endif

@@ -147,6 +147,36 @@ void set_light_positions(float rotation)
     glPopMatrix();
 }
 
+static void vec3_normalize_(float* v) {
+    float invscale = 1.0f / sqrtf(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
+    v[0] *= invscale;
+    v[1] *= invscale;
+    v[2] *= invscale;
+}
+
+static void vec3_cross(float* c, float* a, float* b)
+{
+	c[0] = a[1] * b[2] - a[2] * b[1];
+	c[1] = a[2] * b[0] - a[0] * b[2];
+	c[2] = a[0] * b[1] - a[1] * b[0];
+}
+
+void vec3_copy(float* to, float* from) {
+    to[0]=from[0];
+    to[1]=from[1];
+    to[2]=from[2];
+}
+
+void vec3_sub(float* c, float* a, float* b) {
+	c[0] = a[0] - b[0];
+	c[1] = a[1] - b[1];
+	c[2] = a[2] - b[2];
+}
+
+float vec3_length(float* v) {
+    return sqrtf(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
+}
+
 #define RAND_MAX (0xffffffffU)
 
 static uint32_t rand_state = 1;
@@ -175,6 +205,18 @@ static struct Simulation {
     int num_springs;
     float root[3];
     int num_updates_done;
+
+    struct {
+        int u_inds[2]; // from-to points that make up the u vector
+        int v_inds[2];
+
+        float u[3];
+        float v[3];
+        float n[3];
+
+        float origin[3];
+        float ulength;
+    } pose;
 } sim;
 
 void sim_init()
@@ -190,7 +232,6 @@ void sim_init()
     //}
     const float rope_segment = 0.5f;
     const float side = 2.0f;
-    const float diag = sqrt(2.f) * side;
 
     int h=-1;
     for (int i=1;i<4;i++) {
@@ -208,8 +249,11 @@ void sim_init()
     sim.springs[sim.num_springs++] = (struct Spring){h+1, h+4,   side};
     sim.springs[sim.num_springs++] = (struct Spring){h+2, h+4,   side};
     sim.springs[sim.num_springs++] = (struct Spring){h+3, h+4,   side};
-    // sim.springs[sim.num_springs++] = (struct Spring){h+1, h+4, diag};
-    // sim.springs[sim.num_springs++] = (struct Spring){h+3, h+4, diag};
+
+    sim.pose.u_inds[0] = h;
+    sim.pose.u_inds[1] = h+1;
+    sim.pose.v_inds[0] = h;
+    sim.pose.v_inds[1] = h+3;
 
     sim.num_points = h+5;
 
@@ -227,7 +271,6 @@ void sim_init()
 
 void sim_update()
 {
-    const float part_length = 0.1f;
     const int num_iters = 3;
     const float gravity = -0.1f;
 
@@ -236,9 +279,6 @@ void sim_update()
     sim.x[0] = sim.root[0];
     sim.x[1] = sim.root[1];
     sim.x[2] = sim.root[2];
-    // sim.oldx[0] = sim.root[0];
-    // sim.oldx[1] = sim.root[1];
-    // sim.oldx[2] = sim.root[2];
 
     for (int i = 0; i < sim.num_points; i++) {
         int idx = i * 3;
@@ -296,6 +336,36 @@ void sim_update()
     sim.x[1] = sim.root[1];
     sim.x[2] = sim.root[2];
 
+    float* ufrom   = &sim.x[3 * sim.pose.u_inds[0]];
+    float* uto     = &sim.x[3 * sim.pose.u_inds[1]];
+    float* vfrom   = &sim.x[3 * sim.pose.v_inds[0]];
+    float* vto     = &sim.x[3 * sim.pose.v_inds[1]];
+
+    float* uvec = sim.pose.u;
+    float* vvec = sim.pose.v;
+    float* nvec = sim.pose.n;
+
+    vec3_sub(uvec, uto, ufrom);
+    vec3_sub(vvec, vto, vfrom);
+    //uvec[0] = uto[0] - ufrom[0];
+    //uvec[1] = uto[1] - ufrom[1];
+    //uvec[2] = uto[2] - ufrom[2];
+
+    //vvec[0] = vto[0] - vfrom[0];
+    //vvec[1] = vto[1] - vfrom[1];
+    //vvec[2] = vto[2] - vfrom[2];
+
+    sim.pose.ulength = vec3_length(uvec);
+
+    vec3_normalize_(uvec);
+    vec3_normalize_(vvec);
+    vec3_cross(nvec, uvec, vvec);
+
+    sim.pose.origin[0] = ufrom[0];
+    sim.pose.origin[1] = ufrom[1];
+    sim.pose.origin[2] = ufrom[2];
+
+
     sim.num_updates_done++;
 
     if (sim.num_updates_done % 75 == 0) {
@@ -311,18 +381,13 @@ void sim_update()
     }
 }
 
-
 void sim_render()
 {
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+
     glPushMatrix();
     glTranslatef(0, 8, 0);
-    uint8_t colors[] = {
-        255, 0, 0, 
-        0, 255, 0, 
-        0, 0, 255, 
-        0, 255, 255, 
-    };
-
     glBegin(GL_LINES);
     for (int i=0;i<sim.num_springs;i++) {
         struct Spring spring = sim.springs[i];
@@ -334,16 +399,36 @@ void sim_render()
     }
     glEnd();
 
-    /*
-    glBegin(GL_LINE_STRIP);
-    for (int i = 0; i < SIM_NUM_POINTS; i++) {
-        float* pos = &sim.x[i*3];
-        glVertex3f(pos[0], pos[1], pos[2]);
-        //glColor3bv(&colors[(i%4)*3]);
-        glColor3f(i % 2, (i % 3)/2.0f, (i%4)/4.0f);
+    glEnable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+
+    float basis[16] = {0.f};
+    basis[0] = 1.0f;
+    basis[5] = 1.0f;
+    basis[10] = 1.0f;
+    basis[15] = 1.0f;
+    vec3_copy(&basis[0], sim.pose.u);
+    vec3_copy(&basis[4], sim.pose.n);
+    vec3_copy(&basis[8], sim.pose.v);
+
+    debugf("u: (%f, %f, %f)\n", sim.pose.u[0], sim.pose.u[1], sim.pose.u[2]);
+    debugf("v: (%f, %f, %f)\n", sim.pose.v[0], sim.pose.v[1], sim.pose.v[2]);
+    debugf("n: (%f, %f, %f)\n", sim.pose.n[0], sim.pose.n[1], sim.pose.n[2]);
+
+    debugf("basis:\n");
+    for (int i=0;i<4;i++) {
+        debugf("[ %f %f %f %f ]\n", basis[i], basis[i+4], basis[i+8], basis[i+12]);
     }
-    glEnd();
-    */
+
+    glPushMatrix();
+    glTranslatef(sim.pose.origin[0], sim.pose.origin[1], sim.pose.origin[2]);
+    glScalef(-1.0f, -1.0f, -1.0f); // Q: Why do we need to flip the transform here?
+    glMultMatrixf(basis);
+    glTranslatef(-0.5f, -0.5f, -0.5f);
+    // glScalef(sim.pose.ulength, sim.pose.ulength, sim.pose.ulength);
+    render_diamond();
+    glPopMatrix();
+
     glPopMatrix();
 }
 
@@ -403,12 +488,13 @@ void render()
     glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
     render_sphere(rotation);
 
+    sim_update();
+    sim_render();
+
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
     // render_primitives(rotation);
 
-    sim_update();
-    sim_render();
     // render_wires();
 
     gl_context_end();
