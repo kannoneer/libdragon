@@ -70,6 +70,18 @@ static const char *texture_path[NUM_TEXTURES] = {
 
 static sprite_t *sprites[NUM_TEXTURES];
 
+void set_diffuse_material()
+{
+    GLfloat mat_diffuse[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, mat_diffuse);
+}
+
+void set_gemstone_material()
+{
+    GLfloat color[] = { 2.0f, 2.0f, 2.0f, 0.75f };
+    glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, color);
+}
+
 void setup()
 {
     camera.distance = -10.0f;
@@ -114,8 +126,7 @@ void setup()
         glLightf(GL_LIGHT0 + i, GL_QUADRATIC_ATTENUATION, 1.0f/(light_radius*light_radius));
     }
 
-    GLfloat mat_diffuse[] = { 1.0f, 1.0f, 1.0f, 1.0f };
-    glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, mat_diffuse);
+    set_diffuse_material();
 
     glFogf(GL_FOG_START, 5);
     glFogf(GL_FOG_END, 20);
@@ -429,6 +440,10 @@ void sim_render()
         debugf("[ %f %f %f %f ]\n", basis[i], basis[i+4], basis[i+8], basis[i+12]);
     }
 
+    glEnable(GL_BLEND);
+    set_gemstone_material();
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
     glEnable(GL_LIGHTING);
     glBindTexture(GL_TEXTURE_2D, textures[TEX_CEILING]);
 
@@ -447,14 +462,17 @@ void sim_render()
     //render_diamond();
     
 
+    glCullFace(GL_FRONT);
+    model64_draw(model_gemstone);
+    glCullFace(GL_BACK);
     model64_draw(model_gemstone);
 
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_TEXTURE_GEN_S);
     glDisable(GL_TEXTURE_GEN_T);
+    glDisable(GL_BLEND);
     
     glPopMatrix();
-
     glPopMatrix();
 }
 
@@ -516,6 +534,8 @@ void render()
 
     sim_update();
     sim_render();
+
+    set_diffuse_material();
 
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
