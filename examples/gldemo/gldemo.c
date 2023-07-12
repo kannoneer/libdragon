@@ -147,7 +147,7 @@ void set_light_positions(float rotation)
     glPopMatrix();
 }
 
-#define SIM_NUM_POINTS (10)
+#define SIM_NUM_POINTS (6)
 #define MAX_SPRINGS (10)
 
 static struct Simulation {
@@ -157,7 +157,7 @@ static struct Simulation {
     struct Spring {
         int from;
         int to;
-        float lengthSqr;
+        float length;
     } springs[MAX_SPRINGS];
 
     int num_springs;
@@ -175,13 +175,23 @@ void sim_init()
     }
 
     memcpy(sim.oldx, sim.x, sizeof(sim.x));
-    sim.num_springs = SIM_NUM_POINTS - 1;
 
-    for (int i=0;i<SIM_NUM_POINTS-1;i++) {
-        const float length = 0.1f;
-        sim.springs[i] = (struct Spring){i, i+1, length*length};
-    }
+    //sim.num_springs = SIM_NUM_POINTS - 1;
+    //for (int i=0;i<SIM_NUM_POINTS-1;i++) {
+    //    const float length = 0.1f;
+    //    sim.springs[i] = (struct Spring){i, i+1, length*length};
+    //}
+    const float side = 1.0f;
+    const float diag = sqrt(2.f) * side;
 
+    sim.springs[sim.num_springs++] = (struct Spring){0, 1, side};
+    sim.springs[sim.num_springs++] = (struct Spring){1, 2, side};
+    sim.springs[sim.num_springs++] = (struct Spring){2, 3, side};
+    sim.springs[sim.num_springs++] = (struct Spring){3, 4, side};
+
+    sim.springs[sim.num_springs++] = (struct Spring){5, 2, side};
+    sim.springs[sim.num_springs++] = (struct Spring){5, 3, diag};
+    sim.springs[sim.num_springs++] = (struct Spring){2, 4, diag};
 }
 
 void sim_update()
@@ -221,6 +231,10 @@ void sim_update()
         old[2] = temp[2];
     }
 
+    sim.x[0] = 0.0f;
+    sim.x[1] = 0.0f;
+    sim.x[2] = 0.0f;
+
     // Satisfy constraints
 
     for (int iter = 0; iter < num_iters; iter++) {
@@ -235,21 +249,22 @@ void sim_update()
                 pb[2] - pa[2]
             };
 
-            float lengthSqr = delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2];
+            float length = sqrtf(delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]);
+            float diff = (length - spring.length) / length;
 
-            //TODO use squaredmag
-            if (lengthSqr > spring.lengthSqr) {
-                float scale_a = spring_damping; 
-                float scale_b = -spring_damping;
-                pa[0] += scale_a * delta[0];
-                pa[1] += scale_a * delta[1];
-                pa[2] += scale_a * delta[2];
-                pb[0] += scale_b * delta[0];
-                pb[1] += scale_b * delta[1];
-                pb[2] += scale_b * delta[2];
-            }
+            float scale = 0.5f * diff; 
+            pa[0] += scale * delta[0];
+            pa[1] += scale * delta[1];
+            pa[2] += scale * delta[2];
+            pb[0] -= scale * delta[0];
+            pb[1] -= scale * delta[1];
+            pb[2] -= scale * delta[2];
         }
     }
+
+    sim.x[0] = 0.0f;
+    sim.x[1] = 0.0f;
+    sim.x[2] = 0.0f;
 
     for (int i=0;i<SIM_NUM_POINTS;i++) {
         float* pos = &sim.x[i*3];
@@ -271,6 +286,18 @@ void sim_render()
         0, 255, 255, 
     };
 
+    glBegin(GL_LINES);
+    for (int i=0;i<sim.num_springs;i++) {
+        struct Spring spring = sim.springs[i];
+        float* pa = &sim.x[spring.from*3];
+        float* pb = &sim.x[spring.to*3];
+        glVertex3f(pa[0], pa[1], pa[2]);
+        glVertex3f(pb[0], pb[1], pb[2]);
+        glColor3f(i % 2, (i % 3)/2.0f, (i%4)/4.0f);
+    }
+    glEnd();
+
+    /*
     glBegin(GL_LINE_STRIP);
     for (int i = 0; i < SIM_NUM_POINTS; i++) {
         float* pos = &sim.x[i*3];
@@ -279,6 +306,7 @@ void sim_render()
         glColor3f(i % 2, (i % 3)/2.0f, (i%4)/4.0f);
     }
     glEnd();
+    */
     glPopMatrix();
 }
 
@@ -383,6 +411,8 @@ int main()
 
     rdpq_init();
     gl_init();
+
+    // glEnable(GL_MULTISAMPLE_ARB);
 
 #if DEBUG_RDP
     rdpq_debug_start();
