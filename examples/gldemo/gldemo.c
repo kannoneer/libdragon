@@ -26,8 +26,10 @@ static surface_t zbuffer;
 
 static float time_secs = 0.0f;
 
-#define NUM_TEXTURES (5)
+#define NUM_TEXTURES (7)
 #define TEX_CEILING (4)
+#define TEX_FLARE (5)
+#define TEX_ICON (6)
 
 static GLuint textures[NUM_TEXTURES];
 
@@ -38,8 +40,8 @@ static model64_t* model_gemstone = NULL;
 
 static const GLfloat environment_color[] = { 0.1f, 0.03f, 0.2f, 1.f };
 
-static const GLfloat light_pos[8][4] = {
-    { 1, 0, 0, 0 },
+static GLfloat light_pos[8][4] = {
+    { 0.1f, 0, 0, 1 },
     { -1, 0, 0, 0 },
     { 0, 0, 1, 0 },
     { 0, 0, -1, 0 },
@@ -66,6 +68,8 @@ static const char *texture_path[NUM_TEXTURES] = {
     "rom:/pentagon0.rgba16.sprite",
     "rom:/triangle0.rgba16.sprite",
     "rom:/ceiling2.ci4.sprite",
+    "rom:/star.ia8.sprite",
+    "rom:/icon.rgba16.sprite",
 };
 
 static sprite_t *sprites[NUM_TEXTURES];
@@ -116,9 +120,9 @@ void setup()
     glLightModelfv(GL_LIGHT_MODEL_AMBIENT, environment_color);
     glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, GL_TRUE);
 
-    float light_radius = 10.0f;
+    float light_radius = 40.0f;
 
-    for (uint32_t i = 0; i < 8; i++)
+    for (uint32_t i = 0; i < 1; i++)
     {
         glEnable(GL_LIGHT0 + i);
         glLightfv(GL_LIGHT0 + i, GL_DIFFUSE, light_diffuse[i]);
@@ -147,23 +151,15 @@ void setup()
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min_filter);
 
-        glSpriteTextureN64(GL_TEXTURE_2D, sprites[i], &(rdpq_texparms_t){.s.repeats = REPEAT_INFINITE, .t.repeats = REPEAT_INFINITE});
+        if (i == TEX_FLARE) {
+            glSpriteTextureN64(GL_TEXTURE_2D, sprites[i], &(rdpq_texparms_t){.s.repeats = 1, .t.repeats = 1});
+        } else {
+            glSpriteTextureN64(GL_TEXTURE_2D, sprites[i], &(rdpq_texparms_t){.s.repeats = REPEAT_INFINITE, .t.repeats = REPEAT_INFINITE});
+        }
     }
 
     model_gemstone = model64_load("rom:/gemstone.model64");
     assert(model_gemstone);
-}
-
-void set_light_positions(float rotation)
-{
-    glPushMatrix();
-    glRotatef(rotation*5.43f, 0, 1, 0);
-
-    for (uint32_t i = 0; i < 8; i++)
-    {
-        glLightfv(GL_LIGHT0 + i, GL_POSITION, light_pos[i]);
-    }
-    glPopMatrix();
 }
 
 static void vec3_normalize_(float* v) {
@@ -244,11 +240,6 @@ void sim_init()
 
     memcpy(sim.oldx, sim.x, sizeof(sim.x));
 
-    //sim.num_springs = SIM_NUM_POINTS - 1;
-    //for (int i=0;i<SIM_NUM_POINTS-1;i++) {
-    //    const float length = 0.1f;
-    //    sim.springs[i] = (struct Spring){i, i+1, length*length};
-    //}
     const float rope_segment = 0.5f;
     const float side = 2.0f;
 
@@ -258,16 +249,16 @@ void sim_init()
         h = i;
     }
 
-    sim.springs[sim.num_springs++] = (struct Spring){h, h+1,   side};
-    sim.springs[sim.num_springs++] = (struct Spring){h, h+2,   side};
-    sim.springs[sim.num_springs++] = (struct Spring){h, h+3,   side};
-    sim.springs[sim.num_springs++] = (struct Spring){h+1, h+2,   side};
-    sim.springs[sim.num_springs++] = (struct Spring){h+2, h+3,   side};
-    sim.springs[sim.num_springs++] = (struct Spring){h+3, h+1,   side};
+    sim.springs[sim.num_springs++] = (struct Spring){h, h+1, side};
+    sim.springs[sim.num_springs++] = (struct Spring){h, h+2, side};
+    sim.springs[sim.num_springs++] = (struct Spring){h, h+3, side};
+    sim.springs[sim.num_springs++] = (struct Spring){h+1, h+2, side};
+    sim.springs[sim.num_springs++] = (struct Spring){h+2, h+3, side};
+    sim.springs[sim.num_springs++] = (struct Spring){h+3, h+1, side};
 
-    sim.springs[sim.num_springs++] = (struct Spring){h+1, h+4,   side};
-    sim.springs[sim.num_springs++] = (struct Spring){h+2, h+4,   side};
-    sim.springs[sim.num_springs++] = (struct Spring){h+3, h+4,   side};
+    sim.springs[sim.num_springs++] = (struct Spring){h+1, h+4, side};
+    sim.springs[sim.num_springs++] = (struct Spring){h+2, h+4, side};
+    sim.springs[sim.num_springs++] = (struct Spring){h+3, h+4, side};
 
     sim.pose.u_inds[0] = h;
     sim.pose.u_inds[1] = h+1;
@@ -320,10 +311,6 @@ void sim_update()
         old[2] = temp[2];
     }
 
-    // sim.x[0] = 0.0f;
-    // sim.x[1] = 0.0f;
-    // sim.x[2] = 0.0f;
-
     // Satisfy constraints
 
     for (int iter = 0; iter < num_iters; iter++) {
@@ -366,13 +353,6 @@ void sim_update()
 
     vec3_sub(uvec, uto, ufrom);
     vec3_sub(vvec, vto, vfrom);
-    //uvec[0] = uto[0] - ufrom[0];
-    //uvec[1] = uto[1] - ufrom[1];
-    //uvec[2] = uto[2] - ufrom[2];
-
-    //vvec[0] = vto[0] - vfrom[0];
-    //vvec[1] = vto[1] - vfrom[1];
-    //vvec[2] = vto[2] - vfrom[2];
 
     sim.pose.ulength = vec3_length(uvec);
 
@@ -431,13 +411,15 @@ void sim_render()
     vec3_cross(&basis[8], sim.pose.u, sim.pose.n);
     //vec3_copy(&basis[8], sim.pose.v);
 
-    debugf("u: (%f, %f, %f)\n", sim.pose.u[0], sim.pose.u[1], sim.pose.u[2]);
-    debugf("v: (%f, %f, %f)\n", sim.pose.v[0], sim.pose.v[1], sim.pose.v[2]);
-    debugf("n: (%f, %f, %f)\n", sim.pose.n[0], sim.pose.n[1], sim.pose.n[2]);
+    if (false) {
+        debugf("u: (%f, %f, %f)\n", sim.pose.u[0], sim.pose.u[1], sim.pose.u[2]);
+        debugf("v: (%f, %f, %f)\n", sim.pose.v[0], sim.pose.v[1], sim.pose.v[2]);
+        debugf("n: (%f, %f, %f)\n", sim.pose.n[0], sim.pose.n[1], sim.pose.n[2]);
 
-    debugf("basis:\n");
-    for (int i=0;i<4;i++) {
-        debugf("[ %f %f %f %f ]\n", basis[i], basis[i+4], basis[i+8], basis[i+12]);
+        debugf("basis:\n");
+        for (int i = 0; i < 4; i++) {
+            debugf("[ %f %f %f %f ]\n", basis[i], basis[i + 4], basis[i + 8], basis[i + 12]);
+        }
     }
 
     glEnable(GL_BLEND);
@@ -489,6 +471,77 @@ void render_wires()
     glPopMatrix();
 }
 
+void render_flare()
+{
+    glPushMatrix();
+
+    glTranslatef(light_pos[0][0], light_pos[0][1], light_pos[0][2]);
+
+    /*
+    float basis[16] = {0.f};
+    basis[0] = 1.0f;
+    basis[5] = 1.0f;
+    basis[10] = 1.0f;
+    basis[15] = 1.0f;
+
+    float to_cam[3];
+    vec3_sub(to_cam, camera.computed_eye, light_pos[0]);
+    vec3_normalize_(to_cam);
+
+    debugf("light_pos[0]=(%f, %f, %f)\n", light_pos[0][0], light_pos[0][1], light_pos[0][2]);
+    debugf("camera.computed_eye=(%f, %f, %f)\n", camera.computed_eye[0], camera.computed_eye[1], camera.computed_eye[2]);
+    debugf("to_cam=(%f, %f, %f)\n", to_cam[0], to_cam[1], to_cam[2]);
+
+    float temp_up[3] = {0.0f, 1.0f, 0.0f};
+    float right[3];
+    vec3_cross(right, to_cam, temp_up);
+    //TODO why is right[1] == 0.0f?
+
+    debugf("right=(%f, %f, %f)\n", right[0], right[1], right[2]);
+
+    float real_up[3];
+    vec3_cross(real_up, to_cam, temp_up);
+
+    debugf("real_up=(%f, %f, %f)\n", real_up[0], real_up[1], real_up[2]);
+
+    vec3_copy(&basis[0], right);
+    vec3_copy(&basis[4], real_up);
+    vec3_copy(&basis[8], to_cam); // negate?
+    glMultMatrixf(basis);
+    */
+
+    float to_cam[3];
+    vec3_sub(to_cam, camera.computed_eye, light_pos[0]);
+    float dist = vec3_length(to_cam);
+    
+    set_diffuse_material();
+    glDisable(GL_LIGHTING);
+
+    glBindTexture(GL_TEXTURE_2D, textures[TEX_FLARE]);
+    glEnable(GL_BLEND);
+    glEnable(GL_TEXTURE_2D);
+    glDepthMask(GL_FALSE);
+    
+    //glEnable(GL_BLEND);
+
+    glPointSize(400.0f / (dist+1.0f));
+    glBegin(GL_POINTS);
+    //render_unit_cube_points();
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glTexCoord2f(0.0f, 0.0f);
+    glVertex3f(0.f, 0.f, 0.f);
+    glEnd();
+    glPopMatrix();
+
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glDisable(GL_TEXTURE_2D);
+    // debugf("flare basis:\n");
+    // for (int i = 0; i < 4; i++) {
+    //     debugf("[ %f %f %f %f ]\n", basis[i], basis[i + 4], basis[i + 8], basis[i + 12]);
+    // }
+}
+
 void render()
 {
     surface_t *disp = display_get();
@@ -501,11 +554,29 @@ void render()
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glMatrixMode(GL_MODELVIEW);
-    camera_transform(&camera);
+
+    camera.computed_eye[0] = cos(camera.rotation) * camera.distance;
+    camera.computed_eye[1] = 6.0f;
+    camera.computed_eye[2] = -sin(camera.rotation) * camera.distance;
+    
+    glLoadIdentity();
+    gluLookAt(
+        camera.computed_eye[0], camera.computed_eye[1], camera.computed_eye[2],
+        0, 0, 0,
+        0, 1, 0);
+
+    // camera_transform(&camera);
 
     float rotation = animation * 0.5f;
 
-    set_light_positions(rotation);
+    float dist = 4.0f;
+    float langle = time_secs * 0.4f;
+
+    light_pos[0][0] = dist * cos(langle);
+    light_pos[0][1] = 6.0f + sin(time_secs*0.8f);
+    light_pos[0][2] = dist * sin(langle);
+
+    glLightfv(GL_LIGHT0, GL_POSITION, light_pos[0]);
 
     // Set some global render modes that we want to apply to all models
     glEnable(GL_LIGHTING);
@@ -540,6 +611,8 @@ void render()
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
     // render_primitives(rotation);
+
+    render_flare();
 
     // render_wires();
 
@@ -675,7 +748,7 @@ int main()
 
         if (fabsf(mag) > 0.01f) {
             camera.distance += y * 0.2f;
-            camera.rotation = camera.rotation - x * 1.2f;
+            camera.rotation = camera.rotation - x * 0.05f;
         }
 
         if (music_enabled) {

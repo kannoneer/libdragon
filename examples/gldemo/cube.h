@@ -136,6 +136,21 @@ void render_unit_cube()
     glDisable(GL_COLOR_MATERIAL);
 }
 
+void render_unit_cube_points()
+{
+    //glTranslatef(cube_size, -cube_size, -cube_size); // Cube center almost at origin
+    // Apply vertex color as material color.
+    // Because the cube has colors set per vertex, we can color each face seperately
+    glEnable(GL_COLOR_MATERIAL);
+
+    // Apply to ambient and diffuse material properties
+    glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+
+    draw_cube();
+    
+    glDisable(GL_COLOR_MATERIAL);
+}
+
 void render_diamond()
 {
     glEnable(GL_COLOR_MATERIAL);

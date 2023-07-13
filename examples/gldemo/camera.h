@@ -4,6 +4,7 @@
 typedef struct {
     float distance;
     float rotation;
+    float computed_eye[3];
 } camera_t;
 
 void camera_transform(const camera_t *camera)
