@@ -457,7 +457,10 @@ static void gl_draw_point(gl_vtx_t *v0)
     }
 
     if (state.prim_texture) {
-        rdpq_texture_rectangle_scaled(0, p0[0], p0[1], p1[0], p1[1], v0->texcoord[0]/32.f, v0->texcoord[1]/32.f, v0->texcoord[0]/32.f+1, v0->texcoord[0]/32.f+1);
+        rdpq_texture_rectangle_scaled(0, p0[0], p0[1], p1[0], p1[1], 0.0f, 0.0f, state.prim_tex_width, state.prim_tex_height); // HACK: use the full texture
+        //rdpq_texture_rectangle_scaled(0, p0[0], p0[1], p1[0], p1[1], -32, -32, 32, 32);
+
+        //__rdpq_texture_rectangle_scaled_fx(0, p0[0]*4, p0[1]*4, p1[0]*4, p1[1]*4, 0, 0, 1024, 1024);
     } else {
         rdpq_fill_rectangle(p0[0], p0[1], p1[0], p1[1]);
     }
