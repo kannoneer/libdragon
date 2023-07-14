@@ -34,7 +34,6 @@ static float time_secs = 0.0f;
 static GLuint textures[NUM_TEXTURES];
 
 static GLenum shade_model = GL_SMOOTH;
-static bool fog_enabled = false;
 
 static model64_t* model_gemstone = NULL;
 
@@ -169,26 +168,38 @@ static void vec3_normalize_(float* v) {
     v[2] *= invscale;
 }
 
-static void vec3_cross(float* a, float* b, float* c)
+static void vec3_cross(const float* a, const float* b, float* c)
 {
 	c[0] = a[1] * b[2] - a[2] * b[1];
 	c[1] = a[2] * b[0] - a[0] * b[2];
 	c[2] = a[0] * b[1] - a[1] * b[0];
 }
 
-void vec3_copy(float* from, float* to) {
+void vec3_copy(const float* from, float* to) {
     to[0]=from[0];
     to[1]=from[1];
     to[2]=from[2];
 }
 
-void vec3_sub(float* a, float* b, float* c) {
+void vec3_add(const float* a, const float* b, float* c) {
+	c[0] = a[0] + b[0];
+	c[1] = a[1] + b[1];
+	c[2] = a[2] + b[2];
+}
+
+void vec3_sub(const float* a, const float* b, float* c) {
 	c[0] = a[0] - b[0];
 	c[1] = a[1] - b[1];
 	c[2] = a[2] - b[2];
 }
 
-float vec3_length(float* v) {
+void vec3_scale(float s, float* a) {
+	a[0] *= s;
+	a[1] *= s;
+	a[2] *= s;
+}
+
+float vec3_length(const float* v) {
     return sqrtf(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
 }
 
@@ -252,6 +263,13 @@ mat4_mul(mat4_t m1, mat4_t m2, mat4_t dest) {
   dest[3][3] = a03 * b30 + a13 * b31 + a23 * b32 + a33 * b33;
 }
 
+void mat4_make_translation(float x, float y, float z, mat4_t dest)
+{
+    mat4_set_identity(dest);
+    dest[3][0] = x; // [col, row]
+    dest[3][1] = y;
+    dest[3][2] = z;
+}
 
 #define RAND_MAX (0xffffffffU)
 
@@ -278,6 +296,8 @@ static struct Simulation {
         float length;
     } springs[MAX_SPRINGS];
 
+    bool spring_visible[MAX_SPRINGS];
+
     int num_springs;
     float root[3];
     int num_updates_done;
@@ -285,6 +305,8 @@ static struct Simulation {
     struct {
         int u_inds[2]; // from-to points that make up the u vector
         int v_inds[2];
+        int attach_top_index; // where the gem is attached
+        int attach_tri_inds[3]; // gem centroid points
 
         float u[3];
         float v[3];
@@ -293,6 +315,10 @@ static struct Simulation {
         float origin[3];
         float ulength;
     } pose;
+
+    struct {
+        bool show_wires;
+    } debug;
 } sim;
 
 void sim_init()
@@ -301,11 +327,16 @@ void sim_init()
 
     memcpy(sim.oldx, sim.x, sizeof(sim.x));
 
+    for (int i=0;i<MAX_SPRINGS;i++) {
+        sim.spring_visible[i] = false;
+    }
+
     const float rope_segment = 0.5f;
     const float side = 2.0f;
 
     int h=-1;
     for (int i=1;i<4;i++) {
+        sim.spring_visible[sim.num_springs] = true;
         sim.springs[sim.num_springs++] = (struct Spring){i-1, i, rope_segment};
         h = i;
     }
@@ -321,10 +352,16 @@ void sim_init()
     sim.springs[sim.num_springs++] = (struct Spring){h+2, h+4, side};
     sim.springs[sim.num_springs++] = (struct Spring){h+3, h+4, side};
 
-    sim.pose.u_inds[0] = h;
-    sim.pose.u_inds[1] = h+1;
-    sim.pose.v_inds[0] = h;
+
+    sim.pose.u_inds[0] = h+1;
+    sim.pose.u_inds[1] = h+2;
+    sim.pose.v_inds[0] = h+1;
     sim.pose.v_inds[1] = h+3;
+
+    sim.pose.attach_top_index = h;
+    sim.pose.attach_tri_inds[0] = h+1;
+    sim.pose.attach_tri_inds[1] = h+2;
+    sim.pose.attach_tri_inds[2] = h+3;
 
     sim.num_points = h+5;
 
@@ -338,6 +375,8 @@ void sim_init()
     sim.root[0] = 0.0f;
     sim.root[1] = 8.0f;
     sim.root[2] = 0.0f;
+
+    sim.debug.show_wires = false;
 }
 
 void sim_update()
@@ -403,28 +442,47 @@ void sim_update()
     sim.x[1] = sim.root[1];
     sim.x[2] = sim.root[2];
 
-    float* ufrom   = &sim.x[3 * sim.pose.u_inds[0]];
-    float* uto     = &sim.x[3 * sim.pose.u_inds[1]];
-    float* vfrom   = &sim.x[3 * sim.pose.v_inds[0]];
-    float* vto     = &sim.x[3 * sim.pose.v_inds[1]];
+    // Update object attachment
+
+    // Compute the average position of the "attachment triangle" set in simulation pose struct.
+    const float* a1 = &sim.x[3 * sim.pose.attach_tri_inds[0]];
+    const float* a2 = &sim.x[3 * sim.pose.attach_tri_inds[1]];
+    const float* a3 = &sim.x[3 * sim.pose.attach_tri_inds[2]];
+
+    float centroid[3];
+    vec3_copy(a1, centroid);
+    vec3_add(a1, a2, centroid);
+    vec3_add(centroid, a3, centroid);
+    vec3_scale(0.33333f, centroid);
+
+    sim.pose.origin[0] = centroid[0];
+    sim.pose.origin[1] = centroid[1];
+    sim.pose.origin[2] = centroid[2];
+
+    const float* ufrom   = &sim.x[3 * sim.pose.u_inds[0]];
+    const float* uto     = &sim.x[3 * sim.pose.u_inds[1]];
+    //const float* vfrom   = &sim.x[3 * sim.pose.v_inds[0]];
+    //const float* vto     = &sim.x[3 * sim.pose.v_inds[1]];
+    const float* nfrom   = centroid;
+    const float* nto     = &sim.x[3 * sim.pose.attach_top_index];
 
     float* uvec = sim.pose.u;
     float* vvec = sim.pose.v;
     float* nvec = sim.pose.n;
 
     vec3_sub(uto, ufrom, uvec);
-    vec3_sub(vto, vfrom, vvec);
+    //vec3_sub(vto, vfrom, vvec);
+    vec3_sub(nto, nfrom, nvec);
 
     sim.pose.ulength = vec3_length(uvec);
 
     vec3_normalize_(uvec);
-    vec3_normalize_(vvec);
-    vec3_cross(uvec, vvec, nvec);
+    vec3_normalize_(nvec);
 
-    sim.pose.origin[0] = ufrom[0];
-    sim.pose.origin[1] = ufrom[1];
-    sim.pose.origin[2] = ufrom[2];
+    //vec3_normalize_(vvec);
+     vec3_cross(uvec, nvec, vvec);
 
+    // Debug movement
 
     sim.num_updates_done++;
 
@@ -441,48 +499,83 @@ void sim_update()
     }
 }
 
+void print_mat4(mat4_t basis)
+{
+    for (int i = 0; i < 16; i++) {
+        debugf("basis[%d] = %f\n", i, ((float *)basis)[i]);
+    }
+}
+
+static float debug_z_shift = 0.0f;
+static float debug_x_shift = 0.0f;
+
 void sim_render()
 {
     glDisable(GL_TEXTURE_2D);
-    glDisable(GL_LIGHTING);
+    if (sim.debug.show_wires) {
+        glDisable(GL_LIGHTING);
+    } else {
+        glEnable(GL_LIGHTING);
+    }
 
     glPushMatrix();
     //glTranslatef(0, 8, 0);
     glBegin(GL_LINES);
     for (int i=0;i<sim.num_springs;i++) {
         struct Spring spring = sim.springs[i];
-        float* pa = &sim.x[spring.from*3];
-        float* pb = &sim.x[spring.to*3];
-        glVertex3f(pa[0], pa[1], pa[2]);
-        glVertex3f(pb[0], pb[1], pb[2]);
-        glColor3f(i % 2, (i % 3)/2.0f, (i%4)/4.0f);
+        if (sim.spring_visible[i] || sim.debug.show_wires) {
+            float* pa = &sim.x[spring.from*3];
+            float* pb = &sim.x[spring.to*3];
+            glVertex3f(pa[0], pa[1], pa[2]);
+            glVertex3f(pb[0], pb[1], pb[2]);
+            //glColor3f(i % 2, (i % 3)/2.0f, (i%4)/4.0f);
+            glColor3f(1.0f, 1.0f, 1.0f);
+        }
     }
     glEnd();
 
     glEnable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
 
-    float basis[16] = {0.f};
-    basis[0] = 1.0f;
-    basis[5] = 1.0f;
-    basis[10] = 1.0f;
-    basis[15] = 1.0f;
-    //vec3_copy(sim.pose.u, &basis[0]);
-    //vec3_copy(sim.pose.n, &basis[4]);
-    //vec3_cross(sim.pose.u, sim.pose.n, &basis[8]);
+    //float basis[16] = {0.f};
+    mat4_t basis;
+    mat4_set_identity(basis);
+    //basis[0] = 1.0f;
+    //basis[5] = 1.0f;
+    //basis[10] = 1.0f;
+    //basis[15] = 1.0f;
+
+    vec3_copy(sim.pose.u, &basis[2][0]);
+    vec3_copy(sim.pose.n, &basis[1][0]);
+    vec3_cross(sim.pose.u, sim.pose.n, &basis[0][0]);
 
     // translate
-    vec3_copy(sim.pose.origin, &basis[12]);
+    //vec3_copy(sim.pose.origin, &basis[12]);
+    vec3_copy(sim.pose.origin, &basis[3][0]);
+
+    mat4_t shift;
+    mat4_make_translation(debug_x_shift, -0.28f, 0.0f, shift);
+    mat4_mul(basis, shift, basis);
 
     if (false) {
+        debugf("shift:\n");
+        print_mat4(shift);
+
         debugf("u: (%f, %f, %f)\n", sim.pose.u[0], sim.pose.u[1], sim.pose.u[2]);
         debugf("v: (%f, %f, %f)\n", sim.pose.v[0], sim.pose.v[1], sim.pose.v[2]);
         debugf("n: (%f, %f, %f)\n", sim.pose.n[0], sim.pose.n[1], sim.pose.n[2]);
 
         debugf("basis:\n");
-        for (int i = 0; i < 4; i++) {
-            debugf("[ %f %f %f %f ]\n", basis[i], basis[i + 4], basis[i + 8], basis[i + 12]);
-        }
+        print_mat4(basis);
+
+        // for (int i = 0; i < 4; i++) {
+        //     debugf("[");
+        //     for (int j = 0; j < 4; i++) {
+        //         debugf("%f ", basis[j][i]);
+        //         // debugf("[ %f %f %f %f ]\n", basis[i], basis[i + 4], basis[i + 8], basis[i + 12]);
+        //     }
+        //     debugf("]\n");
+        // }
     }
 
     glEnable(GL_BLEND);
@@ -498,15 +591,7 @@ void sim_render()
     glEnable(GL_TEXTURE_GEN_T);
 
     glPushMatrix();
-    //glTranslatef(sim.pose.origin[0], sim.pose.origin[1], sim.pose.origin[2]);
-    // glScalef(1.0f, -1.0f, -1.0f); // Q: Why do we need to flip the transform here?
-    //glTranslatef(0.0f, -1.5f, 0.0f);
-    glMultMatrixf(basis);
-    glTranslatef(0.0f, 1.0f, 0.0f);
-    // glScalef(sim.pose.ulength, sim.pose.ulength, sim.pose.ulength);
-
-    //render_diamond();
-    
+    glMultMatrixf(&basis[0][0]);
 
     glCullFace(GL_FRONT);
     model64_draw(model_gemstone);
@@ -519,19 +604,6 @@ void sim_render()
     glDisable(GL_BLEND);
     
     glPopMatrix();
-    glPopMatrix();
-}
-
-void render_wires()
-{
-    glPushMatrix();
-    glTranslatef(0, 6, 0);
-    glBegin(GL_LINE_STRIP);
-    glVertex3f(0.0f, 0.0f, 0.0f);
-    glVertex3f(0.0f, 1.0f, 0.0f);
-    glVertex3f(0.0f, 2.0f, 1.0f);
-    glVertex3f(1.0f, 3.0f, 0.0f);
-    glEnd();
     glPopMatrix();
 }
 
@@ -593,7 +665,7 @@ void render()
     glLoadIdentity();
     gluLookAt(
         camera.computed_eye[0], camera.computed_eye[1], camera.computed_eye[2],
-        0, 0, 0,
+        sim.pose.origin[0], sim.pose.origin[1], sim.pose.origin[2],
         0, 1, 0);
 
     // camera_transform(&camera);
@@ -645,8 +717,6 @@ void render()
 
     render_flare();
 
-    // render_wires();
-
     gl_context_end();
 
     rdpq_detach_show();
@@ -685,7 +755,7 @@ int main()
     rdpq_init();
     gl_init();
 
-    // glEnable(GL_MULTISAMPLE_ARB);
+    glEnable(GL_MULTISAMPLE_ARB);
 
 #if DEBUG_RDP
     rdpq_debug_start();
@@ -737,41 +807,37 @@ int main()
         }
 
         if (down.c[0].L) {
-            fog_enabled = !fog_enabled;
-            if (fog_enabled) {
-                glEnable(GL_FOG);
-            } else {
-                glDisable(GL_FOG);
-            }
+            debugf("show wires\n");
+            sim.debug.show_wires = !sim.debug.show_wires;
         }
 
+        const float nudge=0.01f;
+        bool c_pressed = false;
+
         if (down.c[0].C_up) {
-            if (sphere_rings < SPHERE_MAX_RINGS) {
-                sphere_rings++;
-            }
-
-            if (sphere_segments < SPHERE_MAX_SEGMENTS) {
-                sphere_segments++;
-            }
-
-            make_sphere_mesh();
+            debug_z_shift += nudge;
+            c_pressed = true;
         }
 
         if (down.c[0].C_down) {
-            if (sphere_rings > SPHERE_MIN_RINGS) {
-                sphere_rings--;
-            }
+            debug_z_shift -= nudge;
+            c_pressed = true;
+        }
 
-            if (sphere_segments > SPHERE_MIN_SEGMENTS) {
-                sphere_segments--;
-            }
-            
-            make_sphere_mesh();
+        if (down.c[0].C_left) {
+            debug_x_shift -= nudge;
+            c_pressed = true;
         }
 
         if (down.c[0].C_right) {
-            texture_index = (texture_index + 1) % 4;
+            debug_x_shift += nudge;
+            c_pressed = true;
         }
+
+        if (c_pressed) {
+            debugf("xz shift: (%f, %f)\n", debug_x_shift, debug_z_shift);
+        }
+
 
         float y = pressed.c[0].y / 128.f;
         float x = pressed.c[0].x / 128.f;
