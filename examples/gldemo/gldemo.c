@@ -87,6 +87,130 @@ void set_gemstone_material()
     glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, color);
 }
 
+#define MESH_MAX_VERTICES (36)
+#define MESH_MAX_INDICES (60)
+
+struct shadow_mesh {
+    float verts[MESH_MAX_VERTICES][3];
+    uint16_t indices[MESH_MAX_INDICES];
+    int num_vertices;
+    int num_indices;
+};
+
+static struct shadow_mesh smesh_gemstone;
+
+
+static void shadow_mesh_init(struct shadow_mesh* mesh)
+{
+    memset(mesh, 0, sizeof(struct shadow_mesh));
+}
+
+static bool shadow_mesh_extract(struct shadow_mesh* mesh, model64_t* model)
+{
+    bool verbose = false;
+    shadow_mesh_init(mesh);
+
+    primitive_t* prim = &model_gemstone->meshes[0].primitives[0];
+    attribute_t* attr = &prim->position;
+
+    if (verbose) {
+        debugf("Num primitives: %lu\n", model_gemstone->meshes[0].num_primitives);
+        debugf("Num vertices: %lu\n", prim->num_vertices);
+        debugf("Num indices: %lu\n", prim->num_indices);
+
+        debugf("Primitive 0 pos attribute:\nsize=%lu, type=%lu, stride=%lu, pointer=%p\n",
+               attr->size,
+               attr->type,
+               attr->stride,
+               attr->pointer);
+    }
+
+    int old_to_new[MESH_MAX_VERTICES] = {-1};
+
+    assert(prim->num_vertices <= MESH_MAX_VERTICES); // not strictly needed tue to deduplication
+    assert(prim->num_indices <= MESH_MAX_INDICES);
+    assert(prim->position.type == GL_HALF_FIXED_N64);
+
+    int bits = prim->vertex_precision;
+    float scale = 1.0f / (1 << bits);
+    if (verbose) debugf("position bits: %d, scale: %f\n", bits, scale);
+
+    attribute_t* position = &prim->position;
+    assert(position->size == 3);
+
+    typedef int16_t u_int16_t __attribute__((aligned(1)));
+
+    for (uint32_t vertex_id=0; vertex_id < prim->num_vertices; vertex_id++) {
+        u_int16_t* pos = (u_int16_t*)(position->pointer + position->stride * vertex_id);
+        float f[3] = {scale * pos[0], scale * pos[1], scale * pos[2]};
+        // debugf("[%lu] (%d, %d, %d) -> (%f, %f, %f)\n", vertex_id, pos[0], pos[1], pos[2], f[0], f[1], f[2]);
+
+        int new_idx = -1;
+        for (int slot=0; slot < mesh->num_vertices; slot++) {
+            if (mesh->verts[slot][0] == f[0] && mesh->verts[slot][1] == f[1] && mesh->verts[slot][2] == f[2]) {
+                // debugf(" same as slot %d = (%f, %f, %f)\n", slot, f[0], f[1], f[2]);
+                new_idx = slot;
+                break;
+            }
+        }
+
+        if (new_idx == -1) {
+            new_idx = mesh->num_vertices++;
+            // debugf(" setting slot %d\n", new_idx);
+            mesh->verts[new_idx][0] = f[0];
+            mesh->verts[new_idx][1] = f[1];
+            mesh->verts[new_idx][2] = f[2];
+        }
+
+        old_to_new[vertex_id] = new_idx;
+    }
+
+    if (verbose) {
+        for (int i = 0; i < prim->num_vertices; i++) {
+            debugf("old_to_new[%d] = %d\n", i, old_to_new[i]);
+        }
+    }
+
+    uint16_t* prim_indices = (uint16_t*)prim->indices;
+    for (uint32_t i=0; i < prim->num_indices; i++) {
+        mesh->indices[mesh->num_indices++] = old_to_new[prim_indices[i]];
+    }
+
+    if (verbose) {
+        debugf("index buffer:\n");
+        for (int i = 0; i < mesh->num_indices; i++) {
+            debugf("%d, ", mesh->indices[i]);
+        }
+        debugf("\n");
+    }
+
+    // deduplicate vertices by position
+    // build a new, simpler, index buffer
+
+    // then project to ground!
+    //      can fake this by directional projection, maybe
+    // what if a vertex projects above ground?
+    //  would need to clip the mesh
+    return true;
+}
+
+void shadow_mesh_draw(struct shadow_mesh* mesh) {
+    if (mesh->num_indices == 0) {
+        debugf("Warning: shadow mesh had an empty index buffer\n");
+        return;
+    }
+
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    glDisableClientState(GL_NORMAL_ARRAY);
+    glDisableClientState(GL_COLOR_ARRAY);
+
+    glVertexPointer(3, GL_FLOAT, sizeof(float) * 3, &mesh->verts[0]);
+    glDrawElements(GL_TRIANGLES, mesh->num_indices, GL_UNSIGNED_SHORT, &mesh->indices[0]);
+
+    glDisableClientState(GL_VERTEX_ARRAY);
+}
+
 void setup()
 {
     camera.distance = -10.0f;
@@ -162,98 +286,9 @@ void setup()
     model_gemstone = model64_load("rom:/gemstone.model64");
     assert(model_gemstone);
 
-    primitive_t* prim = &model_gemstone->meshes[0].primitives[0];
-    attribute_t* attr = &prim->position;
-
-    debugf("Num primitives: %lu\n", model_gemstone->meshes[0].num_primitives);
-    debugf("Num vertices: %lu\n", prim->num_vertices);
-    debugf("Num indices: %lu\n", prim->num_indices);
-
-    debugf("Primitive 0 pos attribute:\nsize=%lu, type=%lu, stride=%lu, pointer=%p\n",
-        attr->size,
-        attr->type,
-        attr->stride,
-        attr->pointer);
-    
-    for (uint32_t i=0;i<prim->num_indices;i++) {
-        assert(prim->index_type == GL_UNSIGNED_SHORT);
-        uint16_t idx = ((uint16_t*)prim->indices)[i];
-        //debugf("[%lu] idx=%d\n", i, idx);
+    if (!shadow_mesh_extract(&smesh_gemstone, model_gemstone)) {
+        debugf("Shadow mesh generation failed\n");
     }
-
-    #define MESH_MAX_VERTICES (36)
-    #define MESH_MAX_INDICES (60)
-
-    // #define MESH_MAX_INDICES (100)
-    // uint16_t old_to_new_index[MESH_MAX_INDICES];
-
-    float new_verts[MESH_MAX_VERTICES][3];
-    uint16_t new_indices[MESH_MAX_INDICES];
-    int old_to_new[MESH_MAX_VERTICES] = {-1};
-    int num_vertices=0;
-    int num_indices=0;
-
-    assert(prim->num_vertices <= MESH_MAX_VERTICES);
-    assert(prim->num_indices <= MESH_MAX_INDICES);
-    
-    assert(prim->position.type == GL_HALF_FIXED_N64);
-
-    int bits = prim->vertex_precision;
-    float scale = 1.0f / (1 << bits);
-    debugf("position bits: %d, scale: %f\n", bits, scale);
-
-    attribute_t* position = &prim->position;
-    assert(position->size == 3);
-
-    typedef int16_t u_int16_t __attribute__((aligned(1)));
-
-    for (uint32_t vertex_id=0; vertex_id < prim->num_vertices; vertex_id++) {
-        u_int16_t* pos = (u_int16_t*)(position->pointer + position->stride * vertex_id);
-        float f[3] = {scale * pos[0], scale * pos[1], scale * pos[2]};
-        debugf("[%lu] (%d, %d, %d) -> (%f, %f, %f)\n", vertex_id, pos[0], pos[1], pos[2], f[0], f[1], f[2]);
-
-        int new_idx = -1;
-        for (int slot=0; slot < num_vertices; slot++) {
-            if (new_verts[slot][0] == f[0] && new_verts[slot][1] == f[1] && new_verts[slot][2] == f[2]) {
-                debugf(" same as slot %d = (%f, %f, %f)\n", slot, f[0], f[1], f[2]);
-                new_idx = slot;
-                break;
-            }
-        }
-
-        if (new_idx == -1) {
-            new_idx = num_vertices++;
-            debugf(" setting slot %d\n", new_idx);
-            new_verts[new_idx][0] = f[0];
-            new_verts[new_idx][1] = f[1];
-            new_verts[new_idx][2] = f[2];
-        }
-
-        old_to_new[vertex_id] = new_idx;
-    }
-
-    for (int i=0; i<prim->num_vertices; i++) {
-        debugf("old_to_new[%d] = %d\n", i, old_to_new[i]);
-    }
-
-    uint16_t* prim_indices = (uint16_t*)prim->indices;
-    for (uint32_t i=0; i < prim->num_indices; i++) {
-        new_indices[num_indices++] = old_to_new[prim_indices[i]];
-    }
-
-    debugf("index buffer:\n");
-    for (int i=0; i<num_indices; i++) {
-        debugf("%d, ", new_indices[i]);
-    }
-    debugf("\n");
-
-    // deduplicate vertices by position
-    // build a new, simpler, index buffer
-
-    // then project to ground!
-    //      can fake this by directional projection, maybe
-    // what if a vertex projects above ground?
-    //  would need to clip the mesh
 }
 
 static void vec3_normalize_(float* v) {
@@ -740,6 +775,15 @@ void render_flare()
     // }
 }
 
+void render_shadows()
+{
+    glPushMatrix();
+    glTranslatef(0.0f, 4.0f, 0.0f);
+    set_diffuse_material();
+    shadow_mesh_draw(&smesh_gemstone);
+    glPopMatrix();
+}
+
 void render()
 {
     surface_t *disp = display_get();
@@ -817,6 +861,8 @@ void render()
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
     // render_primitives(rotation);
+
+    render_shadows();
 
     render_flare();
 
