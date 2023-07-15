@@ -820,6 +820,7 @@ void render_shadows()
 
     mat4_t world_to_object;
     mat4_invert_rigid_xform(mesh->object_to_world, world_to_object);
+    float light_world[4] = {light_pos[0][0], light_pos[0][1], light_pos[0][2], 1.0f};
     //TODO apply this world_to_object to light
     //TODO compute light to vertex for each vert
 
