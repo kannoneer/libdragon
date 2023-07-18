@@ -158,6 +158,37 @@ void mat4_mul_vec4(const mat4_t A, const float* x, float* y)
     }
 }
 
+void print_vec3(float* v) {
+    debugf("[%f,%f,%f]\n", v[0], v[1], v[2]);
+}
+
 void print_vec4(float* v) {
     debugf("[%f,%f,%f,%f]\n", v[0], v[1], v[2], v[3]);
+}
+
+float vec3_dot(const float *a, const float *b) {
+    return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+}
+
+// Adapted from https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-plane-and-ray-disk-intersection.html
+// 
+// n:   plane normal
+// p0:  point on plane
+// l0:  ray origin
+// l:   ray direction
+// out_t: ray length output
+
+// Returns true if the plane was hit.
+bool intersect_plane(const float *n, const float *p0, const float *l0, const float* l, float *out_t)
+{
+    // assuming vectors are all normalized
+    float denom = vec3_dot(n, l);
+    if (denom > 1e-6) {
+        float p0l0[3]; // = p0 - l0;
+        vec3_sub(p0, l0, p0l0);
+        *out_t = vec3_dot(p0l0, n) / denom; 
+        return (*out_t >= 0);
+    }
+
+    return false;
 }

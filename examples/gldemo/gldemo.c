@@ -681,12 +681,59 @@ void render_shadows()
     float light_obj[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     mat4_mul_vec4(world_to_object, light_world, light_obj);
 
-    debugf("world_to_object:\n");
+    debugf("world_to_object: ");
     print_mat4(world_to_object);
-    debugf("light_world:\n");
+    debugf("light_world: ");
     print_vec4(light_world);
-    debugf("light_obj:\n");
+    debugf("light_obj: ");
     print_vec4(light_obj);
+
+    // PROBLEM: raytrace is done in object space, ground plane is world space?
+    //  - transform every vertex to world space?
+    //  - transform plane to object space?
+    //      - TODO how to raytrace any plane and ray?
+    // TODO transform shadow mesh when rendering
+    float plane_normal[3] = {0.f, -1.0f, 0.0f};
+    float plane_origin[3] = {0.0f, -2.0f, 0.0f};
+
+    for (int i=0; i<mesh->num_vertices; i++) {
+        float* vert = &mesh->verts[i][0];
+        float light_to_vert[3];
+        vec3_sub(vert, light_obj, light_to_vert);
+        vec3_normalize_(light_to_vert);
+
+        debugf("light_to_vert: ");
+        print_vec3(light_to_vert);
+
+        float t=0.0f;
+        // TODO light_to_vert.y < 0 so denom < 0?
+        bool hit = intersect_plane(plane_normal, plane_origin, light_obj, light_to_vert, &t);
+
+        debugf("[%d], hit=%s, t=%f\n", i, hit ? "true" : "false", t);
+
+        if (!hit) {
+            t = 1000.0f;
+        }
+
+        // float dy = light_to_vert[1];
+        // float t;
+        // if (dy > -0.01f) {
+        //     t = 1000.0f; // HACK avoid divide by zero and sky
+        // } else {
+        //     t = -vert[1] / dy;
+        // }
+
+        // debugf("[%d] dy=%f, t=%f\n", i, dy, t);
+
+        // light_to_vert will be a ray offset from vertex to floor
+        float result[3]; // projected position. TODO could reuse light_to_vert here?
+        vec3_copy(vert, result);
+        vec3_scale(t, light_to_vert);
+        vec3_add(result, light_to_vert, result);
+        // add floor offset to vertex position. we copied positions with a memcpy already above
+        vec3_add(&mesh->verts_proj[i][0], result, &mesh->verts_proj[i][0]);
+
+    }
 
     //TODO apply this world_to_object to light
     //TODO compute light to vertex for each vert
@@ -734,7 +781,7 @@ void render()
     float langle = time_secs * 0.4f;
 
     light_pos[0][0] = dist * cos(langle);
-    light_pos[0][1] = 6.0f + sin(time_secs*0.8f);
+    light_pos[0][1] = 8.0f + sin(time_secs*0.8f);
     light_pos[0][2] = dist * sin(langle);
 
     glLightfv(GL_LIGHT0, GL_POSITION, light_pos[0]);
@@ -748,18 +795,7 @@ void render()
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
     
-    render_plane();
-    // render_decal();
-
-    // glPushMatrix();
-    // for (int i=0;i<3;i++) {
-    //     glTranslatef(4.0f, 2.0f, 0.f);
-    //     glRotatef(20.0f, 0.1f, 0.0f, 0.2f);
-    //     glScalef(0.5f, 0.5f, 0.5f);
-    //     render_cube(time_secs);
-    // }
-    // glPopMatrix();
-    // render_skinned(&camera, animation);
+    // render_plane();
 
     glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
     render_sphere(rotation);
