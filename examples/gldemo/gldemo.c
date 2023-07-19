@@ -89,16 +89,24 @@ static const char *texture_path[NUM_TEXTURES] = {
 
 static sprite_t *sprites[NUM_TEXTURES];
 
-void set_diffuse_material()
+static void set_diffuse_material()
 {
     GLfloat mat_diffuse[] = { 1.0f, 1.0f, 1.0f, 1.0f };
     glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, mat_diffuse);
 }
 
-void set_gemstone_material()
+static void set_gemstone_material()
 {
     GLfloat color[] = { 2.0f, 2.0f, 2.0f, 0.75f };
     glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, color);
+}
+
+static void set_shadow_material()
+{
+    GLfloat color[] = { 0.0f, 0.0f, 0.0f, 0.5 };
+    glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, color);
+    // glMaterialfv is equivalent to glEnable(GL_COLOR_MATERIAL), glColorMaterial, glColor3f
+    //glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
 }
 
 #define MESH_MAX_VERTICES (36)
@@ -223,8 +231,8 @@ void shadow_mesh_draw(struct shadow_mesh* mesh) {
 
 void setup()
 {
-    camera.distance = -10.0f;
-    camera.rotation = 0.0f;
+    camera.distance = -5.0f;
+    camera.rotation = 0.5f;
 
     zbuffer = surface_alloc(FMT_RGBA16, display_get_width(), display_get_height());
 
@@ -706,15 +714,17 @@ void render_shadows()
     glPushMatrix();
     glMultMatrixf(&mesh->object_to_world[0][0]);
 
-    glPushMatrix();
+    if (false) {
+        glPushMatrix();
         glBegin(GL_LINES);
         glColor3b(255, 0, 255);
-        //glVertex3fv(&gem_origin_obj[0]);
+        // glVertex3fv(&gem_origin_obj[0]);
         glVertex3f(0.0f, 0.0f, 0.0f);
         glColor3b(255, 0, 255);
         glVertex3fv(&light_obj[0]);
         glEnd();
-    glPopMatrix();
+        glPopMatrix();
+    }
 
     for (int i=0; i<mesh->num_vertices; i++) {
         float* vert = &mesh->verts[i][0];
@@ -735,25 +745,33 @@ void render_shadows()
             t = 1000.0f;
         }
 
-        if (false) {
+        // light_to_vert will be a ray offset from vertex to floor
+        // float light_to_plane[3]; // projected position. TODO could reuse light_to_vert here?
+        //vec3_copy(light_obj, light_to_plane);
+        vec3_scale(t, light_to_vert);
+        //vec3_add(result, light_to_vert, result);
+
+        // add floor offset to vertex position. we copied positions with a memcpy already above
+        vec3_add(light_obj, light_to_vert, &mesh->verts_proj[i][0]);
+
+        if (true) {
             glBegin(GL_LINES);
             glColor3b(255, 0, 255);
             glVertex3fv(vert);
             glColor3b(255, 0, 255);
-            glVertex3fv(light_obj);
+            glVertex3fv(&mesh->verts_proj[i][0]);
             glEnd();
         }
-
-        // light_to_vert will be a ray offset from vertex to floor
-        float result[3]; // projected position. TODO could reuse light_to_vert here?
-        vec3_copy(vert, result);
-        vec3_scale(t, light_to_vert);
-        vec3_add(result, light_to_vert, result);
-        // add floor offset to vertex position. we copied positions with a memcpy already above
-        vec3_add(&mesh->verts_proj[i][0], result, &mesh->verts_proj[i][0]);
     }
 
+    glDisable(GL_LIGHTING);
+    //glEnable(GL_COLOR_MATERIAL); // should be enabled?
+    set_shadow_material();
+    glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND);
     shadow_mesh_draw(&smesh_gemstone);
+    glDisable(GL_BLEND);
+    glDepthMask(GL_TRUE);
 
     glPopMatrix();
 }
