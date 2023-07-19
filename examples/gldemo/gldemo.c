@@ -40,6 +40,7 @@ static camera_t camera;
 static surface_t zbuffer;
 
 static float time_secs = 0.0f;
+static int time_frames = 0;
 
 #define NUM_TEXTURES (7)
 #define TEX_CEILING (4)
@@ -531,7 +532,6 @@ void sim_render()
     }
 
     glPushMatrix();
-    //glTranslatef(0, 8, 0);
     glBegin(GL_LINES);
     for (int i=0;i<sim.num_springs;i++) {
         struct Spring spring = sim.springs[i];
@@ -545,6 +545,7 @@ void sim_render()
         }
     }
     glEnd();
+    glPopMatrix();
 
     glEnable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
@@ -562,7 +563,6 @@ void sim_render()
     mat4_t shift;
     mat4_make_translation(debug_x_shift, -0.28f, 0.0f, shift);
     mat4_mul(basis, shift, basis);
-
 
     mat4_ucopy(basis, smesh_gemstone.object_to_world);
 
@@ -605,32 +605,22 @@ void sim_render()
     glEnable(GL_TEXTURE_GEN_T);
 
     glPushMatrix();
-    glMultMatrixf(&basis[0][0]);
+        glMultMatrixf(&basis[0][0]);
 
-    glCullFace(GL_FRONT);
-    model64_draw(model_gemstone);
-    glCullFace(GL_BACK);
-    model64_draw(model_gemstone);
+        glCullFace(GL_FRONT);
+        model64_draw(model_gemstone);
+        glCullFace(GL_BACK);
+        model64_draw(model_gemstone);
 
-    glDisable(GL_TEXTURE_2D);
-    glDisable(GL_TEXTURE_GEN_S);
-    glDisable(GL_TEXTURE_GEN_T);
-    glDisable(GL_BLEND);
-    
-    glPopMatrix();
+        glDisable(GL_TEXTURE_2D);
+        glDisable(GL_TEXTURE_GEN_S);
+        glDisable(GL_TEXTURE_GEN_T);
+        glDisable(GL_BLEND);
     glPopMatrix();
 }
 
 void render_flare()
 {
-    glPushMatrix();
-
-    glTranslatef(light_pos[0][0], light_pos[0][1], light_pos[0][2]);
-
-    float to_cam[3];
-    vec3_sub(camera.computed_eye, light_pos[0],to_cam);
-    float dist = vec3_length(to_cam);
-    
     set_diffuse_material();
     glDisable(GL_LIGHTING);
 
@@ -641,7 +631,13 @@ void render_flare()
     
     //glEnable(GL_BLEND);
 
+    float to_cam[3];
+    vec3_sub(camera.computed_eye, &light_pos[0][0], to_cam);
+    float dist = vec3_length(to_cam);
     glPointSize(400.0f / (dist+1.0f));
+
+    glPushMatrix();
+    glTranslatef(light_pos[0][0], light_pos[0][1], light_pos[0][2]);
     glBegin(GL_POINTS);
     //render_unit_cube_points();
     glColor3f(1.0f, 1.0f, 1.0f);
@@ -661,9 +657,9 @@ void render_flare()
 
 void render_shadows()
 {
-    glPushMatrix();
-    glTranslatef(0.0f, 4.0f, 0.0f);
     set_diffuse_material();
+    glDisable(GL_LIGHTING);
+
     struct shadow_mesh* mesh = &smesh_gemstone;
 
     // transform light position to object space
@@ -676,7 +672,10 @@ void render_shadows()
     memcpy(&mesh->verts_proj[0], &mesh->verts[0], sizeof(float) * 3 * mesh->num_vertices);
 
     mat4_t world_to_object;
-    mat4_invert_rigid_xform(mesh->object_to_world, world_to_object);
+    //mat4_invert_rigid_xform(mesh->object_to_world, world_to_object);
+    mat4_invert_rigid_xform2(mesh->object_to_world, world_to_object);
+    //debugf("HACK using slow invert\n");
+    //mat4_invert(&mesh->object_to_world[0][0], &world_to_object[0][0]);
     float light_world[4] = {light_pos[0][0], light_pos[0][1], light_pos[0][2], 1.0f};
     float light_obj[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     mat4_mul_vec4(world_to_object, light_world, light_obj);
@@ -688,13 +687,34 @@ void render_shadows()
     debugf("light_obj: ");
     print_vec4(light_obj);
 
+    //float gem_origin_obj[4];
+    //float zero_vec[4] = {0.f, 0.f, 0.f, 1.f};
+    //mat4_mul_vec4(object_to_world, zero_vec, gem_origin_obj);
+
     // PROBLEM: raytrace is done in object space, ground plane is world space?
     //  - transform every vertex to world space?
     //  - transform plane to object space?
     //      - TODO how to raytrace any plane and ray?
     // TODO transform shadow mesh when rendering
-    float plane_normal[3] = {0.f, -1.0f, 0.0f};
-    float plane_origin[3] = {0.0f, -2.0f, 0.0f};
+    float plane_normal[4] = {0.f, -1.0f, 0.0f, 0.0f};
+    float plane_origin[4] = {0.0f, 2.0f, 0.0f, 1.0f};
+
+    mat4_mul_vec4(world_to_object, plane_normal, plane_normal);
+    mat4_mul_vec4(world_to_object, plane_origin, plane_origin);
+
+    vec3_normalize_(plane_normal); // in case transformation matrix has scaling
+    glPushMatrix();
+    glMultMatrixf(&mesh->object_to_world[0][0]);
+
+    glPushMatrix();
+        glBegin(GL_LINES);
+        glColor3b(255, 0, 255);
+        //glVertex3fv(&gem_origin_obj[0]);
+        glVertex3f(0.0f, 0.0f, 0.0f);
+        glColor3b(255, 0, 255);
+        glVertex3fv(&light_obj[0]);
+        glEnd();
+    glPopMatrix();
 
     for (int i=0; i<mesh->num_vertices; i++) {
         float* vert = &mesh->verts[i][0];
@@ -715,15 +735,14 @@ void render_shadows()
             t = 1000.0f;
         }
 
-        // float dy = light_to_vert[1];
-        // float t;
-        // if (dy > -0.01f) {
-        //     t = 1000.0f; // HACK avoid divide by zero and sky
-        // } else {
-        //     t = -vert[1] / dy;
-        // }
-
-        // debugf("[%d] dy=%f, t=%f\n", i, dy, t);
+        if (false) {
+            glBegin(GL_LINES);
+            glColor3b(255, 0, 255);
+            glVertex3fv(vert);
+            glColor3b(255, 0, 255);
+            glVertex3fv(light_obj);
+            glEnd();
+        }
 
         // light_to_vert will be a ray offset from vertex to floor
         float result[3]; // projected position. TODO could reuse light_to_vert here?
@@ -732,13 +751,10 @@ void render_shadows()
         vec3_add(result, light_to_vert, result);
         // add floor offset to vertex position. we copied positions with a memcpy already above
         vec3_add(&mesh->verts_proj[i][0], result, &mesh->verts_proj[i][0]);
-
     }
 
-    //TODO apply this world_to_object to light
-    //TODO compute light to vertex for each vert
-
     shadow_mesh_draw(&smesh_gemstone);
+
     glPopMatrix();
 }
 
@@ -800,17 +816,17 @@ void render()
     glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
     render_sphere(rotation);
 
-    sim_update();
+    if (time_frames < 3) {
+        sim_update();
+    }
     sim_render();
 
     set_diffuse_material();
 
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
-    // render_primitives(rotation);
 
     render_shadows();
-
     render_flare();
 
     gl_context_end();
@@ -934,7 +950,6 @@ int main()
             debugf("xz shift: (%f, %f)\n", debug_x_shift, debug_z_shift);
         }
 
-
         float y = pressed.c[0].y / 128.f;
         float x = pressed.c[0].x / 128.f;
         float mag = x*x + y*y;
@@ -951,6 +966,8 @@ int main()
         render();
         if (DEBUG_RDP)
             rspq_wait();
+
+        time_frames++;
     }
 
 }
