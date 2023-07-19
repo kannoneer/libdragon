@@ -104,7 +104,11 @@ static void set_gemstone_material()
 static void set_shadow_material()
 {
     GLfloat color[] = { 0.0f, 0.0f, 0.0f, 0.5 };
-    glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, color);
+    //glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, color);
+    glEnable(GL_COLOR_MATERIAL);
+    glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+    glColor4fv(color);
+    //glColor4f(0.0f, 0.0f, 0.0f, 0.5f);
     // glMaterialfv is equivalent to glEnable(GL_COLOR_MATERIAL), glColorMaterial, glColor3f
     //glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
 }
@@ -705,7 +709,7 @@ void render_shadows()
     //      - TODO how to raytrace any plane and ray?
     // TODO transform shadow mesh when rendering
     float plane_normal[4] = {0.f, -1.0f, 0.0f, 0.0f};
-    float plane_origin[4] = {0.0f, 2.0f, 0.0f, 1.0f};
+    float plane_origin[4] = {0.0f, 1.0f, 0.0f, 1.0f};
 
     mat4_mul_vec4(world_to_object, plane_normal, plane_normal);
     mat4_mul_vec4(world_to_object, plane_origin, plane_origin);
@@ -754,7 +758,7 @@ void render_shadows()
         // add floor offset to vertex position. we copied positions with a memcpy already above
         vec3_add(light_obj, light_to_vert, &mesh->verts_proj[i][0]);
 
-        if (true) {
+        if (false) {
             glBegin(GL_LINES);
             glColor3b(255, 0, 255);
             glVertex3fv(vert);
@@ -765,10 +769,10 @@ void render_shadows()
     }
 
     glDisable(GL_LIGHTING);
-    //glEnable(GL_COLOR_MATERIAL); // should be enabled?
     set_shadow_material();
     glDepthMask(GL_FALSE);
     glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     shadow_mesh_draw(&smesh_gemstone);
     glDisable(GL_BLEND);
     glDepthMask(GL_TRUE);
@@ -829,17 +833,16 @@ void render()
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
     
-    // render_plane();
+    render_plane();
 
     glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
     render_sphere(rotation);
 
-    if (time_frames < 3) {
         sim_update();
-    }
+
     sim_render();
 
-    set_diffuse_material();
+    //set_diffuse_material();
 
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
