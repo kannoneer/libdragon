@@ -42,10 +42,11 @@ static surface_t zbuffer;
 static float time_secs = 0.0f;
 static int time_frames = 0;
 
-#define NUM_TEXTURES (7)
+#define NUM_TEXTURES (8)
 #define TEX_CEILING (4)
 #define TEX_FLARE (5)
 #define TEX_ICON (6)
+#define TEX_DIAMOND (7)
 
 static GLuint textures[NUM_TEXTURES];
 
@@ -53,7 +54,8 @@ static GLenum shade_model = GL_SMOOTH;
 
 static model64_t* model_gemstone = NULL;
 
-static const GLfloat environment_color[] = { 0.1f, 0.03f, 0.2f, 1.f };
+static const GLfloat environment_color[] = { 0.03f, 0.03f, 0.05f, 1.f };
+//static const GLfloat environment_color[] = { 0.0f, 0.0f, 0.0f, 1.f };
 
 static GLfloat light_pos[8][4] = {
     { 0.1f, 0, 0, 1 },
@@ -85,6 +87,7 @@ static const char *texture_path[NUM_TEXTURES] = {
     "rom:/ceiling2.ci4.sprite",
     "rom:/star.ia8.sprite",
     "rom:/icon.rgba16.sprite",
+    "rom:/squaremond.i4.sprite",
 };
 
 static sprite_t *sprites[NUM_TEXTURES];
@@ -101,16 +104,20 @@ static void set_gemstone_material()
     glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, color);
 }
 
-static void set_shadow_material()
+static void set_black_shadow_material()
 {
     GLfloat color[] = { 0.0f, 0.0f, 0.0f, 0.5 };
-    //glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, color);
     glEnable(GL_COLOR_MATERIAL);
     glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
     glColor4fv(color);
-    //glColor4f(0.0f, 0.0f, 0.0f, 0.5f);
-    // glMaterialfv is equivalent to glEnable(GL_COLOR_MATERIAL), glColorMaterial, glColor3f
-    //glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+}
+
+static void set_textured_shadow_material()
+{
+    const float shade = 0.0f;
+    GLfloat color[] = { shade, shade, shade, 0.9f };
+    //glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, color);
+    glColor4fv(color);
 }
 
 #define MESH_MAX_VERTICES (36)
@@ -119,6 +126,7 @@ static void set_shadow_material()
 struct shadow_mesh {
     float verts[MESH_MAX_VERTICES][3];
     float verts_proj[MESH_MAX_VERTICES][3];
+    float texcoords[MESH_MAX_VERTICES][2];
     uint16_t indices[MESH_MAX_INDICES];
     int num_vertices;
     int num_indices;
@@ -213,6 +221,16 @@ static bool shadow_mesh_extract(struct shadow_mesh* mesh, model64_t* model)
         debugf("\n");
     }
 
+    for (int i = 0; i < mesh->num_vertices; i++)
+    {
+        // map object space positions to uvs
+        float* p = &mesh->verts[i][0];
+        float u = 0.8f * atan2f(p[2], p[0]) / (2.0f * M_PI);
+        float v = 0.5f * p[1];
+        mesh->texcoords[i][0] = u;
+        mesh->texcoords[i][1] = v;
+    }
+
     return true;
 }
 
@@ -223,14 +241,16 @@ void shadow_mesh_draw(struct shadow_mesh* mesh) {
     }
 
     glEnableClientState(GL_VERTEX_ARRAY);
-    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
     glDisableClientState(GL_NORMAL_ARRAY);
     glDisableClientState(GL_COLOR_ARRAY);
 
     glVertexPointer(3, GL_FLOAT, sizeof(float) * 3, &mesh->verts_proj[0]);
+    glTexCoordPointer(2, GL_FLOAT, sizeof(float) * 2, &mesh->texcoords[0]);
     glDrawElements(GL_TRIANGLES, mesh->num_indices, GL_UNSIGNED_SHORT, &mesh->indices[0]);
 
     glDisableClientState(GL_VERTEX_ARRAY);
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
 }
 
 void setup()
@@ -684,10 +704,7 @@ void render_shadows()
     memcpy(&mesh->verts_proj[0], &mesh->verts[0], sizeof(float) * 3 * mesh->num_vertices);
 
     mat4_t world_to_object;
-    //mat4_invert_rigid_xform(mesh->object_to_world, world_to_object);
     mat4_invert_rigid_xform2(mesh->object_to_world, world_to_object);
-    //debugf("HACK using slow invert\n");
-    //mat4_invert(&mesh->object_to_world[0][0], &world_to_object[0][0]);
     float light_world[4] = {light_pos[0][0], light_pos[0][1], light_pos[0][2], 1.0f};
     float light_obj[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     mat4_mul_vec4(world_to_object, light_world, light_obj);
@@ -699,15 +716,6 @@ void render_shadows()
     debugf("light_obj: ");
     print_vec4(light_obj);
 
-    //float gem_origin_obj[4];
-    //float zero_vec[4] = {0.f, 0.f, 0.f, 1.f};
-    //mat4_mul_vec4(object_to_world, zero_vec, gem_origin_obj);
-
-    // PROBLEM: raytrace is done in object space, ground plane is world space?
-    //  - transform every vertex to world space?
-    //  - transform plane to object space?
-    //      - TODO how to raytrace any plane and ray?
-    // TODO transform shadow mesh when rendering
     float plane_normal[4] = {0.f, -1.0f, 0.0f, 0.0f};
     float plane_origin[4] = {0.0f, 1.0f, 0.0f, 1.0f};
 
@@ -749,13 +757,7 @@ void render_shadows()
             t = 1000.0f;
         }
 
-        // light_to_vert will be a ray offset from vertex to floor
-        // float light_to_plane[3]; // projected position. TODO could reuse light_to_vert here?
-        //vec3_copy(light_obj, light_to_plane);
         vec3_scale(t, light_to_vert);
-        //vec3_add(result, light_to_vert, result);
-
-        // add floor offset to vertex position. we copied positions with a memcpy already above
         vec3_add(light_obj, light_to_vert, &mesh->verts_proj[i][0]);
 
         if (false) {
@@ -768,14 +770,22 @@ void render_shadows()
         }
     }
 
+    glBindTexture(GL_TEXTURE_2D, textures[TEX_DIAMOND]);
+    glEnable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
-    set_shadow_material();
+    set_textured_shadow_material();
+
+    glCullFace(GL_BACK);
     glDepthMask(GL_FALSE);
+    glDepthFunc(GL_LESS_INTERPENETRATING_N64);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
     shadow_mesh_draw(&smesh_gemstone);
+    glCullFace(GL_BACK);
     glDisable(GL_BLEND);
     glDepthMask(GL_TRUE);
+    glDepthFunc(GL_LESS);
 
     glPopMatrix();
 }
