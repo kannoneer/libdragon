@@ -1,6 +1,20 @@
+#ifndef MYMATH_H_INCLUDED
+#define MYMATH_H_INCLUDED
+
 #include <math.h>
 
 #include <libdragon.h>
+
+#define RAND_MAX (0xffffffffU)
+
+static uint32_t rand_state = 1;
+static uint32_t rand(void) {
+	uint32_t x = rand_state;
+	x ^= x << 13;
+	x ^= x >> 7;
+	x ^= x << 5;
+	return rand_state = x;
+}
 
 static void vec3_normalize_(float* v) {
     float invscale = 1.0f / sqrtf(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
@@ -380,4 +394,4 @@ bool intersect_plane(const float *n, const float *p0, const float *l0, const flo
 
     return false;
 }
-
+#endif

@@ -16,17 +16,7 @@
 #include "skinned.h"
 
 #include "mymath.h"
-
-#define RAND_MAX (0xffffffffU)
-
-static uint32_t rand_state = 1;
-static uint32_t rand(void) {
-	uint32_t x = rand_state;
-	x ^= x << 13;
-	x ^= x >> 7;
-	x ^= x << 5;
-	return rand_state = x;
-}
+#include "sim.h"
 
 // Set this to 1 to enable rdpq debug output.
 // The demo will only run for a single frame and stop.
@@ -104,18 +94,10 @@ static void set_gemstone_material()
     glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, color);
 }
 
-static void set_black_shadow_material()
-{
-    GLfloat color[] = { 0.0f, 0.0f, 0.0f, 0.5 };
-    glEnable(GL_COLOR_MATERIAL);
-    glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
-    glColor4fv(color);
-}
-
 static void set_textured_shadow_material()
 {
     const float shade = 0.0f;
-    GLfloat color[] = { shade, shade, shade, 0.9f };
+    GLfloat color[] = { shade, shade, shade, 0.6f };
     //glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, color);
     glColor4fv(color);
 }
@@ -136,6 +118,105 @@ struct shadow_mesh {
 
 static struct shadow_mesh smesh_gemstone;
 
+static float debug_z_shift = 0.0f;
+static float debug_x_shift = 0.0f;
+
+void sim_render()
+{
+    glDisable(GL_TEXTURE_2D);
+    if (sim.debug.show_wires) {
+        glDisable(GL_LIGHTING);
+    } else {
+        glEnable(GL_LIGHTING);
+    }
+
+    glPushMatrix();
+    glBegin(GL_LINES);
+    for (int i=0;i<sim.num_springs;i++) {
+        struct Spring spring = sim.springs[i];
+        if (sim.spring_visible[i] || sim.debug.show_wires) {
+            float* pa = &sim.x[spring.from*3];
+            float* pb = &sim.x[spring.to*3];
+            glVertex3f(pa[0], pa[1], pa[2]);
+            glVertex3f(pb[0], pb[1], pb[2]);
+            //glColor3f(i % 2, (i % 3)/2.0f, (i%4)/4.0f);
+            glColor3f(1.0f, 1.0f, 1.0f);
+        }
+    }
+    glEnd();
+    glPopMatrix();
+
+    glEnable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+
+    mat4_t basis;
+    mat4_set_identity(basis);
+
+    vec3_copy(sim.pose.u, &basis[2][0]);
+    vec3_copy(sim.pose.n, &basis[1][0]);
+    vec3_cross(sim.pose.u, sim.pose.n, &basis[0][0]);
+
+    // translate
+    vec3_copy(sim.pose.origin, &basis[3][0]);
+
+    mat4_t shift;
+    mat4_make_translation(debug_x_shift, -0.28f, 0.0f, shift);
+    mat4_mul(basis, shift, basis);
+
+    mat4_ucopy(basis, smesh_gemstone.object_to_world);
+
+    if (false) {
+        mat4_t inverse;
+        mat4_t result;
+        mat4_invert_rigid_xform(basis, inverse);
+        mat4_mul(inverse, basis, result);
+
+        debugf("basis:\n");
+        print_mat4(basis);
+        debugf("inverse:\n");
+        print_mat4(inverse);
+        debugf("result:\n");
+        print_mat4(result);
+    }
+
+    if (false) {
+        debugf("shift:\n");
+        print_mat4(shift);
+
+        debugf("u: (%f, %f, %f)\n", sim.pose.u[0], sim.pose.u[1], sim.pose.u[2]);
+        debugf("v: (%f, %f, %f)\n", sim.pose.v[0], sim.pose.v[1], sim.pose.v[2]);
+        debugf("n: (%f, %f, %f)\n", sim.pose.n[0], sim.pose.n[1], sim.pose.n[2]);
+
+        debugf("basis:\n");
+        print_mat4(basis);
+    }
+
+    glEnable(GL_BLEND);
+    set_gemstone_material();
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glEnable(GL_LIGHTING);
+    glBindTexture(GL_TEXTURE_2D, textures[TEX_CEILING]);
+
+    glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
+    glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
+    glEnable(GL_TEXTURE_GEN_S);
+    glEnable(GL_TEXTURE_GEN_T);
+
+    glPushMatrix();
+        glMultMatrixf(&basis[0][0]);
+
+        glCullFace(GL_FRONT);
+        model64_draw(model_gemstone);
+        glCullFace(GL_BACK);
+        model64_draw(model_gemstone);
+
+        glDisable(GL_TEXTURE_2D);
+        glDisable(GL_TEXTURE_GEN_S);
+        glDisable(GL_TEXTURE_GEN_T);
+        glDisable(GL_BLEND);
+    glPopMatrix();
+}
 
 static void shadow_mesh_init(struct shadow_mesh* mesh)
 {
@@ -333,324 +414,6 @@ void setup()
     }
 }
 
-
-#define SIM_MAX_POINTS (100)
-#define MAX_SPRINGS (20)
-
-static struct Simulation {
-    float x[SIM_MAX_POINTS*3];
-    float oldx[SIM_MAX_POINTS*3];
-    int num_points;
-
-    struct Spring {
-        int from;
-        int to;
-        float length;
-    } springs[MAX_SPRINGS];
-
-    bool spring_visible[MAX_SPRINGS];
-
-    int num_springs;
-    float root[3];
-    int num_updates_done;
-
-    struct {
-        int u_inds[2]; // from-to points that make up the u vector
-        int v_inds[2];
-        int attach_top_index; // where the gem is attached
-        int attach_tri_inds[3]; // gem centroid points
-
-        float u[3];
-        float v[3];
-        float n[3];
-
-        float origin[3];
-        float ulength;
-    } pose;
-
-    struct {
-        bool show_wires;
-    } debug;
-} sim;
-
-void sim_init()
-{
-    memset(&sim, 0, sizeof(sim));
-
-    memcpy(sim.oldx, sim.x, sizeof(sim.x));
-
-    for (int i=0;i<MAX_SPRINGS;i++) {
-        sim.spring_visible[i] = false;
-    }
-
-    const float rope_segment = 0.5f;
-    const float side = 2.0f;
-
-    int h=-1;
-    for (int i=1;i<4;i++) {
-        sim.spring_visible[sim.num_springs] = true;
-        sim.springs[sim.num_springs++] = (struct Spring){i-1, i, rope_segment};
-        h = i;
-    }
-
-    sim.springs[sim.num_springs++] = (struct Spring){h, h+1, side};
-    sim.springs[sim.num_springs++] = (struct Spring){h, h+2, side};
-    sim.springs[sim.num_springs++] = (struct Spring){h, h+3, side};
-    sim.springs[sim.num_springs++] = (struct Spring){h+1, h+2, side};
-    sim.springs[sim.num_springs++] = (struct Spring){h+2, h+3, side};
-    sim.springs[sim.num_springs++] = (struct Spring){h+3, h+1, side};
-
-    sim.springs[sim.num_springs++] = (struct Spring){h+1, h+4, side};
-    sim.springs[sim.num_springs++] = (struct Spring){h+2, h+4, side};
-    sim.springs[sim.num_springs++] = (struct Spring){h+3, h+4, side};
-
-
-    sim.pose.u_inds[0] = h+1;
-    sim.pose.u_inds[1] = h+2;
-    sim.pose.v_inds[0] = h+1;
-    sim.pose.v_inds[1] = h+3;
-
-    sim.pose.attach_top_index = h;
-    sim.pose.attach_tri_inds[0] = h+1;
-    sim.pose.attach_tri_inds[1] = h+2;
-    sim.pose.attach_tri_inds[2] = h+3;
-
-    sim.num_points = h+5;
-
-    for (int i=0;i<sim.num_points-1;i++) {
-        int idx = i*3;
-        sim.x[idx + 0] = i*0.5f;
-        sim.x[idx + 1] = i*0.1f;
-        sim.x[idx + 2] = i*0.15f;
-    }
-
-    sim.root[0] = 0.0f;
-    sim.root[1] = 8.0f;
-    sim.root[2] = 0.0f;
-
-    sim.debug.show_wires = false;
-}
-
-void sim_update()
-{
-    const int num_iters = 3;
-    const float gravity = -0.1f;
-
-    // Verlet integration
-
-    sim.x[0] = sim.root[0];
-    sim.x[1] = sim.root[1];
-    sim.x[2] = sim.root[2];
-
-    for (int i = 0; i < sim.num_points; i++) {
-        int idx = i * 3;
-        float* pos = &sim.x[idx];
-        float* old = &sim.oldx[idx];
-
-        float acc[3] = {0.0f, gravity, 0.0f};
-        float temp[3];
-
-        temp[0] = pos[0];
-        temp[1] = pos[1];
-        temp[2] = pos[2];
-
-        pos[0] += pos[0] - old[0] + acc[0];
-        pos[1] += pos[1] - old[1] + acc[1];
-        pos[2] += pos[2] - old[2] + acc[2];
-
-        old[0] = temp[0];
-        old[1] = temp[1];
-        old[2] = temp[2];
-    }
-
-    // Satisfy constraints
-
-    for (int iter = 0; iter < num_iters; iter++) {
-        for (int i=0;i<sim.num_springs;i++) {
-            struct Spring spring = sim.springs[i];
-            float* pa = &sim.x[spring.from*3];
-            float* pb = &sim.x[spring.to*3];
-
-            float delta[3] = {
-                pb[0] - pa[0],
-                pb[1] - pa[1],
-                pb[2] - pa[2]
-            };
-
-            float length = sqrtf(delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]);
-            float diff = (length - spring.length) / length;
-
-            float scale = 0.5f * diff; 
-            pa[0] += scale * delta[0];
-            pa[1] += scale * delta[1];
-            pa[2] += scale * delta[2];
-            pb[0] -= scale * delta[0];
-            pb[1] -= scale * delta[1];
-            pb[2] -= scale * delta[2];
-        }
-    }
-
-    sim.x[0] = sim.root[0];
-    sim.x[1] = sim.root[1];
-    sim.x[2] = sim.root[2];
-
-    // Update object attachment
-
-    // Compute the average position of the "attachment triangle" set in simulation pose struct.
-    const float* a1 = &sim.x[3 * sim.pose.attach_tri_inds[0]];
-    const float* a2 = &sim.x[3 * sim.pose.attach_tri_inds[1]];
-    const float* a3 = &sim.x[3 * sim.pose.attach_tri_inds[2]];
-
-    float centroid[3];
-    vec3_copy(a1, centroid);
-    vec3_add(a1, a2, centroid);
-    vec3_add(centroid, a3, centroid);
-    vec3_scale(0.33333f, centroid);
-
-    sim.pose.origin[0] = centroid[0];
-    sim.pose.origin[1] = centroid[1];
-    sim.pose.origin[2] = centroid[2];
-
-    const float* ufrom   = &sim.x[3 * sim.pose.u_inds[0]];
-    const float* uto     = &sim.x[3 * sim.pose.u_inds[1]];
-    //const float* vfrom   = &sim.x[3 * sim.pose.v_inds[0]];
-    //const float* vto     = &sim.x[3 * sim.pose.v_inds[1]];
-    const float* nfrom   = centroid;
-    const float* nto     = &sim.x[3 * sim.pose.attach_top_index];
-
-    float* uvec = sim.pose.u;
-    float* vvec = sim.pose.v;
-    float* nvec = sim.pose.n;
-
-    vec3_sub(uto, ufrom, uvec);
-    //vec3_sub(vto, vfrom, vvec);
-    vec3_sub(nto, nfrom, nvec);
-
-    sim.pose.ulength = vec3_length(uvec);
-
-    vec3_normalize_(uvec);
-    vec3_normalize_(nvec);
-
-    //vec3_normalize_(vvec);
-     vec3_cross(uvec, nvec, vvec);
-
-    // Debug movement
-
-    sim.num_updates_done++;
-
-    if (sim.num_updates_done % 75 == 0) {
-        sim.root[0] = ((float)rand()/RAND_MAX) * 6.0f - 3.0f;
-        debugf("root[0] = %f\n", sim.root[0]);
-    }
-
-    for (int i=0;i<sim.num_points;i++) {
-        // float* pos = &sim.x[i*3];
-        // debugf("[%d] (%f, %f, %f)\n", i,
-        //     pos[0], pos[1], pos[2]
-        // );
-    }
-}
-
-static float debug_z_shift = 0.0f;
-static float debug_x_shift = 0.0f;
-
-void sim_render()
-{
-    glDisable(GL_TEXTURE_2D);
-    if (sim.debug.show_wires) {
-        glDisable(GL_LIGHTING);
-    } else {
-        glEnable(GL_LIGHTING);
-    }
-
-    glPushMatrix();
-    glBegin(GL_LINES);
-    for (int i=0;i<sim.num_springs;i++) {
-        struct Spring spring = sim.springs[i];
-        if (sim.spring_visible[i] || sim.debug.show_wires) {
-            float* pa = &sim.x[spring.from*3];
-            float* pb = &sim.x[spring.to*3];
-            glVertex3f(pa[0], pa[1], pa[2]);
-            glVertex3f(pb[0], pb[1], pb[2]);
-            //glColor3f(i % 2, (i % 3)/2.0f, (i%4)/4.0f);
-            glColor3f(1.0f, 1.0f, 1.0f);
-        }
-    }
-    glEnd();
-    glPopMatrix();
-
-    glEnable(GL_TEXTURE_2D);
-    glDisable(GL_LIGHTING);
-
-    mat4_t basis;
-    mat4_set_identity(basis);
-
-    vec3_copy(sim.pose.u, &basis[2][0]);
-    vec3_copy(sim.pose.n, &basis[1][0]);
-    vec3_cross(sim.pose.u, sim.pose.n, &basis[0][0]);
-
-    // translate
-    vec3_copy(sim.pose.origin, &basis[3][0]);
-
-    mat4_t shift;
-    mat4_make_translation(debug_x_shift, -0.28f, 0.0f, shift);
-    mat4_mul(basis, shift, basis);
-
-    mat4_ucopy(basis, smesh_gemstone.object_to_world);
-
-    if (false) {
-        mat4_t inverse;
-        mat4_t result;
-        mat4_invert_rigid_xform(basis, inverse);
-        mat4_mul(inverse, basis, result);
-
-        debugf("basis:\n");
-        print_mat4(basis);
-        debugf("inverse:\n");
-        print_mat4(inverse);
-        debugf("result:\n");
-        print_mat4(result);
-    }
-
-    if (false) {
-        debugf("shift:\n");
-        print_mat4(shift);
-
-        debugf("u: (%f, %f, %f)\n", sim.pose.u[0], sim.pose.u[1], sim.pose.u[2]);
-        debugf("v: (%f, %f, %f)\n", sim.pose.v[0], sim.pose.v[1], sim.pose.v[2]);
-        debugf("n: (%f, %f, %f)\n", sim.pose.n[0], sim.pose.n[1], sim.pose.n[2]);
-
-        debugf("basis:\n");
-        print_mat4(basis);
-    }
-
-    glEnable(GL_BLEND);
-    set_gemstone_material();
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    glEnable(GL_LIGHTING);
-    glBindTexture(GL_TEXTURE_2D, textures[TEX_CEILING]);
-
-    glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
-    glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
-    glEnable(GL_TEXTURE_GEN_S);
-    glEnable(GL_TEXTURE_GEN_T);
-
-    glPushMatrix();
-        glMultMatrixf(&basis[0][0]);
-
-        glCullFace(GL_FRONT);
-        model64_draw(model_gemstone);
-        glCullFace(GL_BACK);
-        model64_draw(model_gemstone);
-
-        glDisable(GL_TEXTURE_2D);
-        glDisable(GL_TEXTURE_GEN_S);
-        glDisable(GL_TEXTURE_GEN_T);
-        glDisable(GL_BLEND);
-    glPopMatrix();
-}
-
 void render_flare()
 {
     set_diffuse_material();
@@ -775,14 +538,16 @@ void render_shadows()
     glDisable(GL_LIGHTING);
     set_textured_shadow_material();
 
-    glCullFace(GL_BACK);
     glDepthMask(GL_FALSE);
     glDepthFunc(GL_LESS_INTERPENETRATING_N64);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+    glCullFace(GL_FRONT);
     shadow_mesh_draw(&smesh_gemstone);
     glCullFace(GL_BACK);
+    shadow_mesh_draw(&smesh_gemstone);
+
     glDisable(GL_BLEND);
     glDepthMask(GL_TRUE);
     glDepthFunc(GL_LESS);
