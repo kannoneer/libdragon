@@ -29,6 +29,7 @@ static struct Simulation {
     int num_springs;
     float root[3];
     int num_updates_done;
+    bool root_is_static;
 
     struct {
         int u_inds[2]; // from-to points that make up the u vector
@@ -52,6 +53,7 @@ static struct Simulation {
 void sim_init()
 {
     memset(&sim, 0, sizeof(sim));
+    sim.root_is_static = false;
 
     memcpy(sim.oldx, sim.x, sizeof(sim.x));
 
@@ -111,12 +113,15 @@ void sim_update()
 {
     const int num_iters = 3;
     const float gravity = -0.1f;
+    const float constraint_damping = 0.9f;
 
     // Verlet integration
 
-    sim.x[0] = sim.root[0];
-    sim.x[1] = sim.root[1];
-    sim.x[2] = sim.root[2];
+    if (sim.root_is_static) {
+        sim.x[0] = sim.root[0];
+        sim.x[1] = sim.root[1];
+        sim.x[2] = sim.root[2];
+    }
 
     for (int i = 0; i < sim.num_points; i++) {
         int idx = i * 3;
@@ -142,6 +147,40 @@ void sim_update()
     // Satisfy constraints
 
     for (int iter = 0; iter < num_iters; iter++) {
+        for (int i=0;i<sim.num_points;i++) {
+            float* p = &sim.x[i*3];
+            if (p[1] < 0.f) {
+                float depth = -p[1];
+                p[1] = 0.0f;
+
+                float* oldp = &sim.oldx[i*3];
+                float tvel[3]; // tangential velocity after projection
+                vec3_sub(p, oldp, tvel);
+
+                const float friction = 0.19f;
+                float shorten = depth > 0.0f ? depth * friction : 0.0f;
+                float length = vec3_length(tvel);
+                debugf("[%d] depth=%f, friction=%f, length=%f, shorten=%f", i, depth, friction, length, shorten);
+
+                if (length <= shorten) {
+                    // zero velocity
+                    oldp[0] = p[0];
+                    oldp[1] = p[1];
+                    oldp[2] = p[2];
+                    debugf(" -> zero'd\n");
+                } else {
+                    debugf(" -> apply friction\n");
+                    // scale velocity vector to be of length "friction"
+                    // but we don't have any explicit velocity, just two points
+                    // so we scale the velocity by moving the new point towards the old one
+                    //float new_length = length - depth;
+                    vec3_normalize_(tvel);
+                    vec3_scale(shorten, tvel);
+                    vec3_add(oldp, tvel, oldp);
+                }
+            }
+        }
+
         for (int i=0;i<sim.num_springs;i++) {
             struct Spring spring = sim.springs[i];
             float* pa = &sim.x[spring.from*3];
@@ -154,9 +193,9 @@ void sim_update()
             };
 
             float length = sqrtf(delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]);
-            float diff = (length - spring.length) / length;
+            float diff = length == 0.0f ? 0.0f : (length - spring.length) / length;
 
-            float scale = 0.5f * diff; 
+            float scale = constraint_damping * 0.5f * diff; 
             pa[0] += scale * delta[0];
             pa[1] += scale * delta[1];
             pa[2] += scale * delta[2];
@@ -166,9 +205,11 @@ void sim_update()
         }
     }
 
-    sim.x[0] = sim.root[0];
-    sim.x[1] = sim.root[1];
-    sim.x[2] = sim.root[2];
+    if (sim.root_is_static) {
+        sim.x[0] = sim.root[0];
+        sim.x[1] = sim.root[1];
+        sim.x[2] = sim.root[2];
+    }
 
     // Update object attachment
 
@@ -217,6 +258,17 @@ void sim_update()
     if (sim.num_updates_done % 75 == 0) {
         sim.root[0] = ((float)rand()/RAND_MAX) * 6.0f - 3.0f;
         debugf("root[0] = %f\n", sim.root[0]);
+    }
+
+    if ((sim.num_updates_done / 10) % 10 < 3) {
+        for (int idx=0;idx<sim.num_points;idx+=7) {
+            sim.x[idx*3+0] = sim.x[idx*3+0]*0.5f;
+            sim.x[idx*3+1] = sim.x[idx*3+1]*0.5f + 0.5f * 5.0f;
+            sim.x[idx*3+2] = sim.x[idx*3+2]*0.5f;
+        }
+        // sim.oldx[idx*3+0] = sim.x[idx*3+0];
+        // sim.oldx[idx*3+1] = sim.x[idx*3+1];
+        // sim.oldx[idx*3+2] = sim.x[idx*3+2];
     }
 
     for (int i=0;i<sim.num_points;i++) {

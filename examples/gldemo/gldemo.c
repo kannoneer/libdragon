@@ -452,6 +452,7 @@ void render_flare()
 
 void render_shadows()
 {
+    const bool verbose = false;
     set_diffuse_material();
     glDisable(GL_LIGHTING);
 
@@ -472,15 +473,17 @@ void render_shadows()
     float light_obj[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     mat4_mul_vec4(world_to_object, light_world, light_obj);
 
-    debugf("world_to_object: ");
-    print_mat4(world_to_object);
-    debugf("light_world: ");
-    print_vec4(light_world);
-    debugf("light_obj: ");
-    print_vec4(light_obj);
+    if (verbose) {
+        debugf("world_to_object: ");
+        print_mat4(world_to_object);
+        debugf("light_world: ");
+        print_vec4(light_world);
+        debugf("light_obj: ");
+        print_vec4(light_obj);
+    }
 
     float plane_normal[4] = {0.f, -1.0f, 0.0f, 0.0f};
-    float plane_origin[4] = {0.0f, 1.0f, 0.0f, 1.0f};
+    float plane_origin[4] = {0.0f, 0.05f, 0.0f, 1.0f};
 
     mat4_mul_vec4(world_to_object, plane_normal, plane_normal);
     mat4_mul_vec4(world_to_object, plane_origin, plane_origin);
@@ -507,14 +510,14 @@ void render_shadows()
         vec3_sub(vert, light_obj, light_to_vert);
         vec3_normalize_(light_to_vert);
 
-        debugf("light_to_vert: ");
-        print_vec3(light_to_vert);
+        if (verbose) debugf("light_to_vert: ");
+        if (verbose) print_vec3(light_to_vert);
 
         float t=0.0f;
         // TODO light_to_vert.y < 0 so denom < 0?
         bool hit = intersect_plane(plane_normal, plane_origin, light_obj, light_to_vert, &t);
 
-        debugf("[%d], hit=%s, t=%f\n", i, hit ? "true" : "false", t);
+        if (verbose) debugf("[%d], hit=%s, t=%f\n", i, hit ? "true" : "false", t);
 
         if (!hit) {
             t = 1000.0f;
@@ -569,7 +572,7 @@ void render()
     glMatrixMode(GL_MODELVIEW);
 
     camera.computed_eye[0] = cos(camera.rotation) * camera.distance;
-    camera.computed_eye[1] = 6.0f;
+    camera.computed_eye[1] = 4.0f;
     camera.computed_eye[2] = -sin(camera.rotation) * camera.distance;
     
     glLoadIdentity();
@@ -611,9 +614,9 @@ void render()
     render_plane();
 
     glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
-    render_sphere(rotation);
+    // render_sphere(rotation);
 
-        sim_update();
+    sim_update();
 
     sim_render();
 
@@ -630,7 +633,6 @@ void render()
     rdpq_detach_show();
 }
 
-static int audio_volume_level = 0;
 static uint32_t audio_sample_time = 0;
 
 void audio_poll(void) {	
@@ -638,14 +640,6 @@ void audio_poll(void) {
 		short *buf = audio_write_begin();
         int bufsize = audio_get_buffer_length();
 		mixer_poll(buf, bufsize);
-        int maximum = 0;
-        for (int i=0;i<bufsize;i++) {
-            int val = buf[i*2];
-            if (val <0) val=-val;
-            if (val > maximum) { maximum = val; }
-        }
-        audio_volume_level = maximum;
-
         audio_sample_time += (uint32_t)bufsize;
 		audio_write_end();
 	}
