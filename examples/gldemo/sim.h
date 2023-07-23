@@ -17,7 +17,13 @@ struct Spring {
     float length;
 };
 
-static struct Simulation {
+struct SimConfig
+{
+    float root[3];
+    bool root_is_static;
+};
+
+struct Simulation {
     float x[SIM_MAX_POINTS*3];
     float oldx[SIM_MAX_POINTS*3];
     int num_points;
@@ -27,9 +33,9 @@ static struct Simulation {
     bool spring_visible[MAX_SPRINGS];
 
     int num_springs;
-    float root[3];
     int num_updates_done;
-    bool root_is_static;
+
+    struct SimConfig config;
 
     struct {
         int u_inds[2]; // from-to points that make up the u vector
@@ -48,17 +54,17 @@ static struct Simulation {
     struct {
         bool show_wires;
     } debug;
-} sim;
+};
 
-void sim_init()
+void sim_init(struct Simulation* s, struct SimConfig config)
 {
-    memset(&sim, 0, sizeof(sim));
-    sim.root_is_static = false;
+    memset(s, 0, sizeof(*s));
+    s->config = config;
 
-    memcpy(sim.oldx, sim.x, sizeof(sim.x));
+    memcpy(s->oldx, s->x, sizeof(s->x));
 
     for (int i=0;i<MAX_SPRINGS;i++) {
-        sim.spring_visible[i] = false;
+        s->spring_visible[i] = false;
     }
 
     const float rope_segment = 0.5f;
@@ -66,55 +72,51 @@ void sim_init()
 
     int h=-1;
     for (int i=1;i<4;i++) {
-        sim.spring_visible[sim.num_springs] = true;
-        sim.springs[sim.num_springs++] = (struct Spring){i-1, i, rope_segment};
+        s->spring_visible[s->num_springs] = true;
+        s->springs[s->num_springs++] = (struct Spring){i-1, i, rope_segment};
         h = i;
     }
 
-    sim.springs[sim.num_springs++] = (struct Spring){h, h+1, side};
-    sim.springs[sim.num_springs++] = (struct Spring){h, h+2, side};
-    sim.springs[sim.num_springs++] = (struct Spring){h, h+3, side};
-    sim.springs[sim.num_springs++] = (struct Spring){h+1, h+2, side};
-    sim.springs[sim.num_springs++] = (struct Spring){h+2, h+3, side};
-    sim.springs[sim.num_springs++] = (struct Spring){h+3, h+1, side};
+    s->springs[s->num_springs++] = (struct Spring){h, h+1, side};
+    s->springs[s->num_springs++] = (struct Spring){h, h+2, side};
+    s->springs[s->num_springs++] = (struct Spring){h, h+3, side};
+    s->springs[s->num_springs++] = (struct Spring){h+1, h+2, side};
+    s->springs[s->num_springs++] = (struct Spring){h+2, h+3, side};
+    s->springs[s->num_springs++] = (struct Spring){h+3, h+1, side};
 
-    sim.springs[sim.num_springs++] = (struct Spring){h+1, h+4, side};
-    sim.springs[sim.num_springs++] = (struct Spring){h+2, h+4, side};
-    sim.springs[sim.num_springs++] = (struct Spring){h+3, h+4, side};
+    s->springs[s->num_springs++] = (struct Spring){h+1, h+4, side};
+    s->springs[s->num_springs++] = (struct Spring){h+2, h+4, side};
+    s->springs[s->num_springs++] = (struct Spring){h+3, h+4, side};
 
-    sim.springs[sim.num_springs++] = (struct Spring){h+1, h+5, side};
-    sim.springs[sim.num_springs++] = (struct Spring){h+2, h+5, side};
-    sim.springs[sim.num_springs++] = (struct Spring){h+3, h+5, side};
-    sim.springs[sim.num_springs++] = (struct Spring){h+4, h+5, side*2}; // side x 2 is not the real height based on geometry but seems stable
+    s->springs[s->num_springs++] = (struct Spring){h+1, h+5, side};
+    s->springs[s->num_springs++] = (struct Spring){h+2, h+5, side};
+    s->springs[s->num_springs++] = (struct Spring){h+3, h+5, side};
+    s->springs[s->num_springs++] = (struct Spring){h+4, h+5, side*2}; // side x 2 is not the real height based on geometry but seems stable
 
 
-    sim.pose.u_inds[0] = h+1;
-    sim.pose.u_inds[1] = h+2;
-    sim.pose.v_inds[0] = h+1;
-    sim.pose.v_inds[1] = h+3;
+    s->pose.u_inds[0] = h+1;
+    s->pose.u_inds[1] = h+2;
+    s->pose.v_inds[0] = h+1;
+    s->pose.v_inds[1] = h+3;
 
-    sim.pose.attach_top_index = h;
-    sim.pose.attach_tri_inds[0] = h+1;
-    sim.pose.attach_tri_inds[1] = h+2;
-    sim.pose.attach_tri_inds[2] = h+3;
+    s->pose.attach_top_index = h;
+    s->pose.attach_tri_inds[0] = h+1;
+    s->pose.attach_tri_inds[1] = h+2;
+    s->pose.attach_tri_inds[2] = h+3;
 
-    sim.num_points = h+7;
+    s->num_points = h+7;
 
-    for (int i=0;i<sim.num_points-1;i++) {
+    for (int i=0;i<s->num_points-1;i++) {
         int idx = i*3;
-        sim.x[idx + 0] = i*0.5f;
-        sim.x[idx + 1] = i*0.1f;
-        sim.x[idx + 2] = i*0.15f;
+        s->x[idx + 0] = i*0.5f;
+        s->x[idx + 1] = i*0.1f;
+        s->x[idx + 2] = i*0.15f;
     }
 
-    sim.root[0] = 0.0f;
-    sim.root[1] = 8.0f;
-    sim.root[2] = 0.0f;
-
-    sim.debug.show_wires = true;
+    s->debug.show_wires = true;
 }
 
-void sim_update()
+void sim_update(struct Simulation* s)
 {
     const bool verbose = false;
     const int num_iters = 3;
@@ -124,16 +126,16 @@ void sim_update()
 
     // Verlet integration
 
-    if (sim.root_is_static) {
-        sim.x[0] = sim.root[0];
-        sim.x[1] = sim.root[1];
-        sim.x[2] = sim.root[2];
+    if (s->config.root_is_static) {
+        s->x[0] = s->config.root[0];
+        s->x[1] = s->config.root[1];
+        s->x[2] = s->config.root[2];
     }
 
-    for (int i = 0; i < sim.num_points; i++) {
+    for (int i = 0; i < s->num_points; i++) {
         int idx = i * 3;
-        float* pos = &sim.x[idx];
-        float* old = &sim.oldx[idx];
+        float* pos = &s->x[idx];
+        float* old = &s->oldx[idx];
 
         float acc[3] = {0.0f, gravity, 0.0f};
         float temp[3];
@@ -154,13 +156,13 @@ void sim_update()
     // Satisfy constraints
 
     for (int iter = 0; iter < num_iters; iter++) {
-        for (int i=0;i<sim.num_points;i++) {
-            float* p = &sim.x[i*3];
+        for (int i=0;i<s->num_points;i++) {
+            float* p = &s->x[i*3];
             if (p[1] < 0.f) {
                 float depth = -p[1];
                 p[1] = 0.0f;
 
-                float* oldp = &sim.oldx[i*3];
+                float* oldp = &s->oldx[i*3];
                 float tvel[3]; // tangential velocity after projection
                 vec3_sub(p, oldp, tvel);
 
@@ -180,7 +182,6 @@ void sim_update()
                     // scale velocity vector to be of length "friction"
                     // but we don't have any explicit velocity, just two points
                     // so we scale the velocity by moving the new point towards the old one
-                    //float new_length = length - depth;
                     vec3_normalize_(tvel);
                     vec3_scale(shorten, tvel);
                     vec3_add(oldp, tvel, oldp);
@@ -188,10 +189,10 @@ void sim_update()
             }
         }
 
-        for (int i=0;i<sim.num_springs;i++) {
-            struct Spring spring = sim.springs[i];
-            float* pa = &sim.x[spring.from*3];
-            float* pb = &sim.x[spring.to*3];
+        for (int i=0;i<s->num_springs;i++) {
+            struct Spring spring = s->springs[i];
+            float* pa = &s->x[spring.from*3];
+            float* pb = &s->x[spring.to*3];
 
             float delta[3] = {
                 pb[0] - pa[0],
@@ -212,18 +213,18 @@ void sim_update()
         }
     }
 
-    if (sim.root_is_static) {
-        sim.x[0] = sim.root[0];
-        sim.x[1] = sim.root[1];
-        sim.x[2] = sim.root[2];
+    if (s->config.root_is_static) {
+        s->x[0] = s->config.root[0];
+        s->x[1] = s->config.root[1];
+        s->x[2] = s->config.root[2];
     }
 
     // Update object attachment
 
     // Compute the average position of the "attachment triangle" set in simulation pose struct.
-    const float* a1 = &sim.x[3 * sim.pose.attach_tri_inds[0]];
-    const float* a2 = &sim.x[3 * sim.pose.attach_tri_inds[1]];
-    const float* a3 = &sim.x[3 * sim.pose.attach_tri_inds[2]];
+    const float* a1 = &s->x[3 * s->pose.attach_tri_inds[0]];
+    const float* a2 = &s->x[3 * s->pose.attach_tri_inds[1]];
+    const float* a3 = &s->x[3 * s->pose.attach_tri_inds[2]];
 
     float centroid[3];
     vec3_copy(a1, centroid);
@@ -231,26 +232,26 @@ void sim_update()
     vec3_add(centroid, a3, centroid);
     vec3_scale(0.33333f, centroid);
 
-    sim.pose.origin[0] = centroid[0];
-    sim.pose.origin[1] = centroid[1];
-    sim.pose.origin[2] = centroid[2];
+    s->pose.origin[0] = centroid[0];
+    s->pose.origin[1] = centroid[1];
+    s->pose.origin[2] = centroid[2];
 
-    const float* ufrom   = &sim.x[3 * sim.pose.u_inds[0]];
-    const float* uto     = &sim.x[3 * sim.pose.u_inds[1]];
-    //const float* vfrom   = &sim.x[3 * sim.pose.v_inds[0]];
-    //const float* vto     = &sim.x[3 * sim.pose.v_inds[1]];
+    const float* ufrom   = &s->x[3 * s->pose.u_inds[0]];
+    const float* uto     = &s->x[3 * s->pose.u_inds[1]];
+    //const float* vfrom   = &s->x[3 * s->pose.v_inds[0]];
+    //const float* vto     = &s->x[3 * s->pose.v_inds[1]];
     const float* nfrom   = centroid;
-    const float* nto     = &sim.x[3 * sim.pose.attach_top_index];
+    const float* nto     = &s->x[3 * s->pose.attach_top_index];
 
-    float* uvec = sim.pose.u;
-    float* vvec = sim.pose.v;
-    float* nvec = sim.pose.n;
+    float* uvec = s->pose.u;
+    float* vvec = s->pose.v;
+    float* nvec = s->pose.n;
 
     vec3_sub(uto, ufrom, uvec);
     //vec3_sub(vto, vfrom, vvec);
     vec3_sub(nto, nfrom, nvec);
 
-    sim.pose.ulength = vec3_length(uvec);
+    s->pose.ulength = vec3_length(uvec);
 
     vec3_normalize_(uvec);
     vec3_normalize_(nvec);
@@ -260,29 +261,31 @@ void sim_update()
 
     // Debug movement
 
-    sim.num_updates_done++;
+    s->num_updates_done++;
 
-    if (sim.num_updates_done % 75 == 0) {
-        sim.root[0] = ((float)rand()/RAND_MAX) * 6.0f - 3.0f;
-        if (verbose) debugf("root[0] = %f\n", sim.root[0]);
-    }
-
-    if ((sim.num_updates_done / 20) % 10 < 3) {
-        for (int idx=0;idx<sim.num_points;idx+=7) {
-            sim.x[idx*3+0] = sim.x[idx*3+0]*0.5f;
-            sim.x[idx*3+1] = sim.x[idx*3+1]*0.5f + 0.5f * 5.0f;
-            sim.x[idx*3+2] = sim.x[idx*3+2]*0.5f;
+    if (false) {
+        if (s->num_updates_done % 75 == 0) {
+            s->config.root[0] = ((float)rand() / RAND_MAX) * 6.0f - 3.0f;
+            if (verbose) debugf("root[0] = %f\n", s->config.root[0]);
         }
-        // sim.oldx[idx*3+0] = sim.x[idx*3+0];
-        // sim.oldx[idx*3+1] = sim.x[idx*3+1];
-        // sim.oldx[idx*3+2] = sim.x[idx*3+2];
-    }
 
-    for (int i=0;i<sim.num_points;i++) {
-        // float* pos = &sim.x[i*3];
-        // debugf("[%d] (%f, %f, %f)\n", i,
-        //     pos[0], pos[1], pos[2]
-        // );
+        if ((s->num_updates_done / 20) % 10 < 3) {
+            for (int idx = 0; idx < s->num_points; idx += 7) {
+                s->x[idx * 3 + 0] = s->x[idx * 3 + 0] * 0.5f;
+                s->x[idx * 3 + 1] = s->x[idx * 3 + 1] * 0.5f + 0.5f * 5.0f;
+                s->x[idx * 3 + 2] = s->x[idx * 3 + 2] * 0.5f;
+            }
+            // s->oldx[idx*3+0] = s->x[idx*3+0];
+            // s->oldx[idx*3+1] = s->x[idx*3+1];
+            // s->oldx[idx*3+2] = s->x[idx*3+2];
+        }
+
+        for (int i = 0; i < s->num_points; i++) {
+            // float* pos = &s->x[i*3];
+            // debugf("[%d] (%f, %f, %f)\n", i,
+            //     pos[0], pos[1], pos[2]
+            // );
+        }
     }
 }
 

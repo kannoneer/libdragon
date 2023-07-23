@@ -60,6 +60,11 @@ static GLfloat light_pos[8][4] = {
     { 0, 3, -8, 1 },
 };
 
+#define NUM_SIMULATIONS (2)
+static struct Simulation sims[NUM_SIMULATIONS];
+
+mat4_t sim_object_to_worlds[NUM_SIMULATIONS];
+
 static const GLfloat light_diffuse[8][4] = {
     { 1.0f, 0.0f, 0.0f, 1.0f },
     { 0.0f, 1.0f, 0.0f, 1.0f },
@@ -115,8 +120,6 @@ struct shadow_mesh {
     uint16_t indices[MESH_MAX_INDICES];
     int num_vertices;
     int num_indices;
-
-    mat4_t object_to_world;
 };
 
 static struct shadow_mesh smesh_gemstone;
@@ -124,10 +127,10 @@ static struct shadow_mesh smesh_gemstone;
 static float debug_z_shift = 0.0f;
 static float debug_x_shift = 0.0f;
 
-void sim_render()
+void sim_render(struct Simulation* s, mat4_t out_basis)
 {
     glDisable(GL_TEXTURE_2D);
-    if (sim.debug.show_wires) {
+    if (s->debug.show_wires) {
         glDisable(GL_LIGHTING);
     } else {
         glEnable(GL_LIGHTING);
@@ -135,11 +138,11 @@ void sim_render()
 
     glPushMatrix();
     glBegin(GL_LINES);
-    for (int i=0;i<sim.num_springs;i++) {
-        struct Spring spring = sim.springs[i];
-        if (sim.spring_visible[i] || sim.debug.show_wires) {
-            float* pa = &sim.x[spring.from*3];
-            float* pb = &sim.x[spring.to*3];
+    for (int i=0;i<s->num_springs;i++) {
+        struct Spring spring = s->springs[i];
+        if (s->spring_visible[i] || s->debug.show_wires) {
+            float* pa = &s->x[spring.from*3];
+            float* pb = &s->x[spring.to*3];
             glVertex3f(pa[0], pa[1], pa[2]);
             glVertex3f(pb[0], pb[1], pb[2]);
             //glColor3f(i % 2, (i % 3)/2.0f, (i%4)/4.0f);
@@ -155,18 +158,18 @@ void sim_render()
     mat4_t basis;
     mat4_set_identity(basis);
 
-    vec3_copy(sim.pose.u, &basis[2][0]);
-    vec3_copy(sim.pose.n, &basis[1][0]);
-    vec3_cross(sim.pose.u, sim.pose.n, &basis[0][0]);
+    vec3_copy(s->pose.u, &basis[2][0]);
+    vec3_copy(s->pose.n, &basis[1][0]);
+    vec3_cross(s->pose.u, s->pose.n, &basis[0][0]);
 
     // translate
-    vec3_copy(sim.pose.origin, &basis[3][0]);
+    vec3_copy(s->pose.origin, &basis[3][0]);
 
     mat4_t shift;
     mat4_make_translation(debug_x_shift, -0.28f, 0.0f, shift);
     mat4_mul(basis, shift, basis);
 
-    mat4_ucopy(basis, smesh_gemstone.object_to_world);
+    mat4_ucopy(basis, out_basis);
 
     if (false) {
         mat4_t inverse;
@@ -186,9 +189,9 @@ void sim_render()
         debugf("shift:\n");
         print_mat4(shift);
 
-        debugf("u: (%f, %f, %f)\n", sim.pose.u[0], sim.pose.u[1], sim.pose.u[2]);
-        debugf("v: (%f, %f, %f)\n", sim.pose.v[0], sim.pose.v[1], sim.pose.v[2]);
-        debugf("n: (%f, %f, %f)\n", sim.pose.n[0], sim.pose.n[1], sim.pose.n[2]);
+        debugf("u: (%f, %f, %f)\n", s->pose.u[0], s->pose.u[1], s->pose.u[2]);
+        debugf("v: (%f, %f, %f)\n", s->pose.v[0], s->pose.v[1], s->pose.v[2]);
+        debugf("n: (%f, %f, %f)\n", s->pose.n[0], s->pose.n[1], s->pose.n[2]);
 
         debugf("basis:\n");
         print_mat4(basis);
@@ -221,7 +224,7 @@ void sim_render()
     glPopMatrix();
 }
 
-static void shadow_mesh_init(struct shadow_mesh* mesh)
+static void shadow_mesh_clear(struct shadow_mesh* mesh)
 {
     memset(mesh, 0, sizeof(struct shadow_mesh));
 }
@@ -229,7 +232,7 @@ static void shadow_mesh_init(struct shadow_mesh* mesh)
 static bool shadow_mesh_extract(struct shadow_mesh* mesh, model64_t* model)
 {
     bool verbose = false;
-    shadow_mesh_init(mesh);
+    shadow_mesh_clear(mesh);
 
     primitive_t* prim = &model_gemstone->meshes[0].primitives[0];
     attribute_t* attr = &prim->position;
@@ -454,7 +457,7 @@ void render_flare()
     // }
 }
 
-void render_shadows()
+void render_shadows(mat4_t object_to_world)
 {
     const bool verbose = false;
     set_diffuse_material();
@@ -472,7 +475,7 @@ void render_shadows()
     memcpy(&mesh->verts_proj[0], &mesh->verts[0], sizeof(float) * 3 * mesh->num_vertices);
 
     mat4_t world_to_object;
-    mat4_invert_rigid_xform2(mesh->object_to_world, world_to_object);
+    mat4_invert_rigid_xform2(object_to_world, world_to_object);
     float light_world[4] = {light_pos[0][0], light_pos[0][1], light_pos[0][2], 1.0f};
     float light_obj[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     mat4_mul_vec4(world_to_object, light_world, light_obj);
@@ -487,14 +490,14 @@ void render_shadows()
     }
 
     float plane_normal[4] = {0.f, -1.0f, 0.0f, 0.0f};
-    float plane_origin[4] = {0.0f, 0.05f, 0.0f, 1.0f};
+    float plane_origin[4] = {0.0f, 0.1f, 0.0f, 1.0f};
 
     mat4_mul_vec4(world_to_object, plane_normal, plane_normal);
     mat4_mul_vec4(world_to_object, plane_origin, plane_origin);
 
     vec3_normalize_(plane_normal); // in case transformation matrix has scaling
     glPushMatrix();
-    glMultMatrixf(&mesh->object_to_world[0][0]);
+    glMultMatrixf(&object_to_world[0][0]);
 
     if (false) {
         glPushMatrix();
@@ -655,9 +658,9 @@ void render()
     float cam_target_blend = 0.1f;
     float inv_cam_target_blend = 1.0f - cam_target_blend;
 
-    cam_target[0] = inv_cam_target_blend * cam_target[0] + cam_target_blend * sim.pose.origin[0];
-    cam_target[1] = inv_cam_target_blend * cam_target[1] + cam_target_blend * sim.pose.origin[1];
-    cam_target[2] = inv_cam_target_blend * cam_target[2] + cam_target_blend * sim.pose.origin[2];
+    cam_target[0] = inv_cam_target_blend * cam_target[0] + cam_target_blend * sims[0].pose.origin[0];
+    cam_target[1] = inv_cam_target_blend * cam_target[1] + cam_target_blend * sims[0].pose.origin[1];
+    cam_target[2] = inv_cam_target_blend * cam_target[2] + cam_target_blend * sims[0].pose.origin[2];
 
     gluLookAt(
         camera.computed_eye[0], camera.computed_eye[1], camera.computed_eye[2],
@@ -691,16 +694,19 @@ void render()
     glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
     // render_sphere(rotation);
 
-    sim_update();
-
-    sim_render();
+    for (int i=0;i<NUM_SIMULATIONS;i++) {
+        sim_update(&sims[i]);
+        sim_render(&sims[i], sim_object_to_worlds[i]);
+    }
 
     //set_diffuse_material();
 
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
 
-    render_shadows();
+    for (int i=0;i<NUM_SIMULATIONS;i++) {
+        render_shadows(sim_object_to_worlds[i]);
+    }
     render_flare();
 
     gl_context_end();
@@ -757,7 +763,12 @@ int main()
         wav64_play(&music_wav, 0);
     }
 
-    sim_init();
+    sim_init(&sims[0], (struct SimConfig){
+        .root = {0.0f, 8.0f, 0.0f}, .root_is_static = true}
+        );
+    sim_init(&sims[1], (struct SimConfig){
+        .root = {3.0f, 7.0f, 0.0f}, .root_is_static = true}
+        );
 
 #if !DEBUG_RDP
     while (1)
@@ -788,7 +799,9 @@ int main()
 
         if (down.c[0].L) {
             debugf("show wires\n");
-            sim.debug.show_wires = !sim.debug.show_wires;
+            for (int i=0;i<NUM_SIMULATIONS;i++) {
+                sims[i].debug.show_wires = !sims[i].debug.show_wires;
+            }
         }
 
         const float nudge=0.01f;
