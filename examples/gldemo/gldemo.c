@@ -18,6 +18,8 @@
 #include "mymath.h"
 #include "sim.h"
 
+#include "profile.h"
+
 // Set this to 1 to enable rdpq debug output.
 // The demo will only run for a single frame and stop.
 #define DEBUG_RDP 0
@@ -32,6 +34,9 @@ static surface_t tempbuffer;
 
 static float time_secs = 0.0f;
 static int time_frames = 0;
+
+bool tweak_double_sided_gems = true;
+bool tweak_dont_test_plane_depth = true; // 3% faster plane drawing when enabled
 
 #define NUM_TEXTURES (9)
 #define TEX_CEILING (4)
@@ -129,6 +134,7 @@ static float debug_x_shift = 0.0f;
 
 void sim_render(struct Simulation* s, mat4_t out_basis)
 {
+    PROFILE_START(PS_RENDER_SIM_SETUP, 0);
     glDisable(GL_TEXTURE_2D);
     if (s->debug.show_wires) {
         glDisable(GL_LIGHTING);
@@ -136,8 +142,8 @@ void sim_render(struct Simulation* s, mat4_t out_basis)
         glEnable(GL_LIGHTING);
     }
 
-    glPushMatrix();
     glBegin(GL_LINES);
+    glColor3f(1.0f, 1.0f, 1.0f);
     for (int i=0;i<s->num_springs;i++) {
         struct Spring spring = s->springs[i];
         if (s->spring_visible[i] || s->debug.show_wires) {
@@ -146,11 +152,9 @@ void sim_render(struct Simulation* s, mat4_t out_basis)
             glVertex3f(pa[0], pa[1], pa[2]);
             glVertex3f(pb[0], pb[1], pb[2]);
             //glColor3f(i % 2, (i % 3)/2.0f, (i%4)/4.0f);
-            glColor3f(1.0f, 1.0f, 1.0f);
         }
     }
     glEnd();
-    glPopMatrix();
 
     glEnable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
@@ -197,6 +201,8 @@ void sim_render(struct Simulation* s, mat4_t out_basis)
         print_mat4(basis);
     }
 
+    PROFILE_STOP(PS_RENDER_SIM_SETUP, 0);
+    PROFILE_START(PS_RENDER_SIM_DRAWCALLS, 0);
     glEnable(GL_BLEND);
     set_gemstone_material();
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -215,13 +221,16 @@ void sim_render(struct Simulation* s, mat4_t out_basis)
         glCullFace(GL_FRONT);
         model64_draw(model_gemstone);
         glCullFace(GL_BACK);
-        model64_draw(model_gemstone);
+        if (tweak_double_sided_gems) {
+            model64_draw(model_gemstone);
+        }
 
         glDisable(GL_TEXTURE_2D);
         glDisable(GL_TEXTURE_GEN_S);
         glDisable(GL_TEXTURE_GEN_T);
         glDisable(GL_BLEND);
     glPopMatrix();
+    PROFILE_STOP(PS_RENDER_SIM_DRAWCALLS, 0);
 }
 
 static void shadow_mesh_clear(struct shadow_mesh* mesh)
@@ -474,8 +483,10 @@ void render_shadows(mat4_t object_to_world)
     // 
     memcpy(&mesh->verts_proj[0], &mesh->verts[0], sizeof(float) * 3 * mesh->num_vertices);
 
+    PROFILE_START(PS_RENDER_SHADOWS_INVERT, 0);
     mat4_t world_to_object;
     mat4_invert_rigid_xform2(object_to_world, world_to_object);
+    PROFILE_STOP(PS_RENDER_SHADOWS_INVERT, 0);
     float light_world[4] = {light_pos[0][0], light_pos[0][1], light_pos[0][2], 1.0f};
     float light_obj[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     mat4_mul_vec4(world_to_object, light_world, light_obj);
@@ -689,30 +700,48 @@ void render()
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, textures[TEX_TABLE]);
     
+    PROFILE_START(PS_RENDER_BG, 0);
+    if (tweak_dont_test_plane_depth) {
+        glDepthMask(GL_FALSE);
+        glDisable(GL_DEPTH_TEST);
+    }
     render_plane();
+    if (tweak_dont_test_plane_depth) {
+        glEnable(GL_DEPTH_TEST);
+        glDepthMask(GL_TRUE);
+    }
+    PROFILE_STOP(PS_RENDER_BG, 0);
 
     glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
     // render_sphere(rotation);
 
+    PROFILE_START(PS_RENDER_SIM, 0);
     for (int i=0;i<NUM_SIMULATIONS;i++) {
-        sim_update(&sims[i]);
         sim_render(&sims[i], sim_object_to_worlds[i]);
     }
+    PROFILE_STOP(PS_RENDER_SIM, 0);
 
     //set_diffuse_material();
 
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
 
+    PROFILE_START(PS_RENDER_SHADOWS, 0);
     for (int i=0;i<NUM_SIMULATIONS;i++) {
         render_shadows(sim_object_to_worlds[i]);
     }
+    PROFILE_STOP(PS_RENDER_SHADOWS, 0);
+
+    PROFILE_START(PS_RENDER_FLARE, 0);
     render_flare();
+    PROFILE_STOP(PS_RENDER_FLARE, 0);
 
     gl_context_end();
 
     rdpq_detach();
+    PROFILE_START(PS_RENDER_POSTPROC, 0);
     if (false) apply_postproc(disp);
+    PROFILE_STOP(PS_RENDER_POSTPROC, 0);
     rdpq_attach(disp, NULL);
     rdpq_detach_show(); // FIXME does attach + detach without calls make sense?
 }
@@ -740,6 +769,8 @@ int main()
 
     rdpq_init();
     gl_init();
+
+    profile_init();
 
     // glEnable(GL_MULTISAMPLE_ARB);
 
@@ -778,6 +809,7 @@ int main()
 #endif
     {
         time_secs = TIMER_MICROS(timer_ticks()) / 1e6;
+
         controller_scan();
 
         struct controller_data pressed = get_keys_pressed();
@@ -843,15 +875,31 @@ int main()
             camera.rotation = camera.rotation - x * 0.05f;
         }
 
+        PROFILE_START(PS_MUSIC, 0);
         if (music_enabled) {
             audio_poll();
         }
+        PROFILE_STOP(PS_MUSIC, 0);
 
+        PROFILE_START(PS_UPDATE, 0);
+        for (int i=0; i<NUM_SIMULATIONS; i++) {
+            sim_update(&sims[i]);
+        }
+        PROFILE_STOP(PS_UPDATE, 0);
+
+        PROFILE_START(PS_RENDER, 0);
         render();
+        PROFILE_STOP(PS_RENDER, 0);
         if (DEBUG_RDP)
             rspq_wait();
         
+        profile_next_frame();
         time_frames++;
+
+        if (time_frames == 128) {
+            profile_dump();
+            profile_init();
+        }
     }
 
 }
