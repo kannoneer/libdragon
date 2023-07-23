@@ -91,7 +91,7 @@ void sim_init(struct Simulation* s, struct SimConfig config)
     s->springs[s->num_springs++] = (struct Spring){h+1, h+5, side};
     s->springs[s->num_springs++] = (struct Spring){h+2, h+5, side};
     s->springs[s->num_springs++] = (struct Spring){h+3, h+5, side};
-    s->springs[s->num_springs++] = (struct Spring){h+4, h+5, side*2}; // side x 2 is not the real height based on geometry but seems stable
+    s->springs[s->num_springs++] = (struct Spring){h, h+5, side*1.6}; // not the real height based on geometry but seems stable
 
 
     s->pose.u_inds[0] = h+1;
@@ -104,7 +104,7 @@ void sim_init(struct Simulation* s, struct SimConfig config)
     s->pose.attach_tri_inds[1] = h+2;
     s->pose.attach_tri_inds[2] = h+3;
 
-    s->num_points = h+7;
+    s->num_points = h+6;
 
     for (int i=0;i<s->num_points-1;i++) {
         int idx = i*3;
@@ -113,7 +113,7 @@ void sim_init(struct Simulation* s, struct SimConfig config)
         s->x[idx + 2] = i*0.15f;
     }
 
-    s->debug.show_wires = true;
+    s->debug.show_wires = false;
 }
 
 void sim_update(struct Simulation* s)

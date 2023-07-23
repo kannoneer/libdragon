@@ -60,7 +60,7 @@ static GLfloat light_pos[8][4] = {
     { 0, 3, -8, 1 },
 };
 
-#define NUM_SIMULATIONS (2)
+#define NUM_SIMULATIONS (3)
 static struct Simulation sims[NUM_SIMULATIONS];
 
 mat4_t sim_object_to_worlds[NUM_SIMULATIONS];
@@ -768,6 +768,9 @@ int main()
         );
     sim_init(&sims[1], (struct SimConfig){
         .root = {3.0f, 7.0f, 0.0f}, .root_is_static = true}
+        );
+    sim_init(&sims[2], (struct SimConfig){
+        .root = {-3.0f, 6.0f, 2.0f}, .root_is_static = true}
         );
 
 #if !DEBUG_RDP
