@@ -85,6 +85,7 @@ void sim_init()
     sim.springs[sim.num_springs++] = (struct Spring){h+1, h+5, side};
     sim.springs[sim.num_springs++] = (struct Spring){h+2, h+5, side};
     sim.springs[sim.num_springs++] = (struct Spring){h+3, h+5, side};
+    sim.springs[sim.num_springs++] = (struct Spring){h+4, h+5, side*2}; // side x 2 is not the real height based on geometry but seems stable
 
 
     sim.pose.u_inds[0] = h+1;
@@ -97,7 +98,7 @@ void sim_init()
     sim.pose.attach_tri_inds[1] = h+2;
     sim.pose.attach_tri_inds[2] = h+3;
 
-    sim.num_points = h+6;
+    sim.num_points = h+7;
 
     for (int i=0;i<sim.num_points-1;i++) {
         int idx = i*3;
@@ -117,8 +118,9 @@ void sim_update()
 {
     const bool verbose = false;
     const int num_iters = 3;
-    const float gravity = -0.1f;
-    const float constraint_damping = 0.9f;
+    const float gravity = -0.02f;
+    const float velocity_damping = 1.0f;
+    const float constraint_damping = 0.5f;
 
     // Verlet integration
 
@@ -140,9 +142,9 @@ void sim_update()
         temp[1] = pos[1];
         temp[2] = pos[2];
 
-        pos[0] += pos[0] - old[0] + acc[0];
-        pos[1] += pos[1] - old[1] + acc[1];
-        pos[2] += pos[2] - old[2] + acc[2];
+        pos[0] += velocity_damping * (pos[0] - old[0]) + acc[0];
+        pos[1] += velocity_damping * (pos[1] - old[1]) + acc[1];
+        pos[2] += velocity_damping * (pos[2] - old[2]) + acc[2];
 
         old[0] = temp[0];
         old[1] = temp[1];

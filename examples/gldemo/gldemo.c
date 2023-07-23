@@ -28,6 +28,7 @@ static uint32_t animation = 3283;
 static uint32_t texture_index = 0;
 static camera_t camera;
 static surface_t zbuffer;
+static surface_t tempbuffer;
 
 static float time_secs = 0.0f;
 static int time_frames = 0;
@@ -342,6 +343,7 @@ void setup()
     camera.rotation = 0.5f;
 
     zbuffer = surface_alloc(FMT_RGBA16, display_get_width(), display_get_height());
+    tempbuffer = surface_alloc(FMT_RGBA16, display_get_width(), display_get_height());
 
     for (uint32_t i = 0; i < NUM_TEXTURES; i++)
     {
@@ -562,8 +564,8 @@ void render_shadows()
 
 void apply_postproc(surface_t *disp)
 {
-    rdpq_attach(disp, NULL);
 
+    /*
     rdpq_set_mode_standard();
     //rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY);
 
@@ -574,8 +576,8 @@ void apply_postproc(surface_t *disp)
     rdpq_set_prim_color(RGBA32(lvl, lvl, lvl, 255));
     rdpq_mode_combiner(RDPQ_COMBINER1((NOISE,0,PRIM,TEX0), (0,0,0,TEX0)));
     rdpq_tex_blit(disp, 0, 0, NULL);
+    */
 
-    /*
     const int lvl = 255;
     color_t colors[2] = {
         RGBA32(0, lvl, lvl, 255),
@@ -585,9 +587,16 @@ void apply_postproc(surface_t *disp)
     struct {
         int x;
         int y;
-    } offsets[2] = {{1,1}, {-1, -1}};
+    } offsets[2] = {{2,0}, {-2, 0}};
+
+    // surface_t* sources[2] = {disp, &tempbuffer};
+    // surface_t* targets[2] = {&tempbuffer, disp};
+    surface_t* sources[2] = {disp, &tempbuffer};
+    surface_t* targets[2] = {&tempbuffer, disp}; // FIXME doesnhas no effect?
 
     for (int pass=0;pass<2;pass++) {
+        rdpq_attach(targets[pass], NULL);
+
         rdpq_set_prim_color(colors[pass]);
         rdpq_set_fog_color(RGBA32(0, 0, 0, 128));
         rdpq_mode_blender(RDPQ_BLENDER_ADDITIVE);
@@ -599,14 +608,14 @@ void apply_postproc(surface_t *disp)
         //blit.scale_y = 1.0f + zoom;
         //blit.cx = 160*zoom;
         //blit.cy = 120*zoom;
-        blit.filtering = true;
+        blit.filtering = false;
         blit.cx = offsets[pass].x;
         blit.cy = offsets[pass].y;
-        blit.theta = 0.01f;
-        rdpq_tex_blit(disp, 0, 0, &blit);
+        rdpq_tex_blit(sources[pass], 0, 0, &blit);
+
         rdpq_fence();
+        rdpq_detach();
     }
-    */
 
     /*
     rdpq_set_mode_standard();
@@ -622,7 +631,6 @@ void apply_postproc(surface_t *disp)
     rdpq_mode_combiner(RDPQ_COMBINER1((NOISE,0,PRIM,0),       (0,0,0,PRIM)));
     */
 
-    rdpq_detach();
 }
 
 void render()
