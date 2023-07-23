@@ -65,6 +65,23 @@ static GLfloat light_pos[8][4] = {
     { 0, 3, -8, 1 },
 };
 
+#define NUM_CAMERAS (2)
+
+static struct Viewer {
+    int active_camera;
+    struct Camera {
+        float eye[3];
+        float target[3];
+    } cams[NUM_CAMERAS];
+} viewer;
+
+void viewer_init()
+{
+    memset(&viewer, 0, sizeof(viewer));
+    viewer.active_camera = 0;
+}
+
+
 #define NUM_SIMULATIONS (3)
 static struct Simulation sims[NUM_SIMULATIONS];
 
@@ -143,7 +160,7 @@ void sim_render(struct Simulation* s, mat4_t out_basis)
     }
 
     glBegin(GL_LINES);
-    glColor3f(1.0f, 1.0f, 1.0f);
+    glColor3f(0.05f, 0.05f, 0.05f);
     for (int i=0;i<s->num_springs;i++) {
         struct Spring spring = s->springs[i];
         if (s->spring_visible[i] || s->debug.show_wires) {
@@ -349,6 +366,16 @@ void shadow_mesh_draw(struct shadow_mesh* mesh) {
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
 }
 
+void set_frustum(float fov_factor)
+{
+    float aspect_ratio = (float)display_get_width() / (float)display_get_height();
+    float near_plane = 1.0f;
+    float far_plane = 50.0f;
+
+    glLoadIdentity();
+    glFrustum(-near_plane*aspect_ratio*fov_factor, near_plane*aspect_ratio*fov_factor, -near_plane*fov_factor, near_plane*fov_factor, near_plane, far_plane);
+}
+
 void setup()
 {
     camera.distance = -5.0f;
@@ -370,13 +397,8 @@ void setup()
     setup_plane();
     make_plane_mesh();
 
-    float aspect_ratio = (float)display_get_width() / (float)display_get_height();
-    float near_plane = 1.0f;
-    float far_plane = 50.0f;
-
     glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    glFrustum(-near_plane*aspect_ratio, near_plane*aspect_ratio, -near_plane, near_plane, near_plane, far_plane);
+    set_frustum(1.0f);
 
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
@@ -658,26 +680,47 @@ void render()
     glClearColor(environment_color[0], environment_color[1], environment_color[2], environment_color[3]);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    glMatrixMode(GL_MODELVIEW);
 
     camera.computed_eye[0] = cos(camera.rotation) * camera.distance;
     camera.computed_eye[1] = 4.0f;
     camera.computed_eye[2] = -sin(camera.rotation) * camera.distance;
     
     glLoadIdentity();
-    static float cam_target[3];
-    float cam_target_blend = 0.1f;
-    float inv_cam_target_blend = 1.0f - cam_target_blend;
 
-    cam_target[0] = inv_cam_target_blend * cam_target[0] + cam_target_blend * sims[0].pose.origin[0];
-    cam_target[1] = inv_cam_target_blend * cam_target[1] + cam_target_blend * sims[0].pose.origin[1];
-    cam_target[2] = inv_cam_target_blend * cam_target[2] + cam_target_blend * sims[0].pose.origin[2];
+    if (viewer.active_camera == 0) {
+        glMatrixMode(GL_PROJECTION);
+        set_frustum(0.6f);
 
-    gluLookAt(
-        camera.computed_eye[0], camera.computed_eye[1], camera.computed_eye[2],
-        cam_target[0], cam_target[1], cam_target[2],
-        0, 1, 0);
+        static float cam_target[3];
+        float cam_target_blend = 0.1f;
+        float inv_cam_target_blend = 1.0f - cam_target_blend;
 
+        cam_target[0] = inv_cam_target_blend * cam_target[0] + cam_target_blend * sims[0].pose.origin[0];
+        cam_target[1] = inv_cam_target_blend * cam_target[1] + cam_target_blend * sims[0].pose.origin[1];
+        cam_target[2] = inv_cam_target_blend * cam_target[2] + cam_target_blend * sims[0].pose.origin[2];
+
+        glMatrixMode(GL_MODELVIEW);
+        gluLookAt(
+            camera.computed_eye[0], camera.computed_eye[1], camera.computed_eye[2],
+            cam_target[0], cam_target[1], cam_target[2],
+            0, 1, 0);
+        
+    }
+    else {
+        glMatrixMode(GL_PROJECTION);
+        set_frustum(1.1f);
+
+        float yshake = 0.05f * sin(0.5f*time_secs);
+        float target_xshake = 1.0f + 0.025f * cos(time_secs*0.3f);
+        float eye_yshake = 1.0f + 0.015f* sin(time_secs*1.3f);
+        glMatrixMode(GL_MODELVIEW);
+        gluLookAt(
+            5.0f, 8.0f * eye_yshake, 1.0f,
+            1.f * target_xshake, 0.0f, 0.0f,
+            0 + yshake, 1 - yshake, 0);
+    }
+
+    glMatrixMode(GL_MODELVIEW);
     // camera_transform(&camera);
 
     float rotation = animation * 0.5f;
@@ -794,14 +837,15 @@ int main()
         wav64_play(&music_wav, 0);
     }
 
+    const float height = 5.0f;
     sim_init(&sims[0], (struct SimConfig){
-        .root = {0.0f, 8.0f, 0.0f}, .root_is_static = true}
+        .root = {0.0f, height+8.0f, 0.0f}, .root_is_static = true}
         );
     sim_init(&sims[1], (struct SimConfig){
-        .root = {3.0f, 7.0f, 0.0f}, .root_is_static = true}
+        .root = {3.0f, height+7.0f, 0.0f}, .root_is_static = true}
         );
     sim_init(&sims[2], (struct SimConfig){
-        .root = {-3.0f, 6.0f, 2.0f}, .root_is_static = true}
+        .root = {-3.0f, height+6.0f, 2.0f}, .root_is_static = true}
         );
 
 #if !DEBUG_RDP
@@ -815,24 +859,25 @@ int main()
         struct controller_data pressed = get_keys_pressed();
         struct controller_data down = get_keys_down();
 
-        if (pressed.c[0].A) {
-            animation++;
-        }
-
-        if (pressed.c[0].B) {
-            animation--;
-        }
-
         if (down.c[0].start) {
             debugf("%ld\n", animation);
         }
 
-        if (down.c[0].R) {
-            shade_model = shade_model == GL_SMOOTH ? GL_FLAT : GL_SMOOTH;
-            glShadeModel(shade_model);
+        if (down.c[0].L) {
+            viewer.active_camera--;
+            if (viewer.active_camera < 0) viewer.active_camera = NUM_CAMERAS - 1;
+
+            debugf("Active camera: %d\n", viewer.active_camera);
         }
 
-        if (down.c[0].L) {
+        if (down.c[0].R) {
+            viewer.active_camera++;
+            if (viewer.active_camera >= NUM_CAMERAS) viewer.active_camera = 0;
+
+            debugf("Active camera: %d\n", viewer.active_camera);
+        }
+
+        if (down.c[0].A) {
             debugf("show wires\n");
             for (int i=0;i<NUM_SIMULATIONS;i++) {
                 sims[i].debug.show_wires = !sims[i].debug.show_wires;

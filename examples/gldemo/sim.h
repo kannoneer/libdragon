@@ -67,11 +67,11 @@ void sim_init(struct Simulation* s, struct SimConfig config)
         s->spring_visible[i] = false;
     }
 
-    const float rope_segment = 0.5f;
+    const float rope_segment = 0.5;
     const float side = 2.0f;
 
     int h=-1;
-    for (int i=1;i<4;i++) {
+    for (int i=1;i<8;i++) {
         s->spring_visible[s->num_springs] = true;
         s->springs[s->num_springs++] = (struct Spring){i-1, i, rope_segment};
         h = i;
