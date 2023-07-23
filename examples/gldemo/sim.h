@@ -108,9 +108,9 @@ void sim_init(struct Simulation* s, struct SimConfig config)
 
     for (int i=0;i<s->num_points-1;i++) {
         int idx = i*3;
-        s->x[idx + 0] = i*0.5f;
-        s->x[idx + 1] = i*0.1f;
-        s->x[idx + 2] = i*0.15f;
+        s->x[idx + 0] = s->config.root[0]+0.1f;
+        s->x[idx + 1] = s->config.root[1] + -i*0.1f;
+        s->x[idx + 2] = s->config.root[2]-0.01f;
     }
 
     s->debug.show_wires = false;

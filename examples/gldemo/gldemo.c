@@ -26,7 +26,6 @@
 
 static const bool music_enabled = false;
 
-static uint32_t animation = 3283;
 static uint32_t texture_index = 0;
 static camera_t camera;
 static surface_t zbuffer;
@@ -34,6 +33,8 @@ static surface_t tempbuffer;
 
 static float time_secs = 0.0f;
 static int time_frames = 0;
+
+static bool debug_freeze = false;
 
 bool tweak_double_sided_gems = true;
 bool tweak_dont_test_plane_depth = true; // 3% faster plane drawing when enabled
@@ -46,8 +47,6 @@ bool tweak_dont_test_plane_depth = true; // 3% faster plane drawing when enabled
 #define TEX_TABLE (8)
 
 static GLuint textures[NUM_TEXTURES];
-
-static GLenum shade_model = GL_SMOOTH;
 
 static model64_t* model_gemstone = NULL;
 
@@ -74,6 +73,13 @@ static struct Viewer {
         float target[3];
     } cams[NUM_CAMERAS];
 } viewer;
+
+#define CAM_CLOSEUP 0
+#define CAM_OVERVIEW 1
+
+static struct {
+    bool interactive;
+} demo;
 
 void viewer_init()
 {
@@ -138,6 +144,7 @@ static void set_textured_shadow_material()
 struct shadow_mesh {
     float verts[MESH_MAX_VERTICES][3];
     float verts_proj[MESH_MAX_VERTICES][3];
+    float verts_proj_old[MESH_MAX_VERTICES][3];
     float texcoords[MESH_MAX_VERTICES][2];
     uint16_t indices[MESH_MAX_INDICES];
     int num_vertices;
@@ -378,8 +385,8 @@ void set_frustum(float fov_factor)
 
 void setup()
 {
-    camera.distance = -5.0f;
-    camera.rotation = 0.5f;
+    camera.distance = 7.0f;
+    camera.rotation = 0.6f;
 
     zbuffer = surface_alloc(FMT_RGBA16, display_get_width(), display_get_height());
     tempbuffer = surface_alloc(FMT_RGBA16, display_get_width(), display_get_height());
@@ -450,6 +457,26 @@ void setup()
     if (!shadow_mesh_extract(&smesh_gemstone, model_gemstone)) {
         debugf("Shadow mesh generation failed\n");
     }
+    
+    // Setup simulations
+
+    const float height = 5.0f;
+    if (NUM_SIMULATIONS >= 1) sim_init(&sims[0], (struct SimConfig){
+        .root = {0.0f, height+8.0f, 0.0f}, .root_is_static = true}
+        );
+    if (NUM_SIMULATIONS >= 2) sim_init(&sims[1], (struct SimConfig){
+        .root = {3.0f, height+7.0f, 0.0f}, .root_is_static = true}
+        );
+    if (NUM_SIMULATIONS >= 3) sim_init(&sims[2], (struct SimConfig){
+        .root = {-3.0f, height+6.0f, 2.0f}, .root_is_static = true}
+        );
+
+
+    for (int iter=0;iter<10;iter++) {
+        for (int i = 0; i < NUM_SIMULATIONS; i++) {
+            sim_update(&sims[i]);
+        }
+    }
 }
 
 void render_flare()
@@ -503,7 +530,6 @@ void render_shadows(mat4_t object_to_world)
     // if hit, set vertex to hit position
     // if missed, set vertex 1000 units away (TODO)
     // 
-    memcpy(&mesh->verts_proj[0], &mesh->verts[0], sizeof(float) * 3 * mesh->num_vertices);
 
     PROFILE_START(PS_RENDER_SHADOWS_INVERT, 0);
     mat4_t world_to_object;
@@ -544,6 +570,8 @@ void render_shadows(mat4_t object_to_world)
         glPopMatrix();
     }
 
+    bool missed_rays = false;
+
     for (int i=0; i<mesh->num_vertices; i++) {
         float* vert = &mesh->verts[i][0];
         float light_to_vert[3];
@@ -559,12 +587,21 @@ void render_shadows(mat4_t object_to_world)
 
         if (verbose) debugf("[%d], hit=%s, t=%f\n", i, hit ? "true" : "false", t);
 
-        if (!hit) {
-            t = 1000.0f;
+        if (!hit || light_to_vert[1] > 0.0f) {
+            t=20.f;
+            missed_rays=true;
         }
 
         vec3_scale(t, light_to_vert);
         vec3_add(light_obj, light_to_vert, &mesh->verts_proj[i][0]);
+
+        if (!hit) {
+            //debugf("ray missed at (%f, %f, %f) from (%f, %f, %f)\n", vert[0], vert[1], vert[2], light_obj[0], light_obj[1], light_obj[2]);
+            // debugf("ray missed, dir (%f, %f, %f),\tlight=(%f, %f, %f)\n",
+            //     light_to_vert[0], light_to_vert[1], light_to_vert[2],
+            //     light_obj[0], light_obj[1], light_obj[2]);
+            //if (time_secs > 5.0f) debug_freeze = true;
+        }
 
         if (false) {
             glBegin(GL_LINES);
@@ -574,6 +611,13 @@ void render_shadows(mat4_t object_to_world)
             glVertex3fv(&mesh->verts_proj[i][0]);
             glEnd();
         }
+    }
+
+    // HACK: If any of the rays missed the plane, use last frames mesh.
+    if (missed_rays) {
+        memcpy(mesh->verts_proj, mesh->verts_proj_old, sizeof(mesh->verts_proj));
+    } else {
+        memcpy(mesh->verts_proj_old, mesh->verts_proj, sizeof(mesh->verts_proj));
     }
 
     glBindTexture(GL_TEXTURE_2D, textures[TEX_DIAMOND]);
@@ -639,7 +683,6 @@ void apply_postproc(surface_t *disp)
         //rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY_CONST);
         rdpq_mode_combiner(RDPQ_COMBINER1((TEX0,0,PRIM,0), (0,0,0,PRIM)));
         rdpq_blitparms_t blit={0};
-        float zoom = 0.25f;
         //blit.scale_x = 1.0f + zoom;
         //blit.scale_y = 1.0f + zoom;
         //blit.cx = 160*zoom;
@@ -669,6 +712,18 @@ void apply_postproc(surface_t *disp)
 
 }
 
+void run_animation()
+{
+    viewer.active_camera = CAM_CLOSEUP;
+
+    if (time_secs > 10.0f) {
+        viewer.active_camera = CAM_OVERVIEW;
+    }
+    if (time_secs >= 20.0f) {
+        viewer.active_camera = CAM_CLOSEUP;
+    }
+}
+
 void render()
 {
     surface_t *disp = display_get();
@@ -679,7 +734,6 @@ void render()
 
     glClearColor(environment_color[0], environment_color[1], environment_color[2], environment_color[3]);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
 
     camera.computed_eye[0] = cos(camera.rotation) * camera.distance;
     camera.computed_eye[1] = 4.0f;
@@ -723,14 +777,14 @@ void render()
     glMatrixMode(GL_MODELVIEW);
     // camera_transform(&camera);
 
-    float rotation = animation * 0.5f;
-
     float dist = 4.0f;
     float langle = time_secs * 0.4f;
 
-    light_pos[0][0] = dist * cos(langle);
-    light_pos[0][1] = 8.0f + sin(time_secs*0.8f);
-    light_pos[0][2] = dist * sin(langle);
+    if (!debug_freeze) {
+        light_pos[0][0] = dist * cos(langle);
+        light_pos[0][1] = 10.0f + sin(time_secs*0.8f);
+        light_pos[0][2] = dist * sin(langle);
+    }
 
     glLightfv(GL_LIGHT0, GL_POSITION, light_pos[0]);
 
@@ -815,6 +869,8 @@ int main()
 
     profile_init();
 
+    demo.interactive = false;
+
     // glEnable(GL_MULTISAMPLE_ARB);
 
 #if DEBUG_RDP
@@ -827,26 +883,15 @@ int main()
     controller_init();
     timer_init();
 
-	audio_init(22050, 4);
-	mixer_init(1);
+	audio_init(44100, 4);
+	mixer_init(2);
 
     static wav64_t music_wav;
     if (music_enabled) {
-        const char* songpath = "/break_it_down_again.wav64"; //TODO need to move to filesystem again
+        const char* songpath = "/music1.wav64"; //TODO need to move to filesystem again
         wav64_open(&music_wav, songpath);
         wav64_play(&music_wav, 0);
     }
-
-    const float height = 5.0f;
-    sim_init(&sims[0], (struct SimConfig){
-        .root = {0.0f, height+8.0f, 0.0f}, .root_is_static = true}
-        );
-    sim_init(&sims[1], (struct SimConfig){
-        .root = {3.0f, height+7.0f, 0.0f}, .root_is_static = true}
-        );
-    sim_init(&sims[2], (struct SimConfig){
-        .root = {-3.0f, height+6.0f, 2.0f}, .root_is_static = true}
-        );
 
 #if !DEBUG_RDP
     while (1)
@@ -860,64 +905,67 @@ int main()
         struct controller_data down = get_keys_down();
 
         if (down.c[0].start) {
-            debugf("%ld\n", animation);
+            demo.interactive = !demo.interactive;
+            debugf("%s mode\n", demo.interactive ? "Interactive" : "Playback");
         }
 
-        if (down.c[0].L) {
-            viewer.active_camera--;
-            if (viewer.active_camera < 0) viewer.active_camera = NUM_CAMERAS - 1;
+        if (demo.interactive) {
+            if (down.c[0].L) {
+                viewer.active_camera--;
+                if (viewer.active_camera < 0) viewer.active_camera = NUM_CAMERAS - 1;
 
-            debugf("Active camera: %d\n", viewer.active_camera);
-        }
-
-        if (down.c[0].R) {
-            viewer.active_camera++;
-            if (viewer.active_camera >= NUM_CAMERAS) viewer.active_camera = 0;
-
-            debugf("Active camera: %d\n", viewer.active_camera);
-        }
-
-        if (down.c[0].A) {
-            debugf("show wires\n");
-            for (int i=0;i<NUM_SIMULATIONS;i++) {
-                sims[i].debug.show_wires = !sims[i].debug.show_wires;
+                debugf("Active camera: %d\n", viewer.active_camera);
             }
-        }
 
-        const float nudge=0.01f;
-        bool c_pressed = false;
+            if (down.c[0].R) {
+                viewer.active_camera++;
+                if (viewer.active_camera >= NUM_CAMERAS) viewer.active_camera = 0;
 
-        if (down.c[0].C_up) {
-            debug_z_shift += nudge;
-            c_pressed = true;
-        }
+                debugf("Active camera: %d\n", viewer.active_camera);
+            }
 
-        if (down.c[0].C_down) {
-            debug_z_shift -= nudge;
-            c_pressed = true;
-        }
+            if (down.c[0].A) {
+                debugf("show wires\n");
+                for (int i = 0; i < NUM_SIMULATIONS; i++) {
+                    sims[i].debug.show_wires = !sims[i].debug.show_wires;
+                }
+            }
 
-        if (down.c[0].C_left) {
-            debug_x_shift -= nudge;
-            c_pressed = true;
-        }
+            const float nudge = 0.01f;
+            bool c_pressed = false;
 
-        if (down.c[0].C_right) {
-            debug_x_shift += nudge;
-            c_pressed = true;
-        }
+            if (down.c[0].C_up) {
+                debug_z_shift += nudge;
+                c_pressed = true;
+            }
 
-        if (c_pressed) {
-            debugf("xz shift: (%f, %f)\n", debug_x_shift, debug_z_shift);
-        }
+            if (down.c[0].C_down) {
+                debug_z_shift -= nudge;
+                c_pressed = true;
+            }
 
-        float y = pressed.c[0].y / 128.f;
-        float x = pressed.c[0].x / 128.f;
-        float mag = x*x + y*y;
+            if (down.c[0].C_left) {
+                debug_x_shift -= nudge;
+                c_pressed = true;
+            }
 
-        if (fabsf(mag) > 0.01f) {
-            camera.distance += y * 0.2f;
-            camera.rotation = camera.rotation - x * 0.05f;
+            if (down.c[0].C_right) {
+                debug_x_shift += nudge;
+                c_pressed = true;
+            }
+
+            if (c_pressed) {
+                debugf("xz shift: (%f, %f)\n", debug_x_shift, debug_z_shift);
+            }
+
+            float y = pressed.c[0].y / 128.f;
+            float x = pressed.c[0].x / 128.f;
+            float mag = x * x + y * y;
+
+            if (fabsf(mag) > 0.01f) {
+                camera.distance += y * 0.2f;
+                camera.rotation = camera.rotation - x * 0.05f;
+            }
         }
 
         PROFILE_START(PS_MUSIC, 0);
@@ -927,10 +975,16 @@ int main()
         PROFILE_STOP(PS_MUSIC, 0);
 
         PROFILE_START(PS_UPDATE, 0);
-        for (int i=0; i<NUM_SIMULATIONS; i++) {
-            sim_update(&sims[i]);
+        if (true || time_frames < 40) {
+            for (int i = 0; i < NUM_SIMULATIONS; i++) {
+                sim_update(&sims[i]);
+            }
         }
         PROFILE_STOP(PS_UPDATE, 0);
+
+        if (!demo.interactive) {
+            run_animation();
+        }
 
         PROFILE_START(PS_RENDER, 0);
         render();
@@ -941,10 +995,12 @@ int main()
         profile_next_frame();
         time_frames++;
 
+        #if LIBDRAGON_PROFILE
         if (time_frames == 128) {
             profile_dump();
             profile_init();
         }
+        #endif
     }
 
 }

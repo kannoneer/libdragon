@@ -360,11 +360,11 @@ void mat4_mul_vec4(const mat4_t A, const float* x, float* out)
     }
 }
 
-void print_vec3(float* v) {
+void print_vec3(const float* v) {
     debugf("[%f,%f,%f]\n", v[0], v[1], v[2]);
 }
 
-void print_vec4(float* v) {
+void print_vec4(const float* v) {
     debugf("[%f,%f,%f,%f]\n", v[0], v[1], v[2], v[3]);
 }
 
@@ -383,12 +383,23 @@ float vec3_dot(const float *a, const float *b) {
 // Returns true if the plane was hit.
 bool intersect_plane(const float *n, const float *p0, const float *l0, const float* l, float *out_t)
 {
+    const bool verbose = false;
     // assuming vectors are all normalized
     float denom = vec3_dot(n, l);
+
+    if (verbose) {
+        debugf("n: ");
+        print_vec3(n);
+        debugf("l: ");
+        print_vec3(l);
+        debugf("denom = %f\n", denom);
+    }
+
     if (denom > 1e-6) {
         float p0l0[3]; // = p0 - l0;
         vec3_sub(p0, l0, p0l0);
         *out_t = vec3_dot(p0l0, n) / denom; 
+        if (verbose) debugf("%s out_t=%f\n", __FUNCTION__, *out_t);
         return (*out_t >= 0);
     }
 
