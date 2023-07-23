@@ -24,7 +24,7 @@
 // The demo will only run for a single frame and stop.
 #define DEBUG_RDP 0
 
-static const bool music_enabled = false;
+static const bool music_enabled = true;
 
 static uint32_t texture_index = 0;
 static camera_t camera;
@@ -76,6 +76,7 @@ static struct Viewer {
 
 #define CAM_CLOSEUP 0
 #define CAM_OVERVIEW 1
+#define CAM_ACTION 2
 
 static struct {
     bool interactive;
@@ -94,7 +95,7 @@ static struct Simulation sims[NUM_SIMULATIONS];
 mat4_t sim_object_to_worlds[NUM_SIMULATIONS];
 
 static const GLfloat light_diffuse[8][4] = {
-    { 1.0f, 0.0f, 0.0f, 1.0f },
+    { 1.0f, 0.1f, 0.0f, 1.0f },
     { 0.0f, 1.0f, 0.0f, 1.0f },
     { 0.0f, 0.0f, 1.0f, 1.0f },
     { 1.0f, 1.0f, 0.0f, 1.0f },
@@ -426,8 +427,9 @@ void setup()
     set_diffuse_material();
 
     glFogf(GL_FOG_START, 5);
-    glFogf(GL_FOG_END, 20);
+    glFogf(GL_FOG_END, 40);
     glFogfv(GL_FOG_COLOR, environment_color);
+    glEnable(GL_FOG);
 
     glGenTextures(NUM_TEXTURES, textures);
 
@@ -587,7 +589,7 @@ void render_shadows(mat4_t object_to_world)
 
         if (verbose) debugf("[%d], hit=%s, t=%f\n", i, hit ? "true" : "false", t);
 
-        if (!hit || light_to_vert[1] > 0.0f) {
+        if (!hit) {
             t=20.f;
             missed_rays=true;
         }
@@ -674,6 +676,7 @@ void apply_postproc(surface_t *disp)
     surface_t* sources[2] = {disp, &tempbuffer};
     surface_t* targets[2] = {&tempbuffer, disp}; // FIXME doesnhas no effect?
 
+    rdpq_mode_push();
     for (int pass=0;pass<2;pass++) {
         rdpq_attach(targets[pass], NULL);
 
@@ -695,6 +698,7 @@ void apply_postproc(surface_t *disp)
         rdpq_fence();
         rdpq_detach();
     }
+    rdpq_mode_pop();
 
     /*
     rdpq_set_mode_standard();
@@ -714,13 +718,34 @@ void apply_postproc(surface_t *disp)
 
 void run_animation()
 {
+    // 0 - 8  verse
+    // 8 - 16 verse with synth
+    // 23 - 40 chorus, 31 midpoint
+    // 40 - 50 end verse
+    
     viewer.active_camera = CAM_CLOSEUP;
 
-    if (time_secs > 10.0f) {
+
+    if (time_secs > 8) {
         viewer.active_camera = CAM_OVERVIEW;
     }
-    if (time_secs >= 20.0f) {
+    if (time_secs > 16) {
         viewer.active_camera = CAM_CLOSEUP;
+    }
+    if (time_secs > 23) {
+        viewer.active_camera = CAM_ACTION;
+    }
+    if (time_secs > 31) {
+        viewer.active_camera = ((int)(time_secs / 3) % NUM_CAMERAS);
+    }
+
+    float drop_start = 40.0f;
+    if (time_secs > drop_start) {
+        for (int i=0;i<NUM_SIMULATIONS;i++) {
+            if (time_secs > drop-start + i) {
+            sims[i].config.root_is_static = false;
+            }
+        }
     }
 }
 
@@ -732,7 +757,8 @@ void render()
 
     gl_context_begin();
 
-    glClearColor(environment_color[0], environment_color[1], environment_color[2], environment_color[3]);
+    const float fudge = 0.01f;
+    glClearColor(environment_color[0] + fudge, environment_color[1] + fudge, environment_color[2] + fudge, environment_color[3] + fudge);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     camera.computed_eye[0] = cos(camera.rotation) * camera.distance;
@@ -741,7 +767,7 @@ void render()
     
     glLoadIdentity();
 
-    if (viewer.active_camera == 0) {
+    if (viewer.active_camera == CAM_CLOSEUP) {
         glMatrixMode(GL_PROJECTION);
         set_frustum(0.6f);
 
@@ -760,7 +786,7 @@ void render()
             0, 1, 0);
         
     }
-    else {
+    else if (viewer.active_camera == CAM_OVERVIEW) {
         glMatrixMode(GL_PROJECTION);
         set_frustum(1.1f);
 
@@ -772,17 +798,28 @@ void render()
             5.0f, 8.0f * eye_yshake, 1.0f,
             1.f * target_xshake, 0.0f, 0.0f,
             0 + yshake, 1 - yshake, 0);
+    } else if (viewer.active_camera == CAM_ACTION) {
+        glMatrixMode(GL_PROJECTION);
+        set_frustum(1.0f);
+        glMatrixMode(GL_MODELVIEW);
+        glLoadIdentity();
+        float *pos = &sims[0].pose.origin[0];
+        float angle=time_secs*0.7f;
+        gluLookAt(
+            pos[0] + 3.0f*cos(angle), pos[1] + 2.0f, pos[2] + 3.0f*sin(angle),
+            pos[0], pos[1], pos[2],
+            0, 1, 0);
     }
 
     glMatrixMode(GL_MODELVIEW);
     // camera_transform(&camera);
 
     float dist = 4.0f;
-    float langle = time_secs * 0.4f;
+    float langle = time_secs * 0.3f;
 
     if (!debug_freeze) {
         light_pos[0][0] = dist * cos(langle);
-        light_pos[0][1] = 10.0f + sin(time_secs*0.8f);
+        light_pos[0][1] = 10.0f + 0.5 * sin(time_secs*0.8f);
         light_pos[0][2] = dist * sin(langle);
     }
 
