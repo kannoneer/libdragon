@@ -31,7 +31,7 @@ int main(void) {
 	mixer_init(8);
 
 	mpeg2_t mp2;
-	mpeg2_open(&mp2, "rom:/bbb.m1v");
+	mpeg2_open(&mp2, "rom:/hirvikallo2.m1v");
 
 	// wav64_t music;
 	// wav64_open(&music, "bbb.wav64");
@@ -58,7 +58,46 @@ int main(void) {
 
 		mpeg2_draw_frame(&mp2, disp);
 
+		rdpq_detach();
+		rdpq_fence();
+
+
+		//rdpq_set_fill_color(RGBA32(255, 255, 255, 255));
+		//rdpq_set_blend_color(RGBA32(255, 255, 255, 255));
+
+		// Darken the whole image
+		rdpq_attach(disp, NULL);
+
+		rdpq_set_mode_standard();
+		rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY);
+        //rdpq_set_mode_copy(true);
+		// rdpq_mode_combiner(RDPQ_COMBINER1((NOISE,0,PRIM,0),       (0,0,0,PRIM)));
+		const int lvl = 24;
+		rdpq_set_prim_color(RGBA32(lvl, lvl, lvl, 255));
+		rdpq_mode_combiner(RDPQ_COMBINER1((NOISE,0,PRIM,TEX0), (0,0,0,TEX0)));
+        rdpq_tex_blit(disp, 0, 0, NULL);
+
+		/*
+        rdpq_set_mode_standard();
+		rdpq_set_prim_color(RGBA32(0,0,0, 128));
+		rdpq_mode_combiner(RDPQ_COMBINER_FLAT);
+		rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY);
+        rdpq_fill_rectangle(0, 0, 320, 240);
+
+		// Additive noise
+		rdpq_set_prim_color(RGBA32(255,255,255, 128));
+		rdpq_mode_blender(RDPQ_BLENDER_ADDITIVE);
+
+		//rdpq_mode_combiner(RDPQ_COMBINER_FLAT);
+		rdpq_mode_combiner(RDPQ_COMBINER1((NOISE,0,PRIM,0),       (0,0,0,PRIM)));
+
+		// Fazana: RDP noise you do through the combiner
+		// Fazana: then the density of the noise is based off the alpha of the primitive
+
+        rdpq_fill_rectangle(0, 0, 320, 240);
+		*/
 		rdpq_detach_show();
+   
 
 		audio_poll();
 
