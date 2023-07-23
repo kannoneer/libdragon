@@ -32,11 +32,12 @@ static surface_t zbuffer;
 static float time_secs = 0.0f;
 static int time_frames = 0;
 
-#define NUM_TEXTURES (8)
+#define NUM_TEXTURES (9)
 #define TEX_CEILING (4)
 #define TEX_FLARE (5)
 #define TEX_ICON (6)
 #define TEX_DIAMOND (7)
+#define TEX_TABLE (8)
 
 static GLuint textures[NUM_TEXTURES];
 
@@ -78,6 +79,7 @@ static const char *texture_path[NUM_TEXTURES] = {
     "rom:/star.ia8.sprite",
     "rom:/icon.rgba16.sprite",
     "rom:/squaremond.i4.sprite",
+    "rom:/test.sprite",
 };
 
 static sprite_t *sprites[NUM_TEXTURES];
@@ -558,6 +560,71 @@ void render_shadows()
     glPopMatrix();
 }
 
+void apply_postproc(surface_t *disp)
+{
+    rdpq_attach(disp, NULL);
+
+    rdpq_set_mode_standard();
+    //rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY);
+
+    //rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY);
+    //rdpq_set_mode_copy(true);
+    // rdpq_mode_combiner(RDPQ_COMBINER1((NOISE,0,PRIM,0),       (0,0,0,PRIM)));
+    const int lvl = 8;
+    rdpq_set_prim_color(RGBA32(lvl, lvl, lvl, 255));
+    rdpq_mode_combiner(RDPQ_COMBINER1((NOISE,0,PRIM,TEX0), (0,0,0,TEX0)));
+    rdpq_tex_blit(disp, 0, 0, NULL);
+
+    /*
+    const int lvl = 255;
+    color_t colors[2] = {
+        RGBA32(0, lvl, lvl, 255),
+        RGBA32(lvl, 0, 0, 255),
+    };
+
+    struct {
+        int x;
+        int y;
+    } offsets[2] = {{1,1}, {-1, -1}};
+
+    for (int pass=0;pass<2;pass++) {
+        rdpq_set_prim_color(colors[pass]);
+        rdpq_set_fog_color(RGBA32(0, 0, 0, 128));
+        rdpq_mode_blender(RDPQ_BLENDER_ADDITIVE);
+        //rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY_CONST);
+        rdpq_mode_combiner(RDPQ_COMBINER1((TEX0,0,PRIM,0), (0,0,0,PRIM)));
+        rdpq_blitparms_t blit={0};
+        float zoom = 0.25f;
+        //blit.scale_x = 1.0f + zoom;
+        //blit.scale_y = 1.0f + zoom;
+        //blit.cx = 160*zoom;
+        //blit.cy = 120*zoom;
+        blit.filtering = true;
+        blit.cx = offsets[pass].x;
+        blit.cy = offsets[pass].y;
+        blit.theta = 0.01f;
+        rdpq_tex_blit(disp, 0, 0, &blit);
+        rdpq_fence();
+    }
+    */
+
+    /*
+    rdpq_set_mode_standard();
+    rdpq_set_prim_color(RGBA32(0,0,0, 128));
+    rdpq_mode_combiner(RDPQ_COMBINER_FLAT);
+    rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY);
+    rdpq_fill_rectangle(0, 0, 320, 240);
+
+    // Additive noise
+    rdpq_set_prim_color(RGBA32(255,255,255, 128));
+    rdpq_mode_blender(RDPQ_BLENDER_ADDITIVE);
+
+    rdpq_mode_combiner(RDPQ_COMBINER1((NOISE,0,PRIM,0),       (0,0,0,PRIM)));
+    */
+
+    rdpq_detach();
+}
+
 void render()
 {
     surface_t *disp = display_get();
@@ -609,7 +676,7 @@ void render()
     glEnable(GL_CULL_FACE);
 
     glEnable(GL_TEXTURE_2D);
-    glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
+    glBindTexture(GL_TEXTURE_2D, textures[TEX_TABLE]);
     
     render_plane();
 
@@ -630,7 +697,10 @@ void render()
 
     gl_context_end();
 
-    rdpq_detach_show();
+    rdpq_detach();
+    if (false) apply_postproc(disp);
+    rdpq_attach(disp, NULL);
+    rdpq_detach_show(); // FIXME does attach + detach without calls make sense?
 }
 
 static uint32_t audio_sample_time = 0;
@@ -756,7 +826,7 @@ int main()
         render();
         if (DEBUG_RDP)
             rspq_wait();
-
+        
         time_frames++;
     }
 

@@ -82,6 +82,10 @@ void sim_init()
     sim.springs[sim.num_springs++] = (struct Spring){h+2, h+4, side};
     sim.springs[sim.num_springs++] = (struct Spring){h+3, h+4, side};
 
+    sim.springs[sim.num_springs++] = (struct Spring){h+1, h+5, side};
+    sim.springs[sim.num_springs++] = (struct Spring){h+2, h+5, side};
+    sim.springs[sim.num_springs++] = (struct Spring){h+3, h+5, side};
+
 
     sim.pose.u_inds[0] = h+1;
     sim.pose.u_inds[1] = h+2;
@@ -93,7 +97,7 @@ void sim_init()
     sim.pose.attach_tri_inds[1] = h+2;
     sim.pose.attach_tri_inds[2] = h+3;
 
-    sim.num_points = h+5;
+    sim.num_points = h+6;
 
     for (int i=0;i<sim.num_points-1;i++) {
         int idx = i*3;
@@ -106,11 +110,12 @@ void sim_init()
     sim.root[1] = 8.0f;
     sim.root[2] = 0.0f;
 
-    sim.debug.show_wires = false;
+    sim.debug.show_wires = true;
 }
 
 void sim_update()
 {
+    const bool verbose = false;
     const int num_iters = 3;
     const float gravity = -0.1f;
     const float constraint_damping = 0.9f;
@@ -160,16 +165,16 @@ void sim_update()
                 const float friction = 0.19f;
                 float shorten = depth > 0.0f ? depth * friction : 0.0f;
                 float length = vec3_length(tvel);
-                debugf("[%d] depth=%f, friction=%f, length=%f, shorten=%f", i, depth, friction, length, shorten);
+                if (verbose) debugf("[%d] depth=%f, friction=%f, length=%f, shorten=%f", i, depth, friction, length, shorten);
 
                 if (length <= shorten) {
                     // zero velocity
                     oldp[0] = p[0];
                     oldp[1] = p[1];
                     oldp[2] = p[2];
-                    debugf(" -> zero'd\n");
+                    if (verbose) debugf(" -> zero'd\n");
                 } else {
-                    debugf(" -> apply friction\n");
+                    if (verbose) debugf(" -> apply friction\n");
                     // scale velocity vector to be of length "friction"
                     // but we don't have any explicit velocity, just two points
                     // so we scale the velocity by moving the new point towards the old one
@@ -257,10 +262,10 @@ void sim_update()
 
     if (sim.num_updates_done % 75 == 0) {
         sim.root[0] = ((float)rand()/RAND_MAX) * 6.0f - 3.0f;
-        debugf("root[0] = %f\n", sim.root[0]);
+        if (verbose) debugf("root[0] = %f\n", sim.root[0]);
     }
 
-    if ((sim.num_updates_done / 10) % 10 < 3) {
+    if ((sim.num_updates_done / 20) % 10 < 3) {
         for (int idx=0;idx<sim.num_points;idx+=7) {
             sim.x[idx*3+0] = sim.x[idx*3+0]*0.5f;
             sim.x[idx*3+1] = sim.x[idx*3+1]*0.5f + 0.5f * 5.0f;
