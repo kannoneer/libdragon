@@ -1,7 +1,7 @@
 #ifndef PROFILE_H
 #define PROFILE_H
 
-#define LIBDRAGON_PROFILE 1
+//#define LIBDRAGON_PROFILE 1
 
 // Global enable/disable of libdragon profiler.
 //
@@ -47,9 +47,9 @@ typedef enum {
 // Internal data structures, exposed here to allow inlining of profile_record
 extern uint64_t slot_frame_cur[PS_NUM_SLOTS];
 
-void profile_init(void);
-void profile_next_frame(void);
-void profile_dump(void);
+void my_profile_init(void);
+void my_profile_next_frame(void);
+void my_profile_dump(void);
 static inline void profile_record(ProfileSlot slot, int32_t len) {
 	// High part: profile record
 	// Low part: number of occurrences

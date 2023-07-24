@@ -5,7 +5,7 @@
 #include "rdpq_mode.h"
 #include "yuv.h"
 #include "debug.h"
-#include "profile.h"
+//#include "profile.h"
 #include "utils.h"
 #include <assert.h>
 #include <errno.h>
@@ -127,13 +127,13 @@ void mpeg2_open(mpeg2_t *mp2, const char *fn) {
 			NULL);
 	}
 
-	profile_init();
+	// profile_init();
 }
 
 bool mpeg2_next_frame(mpeg2_t *mp2) {
-	PROFILE_START(PS_MPEG, 0);
+	//PROFILE_START(PS_MPEG, 0);
 	mp2->f = plm_video_decode(mp2->v);
-	PROFILE_STOP(PS_MPEG, 0);
+	//PROFILE_STOP(PS_MPEG, 0);
 	return (mp2->f != NULL);
 }
 
@@ -142,7 +142,7 @@ void mpeg2_rewind(mpeg2_t *mp2) {
 }
 
 void mpeg2_draw_frame(mpeg2_t *mp2, display_context_t disp) {
-	PROFILE_START(PS_YUV, 0);
+	//PROFILE_START(PS_YUV, 0);
 	if (YUV_MODE == 0) {	
 	    plm_frame_to_rgba(mp2->f, disp->buffer, disp->stride);
 	} else {
@@ -152,14 +152,14 @@ void mpeg2_draw_frame(mpeg2_t *mp2, display_context_t disp) {
 		surface_t crp = surface_make_linear(frame->cr.data, FMT_I8, frame->width/2, frame->height/2);
 		yuv_blitter_run(&mp2->yuv_blitter, &yp, &cbp, &crp);
     }
-	PROFILE_STOP(PS_YUV, 0);
+	//PROFILE_STOP(PS_YUV, 0);
 
-    static int nframes=0;
-    profile_next_frame();
-    if (++nframes % 128 == 0) {
-    	profile_dump();
-    	profile_init();
-    }
+    // static int nframes=0;
+    // profile_next_frame();
+    // if (++nframes % 128 == 0) {
+    // 	profile_dump();
+    // 	profile_init();
+    // }
 }
 
 float mpeg2_get_framerate(mpeg2_t *mp2) {
