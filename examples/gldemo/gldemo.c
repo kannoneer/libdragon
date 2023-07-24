@@ -36,7 +36,7 @@ static int time_frames = 0;
 
 static bool debug_freeze = false;
 
-bool tweak_double_sided_gems = true;
+bool tweak_double_sided_gems = false;
 bool tweak_dont_test_plane_depth = true; // 3% faster plane drawing when enabled
 
 #define NUM_TEXTURES (9)
@@ -50,6 +50,7 @@ static GLuint textures[NUM_TEXTURES];
 
 static model64_t* model_gemstone = NULL;
 
+//static const GLfloat environment_color[] = { 1.0f, 1.0f, 1.0f, 1.f };
 static const GLfloat environment_color[] = { 0.03f, 0.03f, 0.05f, 1.f };
 //static const GLfloat environment_color[] = { 0.0f, 0.0f, 0.0f, 1.f };
 
@@ -78,8 +79,13 @@ static struct Viewer {
 #define CAM_OVERVIEW 1
 #define CAM_ACTION 2
 
+#define PART_GEMS 0
+#define PART_VIDEO 1
+#define NUM_PARTS (2)
+
 static struct {
     bool interactive;
+    int current_part;
 } demo;
 
 void viewer_init()
@@ -95,7 +101,7 @@ static struct Simulation sims[NUM_SIMULATIONS];
 mat4_t sim_object_to_worlds[NUM_SIMULATIONS];
 
 static const GLfloat light_diffuse[8][4] = {
-    { 1.0f, 0.1f, 0.0f, 1.0f },
+    { 1.0f, 1.0f, 1.0f, 1.0f }, //{ 1.0f, 0.1f, 0.0f, 1.0f },
     { 0.0f, 1.0f, 0.0f, 1.0f },
     { 0.0f, 0.0f, 1.0f, 1.0f },
     { 1.0f, 1.0f, 0.0f, 1.0f },
@@ -127,7 +133,8 @@ static void set_diffuse_material()
 
 static void set_gemstone_material()
 {
-    GLfloat color[] = { 4.0f, 4.0f, 4.0f, 0.75f };
+    GLfloat color[] = { 8.0f, 8.0f, 8.0f, 0.75f };
+    //GLfloat color[] = { 0.2f, 0.2f, 0.3f, 0.1f };
     glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, color);
 }
 
@@ -722,6 +729,16 @@ void run_animation()
     // 8 - 16 verse with synth
     // 23 - 40 chorus, 31 midpoint
     // 40 - 50 end verse
+
+    // Parts
+
+    if (time_secs < 4.0f) {
+        demo.current_part = PART_VIDEO;
+    } else {
+        demo.current_part = PART_GEMS;
+    }
+
+    // Cameras
     
     viewer.active_camera = CAM_CLOSEUP;
 
@@ -747,6 +764,7 @@ void run_animation()
             }
         }
     }
+
 }
 
 void render()
@@ -907,8 +925,9 @@ int main()
     profile_init();
 
     demo.interactive = false;
+    demo.current_part = PART_VIDEO;
 
-    // glEnable(GL_MULTISAMPLE_ARB);
+    glEnable(GL_MULTISAMPLE_ARB);
 
 #if DEBUG_RDP
     rdpq_debug_start();
@@ -922,6 +941,11 @@ int main()
 
 	audio_init(44100, 4);
 	mixer_init(2);
+
+	mpeg2_t mp2;
+	mpeg2_open(&mp2, "rom:/supercut.m1v");
+	float video_fps = mpeg2_get_framerate(&mp2);
+	throttle_init(video_fps, 0, 8);
 
     static wav64_t music_wav;
     if (music_enabled) {
@@ -991,6 +1015,18 @@ int main()
                 c_pressed = true;
             }
 
+            if (down.c[0].left) {
+                demo.current_part--;
+                if (demo.current_part < 0) demo.current_part = NUM_PARTS-1;
+                debugf("Part: %d\n", demo.current_part);
+            }
+
+            if (down.c[0].right) {
+                demo.current_part++;
+                if (demo.current_part >= NUM_PARTS) demo.current_part = 0;
+                debugf("Part: %d\n", demo.current_part);
+            }
+
             if (c_pressed) {
                 debugf("xz shift: (%f, %f)\n", debug_x_shift, debug_z_shift);
             }
@@ -1011,33 +1047,51 @@ int main()
         }
         PROFILE_STOP(PS_MUSIC, 0);
 
-        PROFILE_START(PS_UPDATE, 0);
-        if (true || time_frames < 40) {
-            for (int i = 0; i < NUM_SIMULATIONS; i++) {
-                sim_update(&sims[i]);
-            }
-        }
-        PROFILE_STOP(PS_UPDATE, 0);
-
         if (!demo.interactive) {
             run_animation();
         }
 
-        PROFILE_START(PS_RENDER, 0);
-        render();
-        PROFILE_STOP(PS_RENDER, 0);
-        if (DEBUG_RDP)
-            rspq_wait();
-        
-        profile_next_frame();
-        time_frames++;
+        if (demo.current_part == PART_GEMS) {
+            PROFILE_START(PS_UPDATE, 0);
+            if (true || time_frames < 40) {
+                for (int i = 0; i < NUM_SIMULATIONS; i++) {
+                    sim_update(&sims[i]);
+                }
+            }
+            PROFILE_STOP(PS_UPDATE, 0);
 
-        #if LIBDRAGON_PROFILE
-        if (time_frames == 128) {
-            profile_dump();
-            profile_init();
+            PROFILE_START(PS_RENDER, 0);
+            render();
+            PROFILE_STOP(PS_RENDER, 0);
+            if (DEBUG_RDP)
+                rspq_wait();
+
+            profile_next_frame();
+            time_frames++;
+
+            #if LIBDRAGON_PROFILE
+            if (time_frames == 128) {
+                profile_dump();
+                profile_init();
+            }
+            #endif
+        } else if (demo.current_part == PART_VIDEO) {
+            int ret = throttle_wait();
+            if (ret < 0) {
+                debugf("videoplayer: frame too slow (%d Kcycles)\n", -ret);
+            }
+            if (mpeg2_next_frame(&mp2)) {
+                surface_t *disp = display_get();
+                rdpq_attach(disp, &zbuffer);
+                mpeg2_draw_frame(&mp2, disp);
+                rdpq_detach_show();
+            } else {
+                debugf("Video ended\n");
+            }
         }
-        #endif
+        else {
+            debugf("Invalid demo part %d\n", demo.current_part);
+        }
     }
 
 }
