@@ -11,7 +11,9 @@
 			"bsptree.h": "c",
 			"libdragon.h": "c",
 			"eepromfs.h": "c",
-			"dragonfs.h": "c"
+			"dragonfs.h": "c",
+			"model64_internal.h": "c",
+			"profile.h": "c"
 		},
 		"workbench.colorTheme": "Tomorrow Night Blue"
 	}
