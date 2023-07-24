@@ -72,7 +72,7 @@ void sim_init(struct Simulation* s, struct SimConfig config)
 
     int h=-1;
     for (int i=1;i<8;i++) {
-        s->spring_visible[s->num_springs] = true;
+        s->spring_visible[s->num_springs] = false;
         s->springs[s->num_springs++] = (struct Spring){i-1, i, rope_segment};
         h = i;
     }

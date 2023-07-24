@@ -24,7 +24,7 @@
 // The demo will only run for a single frame and stop.
 #define DEBUG_RDP 0
 
-static const bool music_enabled = true;
+static const bool music_enabled = false;
 
 static uint32_t texture_index = 0;
 static camera_t camera;
@@ -64,7 +64,7 @@ static GLfloat light_pos[8][4] = {
     { 0, 3, -8, 1 },
 };
 
-#define NUM_CAMERAS (2)
+#define NUM_CAMERAS (3)
 
 static struct Viewer {
     int active_camera;
@@ -114,7 +114,7 @@ static const char *texture_path[NUM_TEXTURES] = {
     "rom:/star.ia8.sprite",
     "rom:/icon.rgba16.sprite",
     "rom:/squaremond.i4.sprite",
-    "rom:/test.sprite",
+    "rom:/concrete.ci4.sprite",
 };
 
 static sprite_t *sprites[NUM_TEXTURES];
@@ -127,7 +127,7 @@ static void set_diffuse_material()
 
 static void set_gemstone_material()
 {
-    GLfloat color[] = { 2.0f, 2.0f, 2.0f, 0.75f };
+    GLfloat color[] = { 4.0f, 4.0f, 4.0f, 0.75f };
     glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, color);
 }
 
@@ -464,13 +464,13 @@ void setup()
 
     const float height = 5.0f;
     if (NUM_SIMULATIONS >= 1) sim_init(&sims[0], (struct SimConfig){
-        .root = {0.0f, height+8.0f, 0.0f}, .root_is_static = true}
+        .root = {0.0f, height+8.0f, 3.0f}, .root_is_static = true}
         );
     if (NUM_SIMULATIONS >= 2) sim_init(&sims[1], (struct SimConfig){
-        .root = {3.0f, height+7.0f, 0.0f}, .root_is_static = true}
+        .root = {3.0f, height+7.0f, -3.0f}, .root_is_static = true}
         );
     if (NUM_SIMULATIONS >= 3) sim_init(&sims[2], (struct SimConfig){
-        .root = {-3.0f, height+6.0f, 2.0f}, .root_is_static = true}
+        .root = {-3.0f, height+5.0f, -3.0f}, .root_is_static = true}
         );
 
 
@@ -742,7 +742,7 @@ void run_animation()
     float drop_start = 40.0f;
     if (time_secs > drop_start) {
         for (int i=0;i<NUM_SIMULATIONS;i++) {
-            if (time_secs > drop-start + i) {
+            if (time_secs > drop_start + i) {
             sims[i].config.root_is_static = false;
             }
         }
@@ -795,8 +795,8 @@ void render()
         float eye_yshake = 1.0f + 0.015f* sin(time_secs*1.3f);
         glMatrixMode(GL_MODELVIEW);
         gluLookAt(
-            5.0f, 8.0f * eye_yshake, 1.0f,
-            1.f * target_xshake, 0.0f, 0.0f,
+            2.0f, 10.0f * eye_yshake, 1.0f,
+            1.f * target_xshake, 1.0f, 0.0f,
             0 + yshake, 1 - yshake, 0);
     } else if (viewer.active_camera == CAM_ACTION) {
         glMatrixMode(GL_PROJECTION);
