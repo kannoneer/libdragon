@@ -24,7 +24,7 @@
 // The demo will only run for a single frame and stop.
 #define DEBUG_RDP 0
 
-static const bool music_enabled = false;
+static const bool music_enabled = true;
 
 static uint32_t texture_index = 0;
 static camera_t camera;
@@ -406,7 +406,7 @@ void setup()
         sprites[i] = sprite_load(texture_path[i]);
     }
 
-    font_subtitle = rdpq_font_load("rom:/Pacifico.font64");
+    font_subtitle = rdpq_font_load("rom:/AlteHaasGroteskRegular.font64");
 
     setup_sphere();
     make_sphere_mesh();
@@ -738,11 +738,21 @@ void run_animation()
 
     if (time_secs < 4.0f) {
         demo.current_part = PART_VIDEO;
+    } else if (time_secs > 8.0f && time_secs < 14.0f) {
+        debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
+        demo.current_part = PART_VIDEO;
+    } else if (time_secs > 23.0f && time_secs < 25.0f) {
+        debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
+        demo.current_part = PART_VIDEO;
+    } else if (time_secs > 27.0f && time_secs < 30.0f) {
+        debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
+        demo.current_part = PART_VIDEO;
+    } else if (time_secs > 35.0f && time_secs < 40.0f) {
+        debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
+        demo.current_part = PART_VIDEO;
     } else {
         demo.current_part = PART_GEMS;
     }
-    demo.current_part = PART_GEMS;
-
     // Cameras
     
     viewer.active_camera = CAM_CLOSEUP;
@@ -761,7 +771,7 @@ void run_animation()
         viewer.active_camera = ((int)(time_secs / 3) % NUM_CAMERAS);
     }
 
-    float drop_start = 40.0f;
+    float drop_start = 45.0f;
     if (time_secs > drop_start) {
         for (int i=0;i<NUM_SIMULATIONS;i++) {
             if (time_secs > drop_start + i) {
@@ -781,7 +791,7 @@ void render()
     gl_context_begin();
 
     const float fudge = 0.01f;
-    glClearColor(environment_color[0] + fudge, environment_color[1] + fudge, environment_color[2] + fudge, environment_color[3] + fudge);
+    glClearColor(environment_color[0] + fudge, environment_color[1] + fudge, environment_color[2] + fudge, environment_color[3]);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     camera.computed_eye[0] = cos(camera.rotation) * camera.distance;
@@ -901,12 +911,6 @@ void render()
     PROFILE_STOP(PS_RENDER_POSTPROC, 0);
     rdpq_attach(disp, NULL);
 
-    rdpq_mode_antialias(AA_NONE);
-    rdpq_font_begin(RGBA32(0xED, 0xAE, 0x49, 0xFF));
-    rdpq_font_position(20, 50);
-    rdpq_font_print(font_subtitle, "Jumping over the river");
-    rdpq_font_end();
-
     rdpq_detach_show(); // FIXME does attach + detach without calls make sense?
 }
 
@@ -931,6 +935,7 @@ void render_video(mpeg2_t* mp2)
     if (mpeg2_next_frame(mp2)) {
         surface_t *disp = display_get();
         rdpq_attach(disp, &zbuffer);
+        rdpq_debug_start();
         mpeg2_draw_frame(mp2, disp);
 
         rdpq_fence();
@@ -941,12 +946,42 @@ void render_video(mpeg2_t* mp2)
         rdpq_mode_combiner(RDPQ_COMBINER1((NOISE, 0, PRIM, TEX0), (0, 0, 0, TEX0)));
         rdpq_tex_blit(disp, 0, 0, NULL);
 
+        if (false) {
+        struct {
+            float start;
+            const char* msg;
+            int x;
+        } messages[] = {
+            {1.0f, "PRESENTS", 50},
+            {5.0f, "Why worry?", 50},
+        };
+
+        const float duration = 3.0f;
+
+        for (int i = 0; i < sizeof(messages) / sizeof(messages[0]); i++) {
+            if (time_secs > messages[i].start && time_secs < messages[i].start + duration) {
+                rdpq_font_begin(RGBA32(0, 0, 0, 0xFF));
+                rdpq_font_position(messages[i].x, 240 - 39);
+                rdpq_font_print(font_subtitle, messages[i].msg);
+                rdpq_font_end();
+                break;
+            }
+        }
+        }
+
+
+        rdpq_debug_stop();
         rdpq_detach_show();
     }
     else {
         debugf("Video ended\n");
     }
 }
+
+const char* video_paths[] = {
+    "rom:/supercut.m1v",
+    "rom:/hirvikallo1.m1v",
+};
 
 int main()
 {
@@ -987,7 +1022,7 @@ int main()
 
     static wav64_t music_wav;
     if (music_enabled) {
-        const char* songpath = "/music1.wav64"; //TODO need to move to filesystem again
+        const char* songpath = "/music1.wav64";
         wav64_open(&music_wav, songpath);
         wav64_play(&music_wav, 0);
     }
