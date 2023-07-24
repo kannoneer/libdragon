@@ -739,21 +739,25 @@ void run_animation()
     if (time_secs < 4.0f) {
         demo.current_part = PART_VIDEO;
     } else if (time_secs > 8.0f && time_secs < 14.0f) {
-        debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
+        // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
         demo.current_part = PART_VIDEO;
     } else if (time_secs > 23.0f && time_secs < 25.0f) {
-        debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
+        // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
         demo.current_part = PART_VIDEO;
     } else if (time_secs > 27.0f && time_secs < 30.0f) {
-        debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
+        // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
         demo.current_part = PART_VIDEO;
     } else if (time_secs > 35.0f && time_secs < 40.0f) {
-        debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
+        // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
         demo.current_part = PART_VIDEO;
     } else {
         demo.current_part = PART_GEMS;
     }
+
+    //demo.current_part = PART_VIDEO; // HACK: use only video
+
     // Cameras
+
     
     viewer.active_camera = CAM_CLOSEUP;
 
@@ -900,7 +904,7 @@ void render()
     PROFILE_STOP(PS_RENDER_SHADOWS, 0);
 
     PROFILE_START(PS_RENDER_FLARE, 0);
-    render_flare();
+    //render_flare();
     PROFILE_STOP(PS_RENDER_FLARE, 0);
 
     gl_context_end();
@@ -934,10 +938,10 @@ void render_video(mpeg2_t* mp2)
     }
     if (mpeg2_next_frame(mp2)) {
         surface_t *disp = display_get();
-        rdpq_attach(disp, &zbuffer);
-        rdpq_debug_start();
+        rdpq_attach(disp, NULL);
         mpeg2_draw_frame(mp2, disp);
 
+        /*
         rdpq_fence();
 
         rdpq_set_mode_standard();
@@ -969,8 +973,9 @@ void render_video(mpeg2_t* mp2)
         }
         }
 
+        */
 
-        rdpq_debug_stop();
+
         rdpq_detach_show();
     }
     else {
@@ -994,6 +999,7 @@ int main()
 
     rdpq_init();
     gl_init();
+    rdpq_debug_start();
 
     profile_init();
 
@@ -1150,8 +1156,8 @@ int main()
 
             #if LIBDRAGON_PROFILE
             if (time_frames == 128) {
-                profile_dump();
-                profile_init();
+                // profile_dump();
+                // profile_init();
             }
             #endif
         } else if (demo.current_part == PART_VIDEO) {
