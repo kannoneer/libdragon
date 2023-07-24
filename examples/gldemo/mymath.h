@@ -16,6 +16,11 @@ static uint32_t rand(void) {
 	return rand_state = x;
 }
 
+static float randf()
+{
+    return rand()/(float)RAND_MAX;
+}
+
 static void vec3_normalize_(float* v) {
     float invscale = 1.0f / sqrtf(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
     v[0] *= invscale;

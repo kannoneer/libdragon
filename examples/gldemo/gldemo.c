@@ -54,6 +54,8 @@ static model64_t* model_gemstone = NULL;
 static const GLfloat environment_color[] = { 0.03f, 0.03f, 0.05f, 1.f };
 //static const GLfloat environment_color[] = { 0.0f, 0.0f, 0.0f, 1.f };
 
+rdpq_font_t *font_subtitle;
+
 static GLfloat light_pos[8][4] = {
     { 0.1f, 0, 0, 1 },
     { -1, 0, 0, 0 },
@@ -404,6 +406,8 @@ void setup()
         sprites[i] = sprite_load(texture_path[i]);
     }
 
+    font_subtitle = rdpq_font_load("rom:/Pacifico.font64");
+
     setup_sphere();
     make_sphere_mesh();
 
@@ -737,6 +741,7 @@ void run_animation()
     } else {
         demo.current_part = PART_GEMS;
     }
+    demo.current_part = PART_GEMS;
 
     // Cameras
     
@@ -895,6 +900,13 @@ void render()
     if (false) apply_postproc(disp);
     PROFILE_STOP(PS_RENDER_POSTPROC, 0);
     rdpq_attach(disp, NULL);
+
+    rdpq_mode_antialias(AA_NONE);
+    rdpq_font_begin(RGBA32(0xED, 0xAE, 0x49, 0xFF));
+    rdpq_font_position(20, 50);
+    rdpq_font_print(font_subtitle, "Jumping over the river");
+    rdpq_font_end();
+
     rdpq_detach_show(); // FIXME does attach + detach without calls make sense?
 }
 
@@ -910,6 +922,32 @@ void audio_poll(void) {
 	}
 }
 
+void render_video(mpeg2_t* mp2)
+{
+    int ret = throttle_wait();
+    if (ret < 0) {
+        debugf("videoplayer: frame too slow (%d Kcycles)\n", -ret);
+    }
+    if (mpeg2_next_frame(mp2)) {
+        surface_t *disp = display_get();
+        rdpq_attach(disp, &zbuffer);
+        mpeg2_draw_frame(mp2, disp);
+
+        rdpq_fence();
+
+        rdpq_set_mode_standard();
+        const int lvl = 14;
+        rdpq_set_prim_color(RGBA32(lvl, lvl, lvl, 255));
+        rdpq_mode_combiner(RDPQ_COMBINER1((NOISE, 0, PRIM, TEX0), (0, 0, 0, TEX0)));
+        rdpq_tex_blit(disp, 0, 0, NULL);
+
+        rdpq_detach_show();
+    }
+    else {
+        debugf("Video ended\n");
+    }
+}
+
 int main()
 {
 	debug_init_isviewer();
@@ -917,7 +955,7 @@ int main()
     
     dfs_init(DFS_DEFAULT_LOCATION);
 
-    display_init(RESOLUTION_320x240, DEPTH_16_BPP, 3, GAMMA_NONE, ANTIALIAS_RESAMPLE_FETCH_ALWAYS);
+    display_init(RESOLUTION_320x240, DEPTH_16_BPP, 3, GAMMA_NONE, ANTIALIAS_RESAMPLE_FETCH_NEEDED);
 
     rdpq_init();
     gl_init();
@@ -990,6 +1028,12 @@ int main()
                 for (int i = 0; i < NUM_SIMULATIONS; i++) {
                     sims[i].debug.show_wires = !sims[i].debug.show_wires;
                 }
+            }
+
+            if (down.c[0].B) {
+                float vel[3] = {randf()-0.5f, randf()-0.5f, randf()-0.5f};
+                debugf("impact (%f, %f, %f)\n", vel[0], vel[1], vel[2]);
+                sim_apply_impact(&sims[0], vel);
             }
 
             const float nudge = 0.01f;
@@ -1076,18 +1120,7 @@ int main()
             }
             #endif
         } else if (demo.current_part == PART_VIDEO) {
-            int ret = throttle_wait();
-            if (ret < 0) {
-                debugf("videoplayer: frame too slow (%d Kcycles)\n", -ret);
-            }
-            if (mpeg2_next_frame(&mp2)) {
-                surface_t *disp = display_get();
-                rdpq_attach(disp, &zbuffer);
-                mpeg2_draw_frame(&mp2, disp);
-                rdpq_detach_show();
-            } else {
-                debugf("Video ended\n");
-            }
+            render_video(&mp2);
         }
         else {
             debugf("Invalid demo part %d\n", demo.current_part);

@@ -289,4 +289,13 @@ void sim_update(struct Simulation* s)
     }
 }
 
+void sim_apply_impact(struct Simulation* s, float* velocity)
+{
+    for (int i=0;i<s->num_points;i++) {
+        float* p = &s->x[i*3];
+        p[0] += velocity[0];
+        p[1] += velocity[1];
+        p[2] += velocity[2];
+    }
+}
 #endif
