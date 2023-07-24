@@ -31,7 +31,9 @@ int main(void) {
 	mixer_init(8);
 
 	mpeg2_t mp2;
-	mpeg2_open(&mp2, "rom:/hirvikallo2.m1v");
+	//mpeg2_open(&mp2, "rom:/hirvikallo2.m1v");
+	//mpeg2_open(&mp2, "rom:/hakuvalo1_edit.m1v");
+	mpeg2_open(&mp2, "rom:/supercut.m1v");
 
 	// wav64_t music;
 	// wav64_open(&music, "bbb.wav64");
@@ -69,13 +71,29 @@ int main(void) {
 		rdpq_attach(disp, NULL);
 
 		rdpq_set_mode_standard();
-		rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY);
+		//rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY);
         //rdpq_set_mode_copy(true);
 		// rdpq_mode_combiner(RDPQ_COMBINER1((NOISE,0,PRIM,0),       (0,0,0,PRIM)));
-		const int lvl = 24;
-		rdpq_set_prim_color(RGBA32(lvl, lvl, lvl, 255));
-		rdpq_mode_combiner(RDPQ_COMBINER1((NOISE,0,PRIM,TEX0), (0,0,0,TEX0)));
-        rdpq_tex_blit(disp, 0, 0, NULL);
+
+		if (false) {
+			const int lvl = 24;
+			rdpq_set_prim_color(RGBA32(lvl, lvl, lvl, 255));
+			rdpq_mode_combiner(RDPQ_COMBINER1((NOISE,0,PRIM,TEX0), (0,0,0,TEX0)));
+			rdpq_tex_blit(disp, 0, 0, NULL);
+		} else  if (true) {
+			const int lvl = 255;
+			rdpq_set_prim_color(RGBA32(lvl, lvl, lvl, 64));
+			rdpq_mode_combiner(RDPQ_COMBINER1((NOISE,0,TEX0,0), (0,0,0,TEX0)));
+			rdpq_tex_blit(disp, 0, 0, NULL);
+
+		} else {
+			rdpq_set_mode_standard();
+			rdpq_set_prim_color(RGBA32(64,64,64, 40));
+			rdpq_mode_combiner(RDPQ_COMBINER1((NOISE,0,PRIM,0),       (0,0,0,PRIM)));
+			//rdpq_mode_combiner(RDPQ_COMBINER_FLAT);
+			rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY);
+			rdpq_fill_rectangle(0, 0, 320, 240);
+		}
 
 		/*
         rdpq_set_mode_standard();
