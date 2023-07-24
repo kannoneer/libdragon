@@ -1,7 +1,7 @@
 BUILD_DIR=build
 include $(N64_INST)/include/n64.mk
 
-src = gldemo.c profile.c
+src = gldemo.c myprofile.c
 assets_ttf = $(wildcard assets/*.ttf)
 assets_png = $(wildcard assets/*.png)
 

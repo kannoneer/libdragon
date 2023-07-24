@@ -1,3 +1,5 @@
+#define LIBDRAGON_PROFILE 0
+
 #include <libdragon.h>
 #include "../../src/model64_internal.h"
 #include <GL/gl.h>
@@ -18,13 +20,13 @@
 #include "mymath.h"
 #include "sim.h"
 
-#include "profile.h"
+#include "myprofile.h"
 
 // Set this to 1 to enable rdpq debug output.
 // The demo will only run for a single frame and stop.
 #define DEBUG_RDP 0
 
-static const bool music_enabled = true;
+static const bool music_enabled = false;
 
 static uint32_t texture_index = 0;
 static camera_t camera;
@@ -168,7 +170,7 @@ static float debug_x_shift = 0.0f;
 
 void sim_render(struct Simulation* s, mat4_t out_basis)
 {
-    PROFILE_START(PS_RENDER_SIM_SETUP, 0);
+    MY_PROFILE_START(PS_RENDER_SIM_SETUP, 0);
     glDisable(GL_TEXTURE_2D);
     if (s->debug.show_wires) {
         glDisable(GL_LIGHTING);
@@ -235,8 +237,8 @@ void sim_render(struct Simulation* s, mat4_t out_basis)
         print_mat4(basis);
     }
 
-    PROFILE_STOP(PS_RENDER_SIM_SETUP, 0);
-    PROFILE_START(PS_RENDER_SIM_DRAWCALLS, 0);
+    MY_PROFILE_STOP(PS_RENDER_SIM_SETUP, 0);
+    MY_PROFILE_START(PS_RENDER_SIM_DRAWCALLS, 0);
     glEnable(GL_BLEND);
     set_gemstone_material();
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -264,7 +266,7 @@ void sim_render(struct Simulation* s, mat4_t out_basis)
         glDisable(GL_TEXTURE_GEN_T);
         glDisable(GL_BLEND);
     glPopMatrix();
-    PROFILE_STOP(PS_RENDER_SIM_DRAWCALLS, 0);
+    MY_PROFILE_STOP(PS_RENDER_SIM_DRAWCALLS, 0);
 }
 
 static void shadow_mesh_clear(struct shadow_mesh* mesh)
@@ -544,10 +546,10 @@ void render_shadows(mat4_t object_to_world)
     // if missed, set vertex 1000 units away (TODO)
     // 
 
-    PROFILE_START(PS_RENDER_SHADOWS_INVERT, 0);
+    MY_PROFILE_START(PS_RENDER_SHADOWS_INVERT, 0);
     mat4_t world_to_object;
     mat4_invert_rigid_xform2(object_to_world, world_to_object);
-    PROFILE_STOP(PS_RENDER_SHADOWS_INVERT, 0);
+    MY_PROFILE_STOP(PS_RENDER_SHADOWS_INVERT, 0);
     float light_world[4] = {light_pos[0][0], light_pos[0][1], light_pos[0][2], 1.0f};
     float light_obj[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     mat4_mul_vec4(world_to_object, light_world, light_obj);
@@ -687,7 +689,6 @@ void apply_postproc(surface_t *disp)
     surface_t* sources[2] = {disp, &tempbuffer};
     surface_t* targets[2] = {&tempbuffer, disp}; // FIXME doesnhas no effect?
 
-    rdpq_mode_push();
     for (int pass=0;pass<2;pass++) {
         rdpq_attach(targets[pass], NULL);
 
@@ -707,9 +708,12 @@ void apply_postproc(surface_t *disp)
         rdpq_tex_blit(sources[pass], 0, 0, &blit);
 
         rdpq_fence();
-        rdpq_detach();
+        if (pass == 0) {
+            rdpq_detach();
+        } else {
+            rdpq_detach_show();
+        }
     }
-    rdpq_mode_pop();
 
     /*
     rdpq_set_mode_standard();
@@ -871,7 +875,7 @@ void render()
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, textures[TEX_TABLE]);
     
-    PROFILE_START(PS_RENDER_BG, 0);
+    MY_PROFILE_START(PS_RENDER_BG, 0);
     if (tweak_dont_test_plane_depth) {
         glDepthMask(GL_FALSE);
         glDisable(GL_DEPTH_TEST);
@@ -881,41 +885,52 @@ void render()
         glEnable(GL_DEPTH_TEST);
         glDepthMask(GL_TRUE);
     }
-    PROFILE_STOP(PS_RENDER_BG, 0);
+    MY_PROFILE_STOP(PS_RENDER_BG, 0);
+    
 
     glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
     // render_sphere(rotation);
 
-    PROFILE_START(PS_RENDER_SIM, 0);
+    MY_PROFILE_START(PS_RENDER_SIM, 0);
     for (int i=0;i<NUM_SIMULATIONS;i++) {
         sim_render(&sims[i], sim_object_to_worlds[i]);
     }
-    PROFILE_STOP(PS_RENDER_SIM, 0);
+    MY_PROFILE_STOP(PS_RENDER_SIM, 0);
 
     //set_diffuse_material();
 
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
 
-    PROFILE_START(PS_RENDER_SHADOWS, 0);
+    MY_PROFILE_START(PS_RENDER_SHADOWS, 0);
     for (int i=0;i<NUM_SIMULATIONS;i++) {
-        render_shadows(sim_object_to_worlds[i]);
+        // render_shadows(sim_object_to_worlds[i]);
     }
-    PROFILE_STOP(PS_RENDER_SHADOWS, 0);
+    MY_PROFILE_STOP(PS_RENDER_SHADOWS, 0);
 
-    PROFILE_START(PS_RENDER_FLARE, 0);
+    MY_PROFILE_START(PS_RENDER_FLARE, 0);
     //render_flare();
-    PROFILE_STOP(PS_RENDER_FLARE, 0);
+    MY_PROFILE_STOP(PS_RENDER_FLARE, 0);
 
     gl_context_end();
 
-    rdpq_detach();
-    PROFILE_START(PS_RENDER_POSTPROC, 0);
-    if (false) apply_postproc(disp);
-    PROFILE_STOP(PS_RENDER_POSTPROC, 0);
-    rdpq_attach(disp, NULL);
+    if (false) {
+        MY_PROFILE_START(PS_RENDER_POSTPROC, 0);
+        rdpq_detach();
+        apply_postproc(disp);
+        MY_PROFILE_STOP(PS_RENDER_POSTPROC, 0);
+    } else if (false) {
+        // buggy! crashes
+        //MY_PROFILE_START(PS_RENDER_POSTPROC, 0);
+        //if (false) apply_postproc(disp);
+        //MY_PROFILE_STOP(PS_RENDER_POSTPROC, 0);
+        rdpq_detach();
+        rdpq_attach(disp, NULL);
+        rdpq_detach_show(); // FIXME does attach + detach without calls make sense?
 
-    rdpq_detach_show(); // FIXME does attach + detach without calls make sense?
+    } else {
+        rdpq_detach_show(); 
+    }
 }
 
 static uint32_t audio_sample_time = 0;
@@ -1001,7 +1016,7 @@ int main()
     gl_init();
     rdpq_debug_start();
 
-    profile_init();
+    my_profile_init();
 
     demo.interactive = false;
     demo.current_part = PART_VIDEO;
@@ -1032,6 +1047,11 @@ int main()
         wav64_open(&music_wav, songpath);
         wav64_play(&music_wav, 0);
     }
+
+    // debugf("DEBUG HACK: only play video\n");
+    // while (true) {
+    //     render_video(&mp2);
+    // }
 
 #if !DEBUG_RDP
     while (1)
@@ -1126,38 +1146,38 @@ int main()
             }
         }
 
-        PROFILE_START(PS_MUSIC, 0);
+        MY_PROFILE_START(PS_MUSIC, 0);
         if (music_enabled) {
             audio_poll();
         }
-        PROFILE_STOP(PS_MUSIC, 0);
+        MY_PROFILE_STOP(PS_MUSIC, 0);
 
         if (!demo.interactive) {
             run_animation();
         }
 
         if (demo.current_part == PART_GEMS) {
-            PROFILE_START(PS_UPDATE, 0);
+            MY_PROFILE_START(PS_UPDATE, 0);
             if (true || time_frames < 40) {
                 for (int i = 0; i < NUM_SIMULATIONS; i++) {
                     sim_update(&sims[i]);
                 }
             }
-            PROFILE_STOP(PS_UPDATE, 0);
+            MY_PROFILE_STOP(PS_UPDATE, 0);
 
-            PROFILE_START(PS_RENDER, 0);
+            MY_PROFILE_START(PS_RENDER, 0);
             render();
-            PROFILE_STOP(PS_RENDER, 0);
+            MY_PROFILE_STOP(PS_RENDER, 0);
             if (DEBUG_RDP)
                 rspq_wait();
 
-            profile_next_frame();
+            my_profile_next_frame();
             time_frames++;
 
-            #if LIBDRAGON_PROFILE
+            #if LIBDRAGON_MY_PROFILE
             if (time_frames == 128) {
-                // profile_dump();
-                // profile_init();
+                // my_profile_dump();
+                // my_profile_init();
             }
             #endif
         } else if (demo.current_part == PART_VIDEO) {

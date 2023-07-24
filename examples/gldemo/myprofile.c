@@ -1,4 +1,4 @@
-#include "profile.h"
+#include "myprofile.h"
 #include "debug.h"
 #include "n64sys.h"
 #include <memory.h>
@@ -6,29 +6,29 @@
 
 #define SCALE_RESULTS  2048
 
-uint64_t slot_total[PS_NUM_SLOTS];
-uint64_t slot_total_count[PS_NUM_SLOTS];
-uint64_t total_time;
-uint64_t last_frame;
-uint64_t slot_frame_cur[PS_NUM_SLOTS];
-int frames;
+static uint64_t slot_total[PS_NUM_SLOTS];
+static uint64_t slot_total_count[PS_NUM_SLOTS];
+static uint64_t total_time;
+static uint64_t last_frame;
+uint64_t my_slot_frame_cur[PS_NUM_SLOTS];
+static int frames;
 
-void profile_init(void) {
+void my_profile_init(void) {
 	memset(slot_total, 0, sizeof(slot_total));
 	memset(slot_total_count, 0, sizeof(slot_total_count));
-	memset(slot_frame_cur, 0, sizeof(slot_frame_cur));
+	memset(my_slot_frame_cur, 0, sizeof(my_slot_frame_cur));
 	frames = 0;
 
 	total_time = 0;
 	last_frame = TICKS_READ();
 }
 
-void profile_next_frame(void) {
+void my_profile_next_frame(void) {
 	for (int i=0;i<PS_NUM_SLOTS;i++) {
 		// Extract and save the total time for this frame.
-		slot_total[i] += slot_frame_cur[i] >> 32;
-		slot_total_count[i] += slot_frame_cur[i] & 0xFFFFFFFF;
-		slot_frame_cur[i] = 0;
+		slot_total[i] += my_slot_frame_cur[i] >> 32;
+		slot_total_count[i] += my_slot_frame_cur[i] & 0xFFFFFFFF;
+		my_slot_frame_cur[i] = 0;
 	}
 	frames++;
 
@@ -39,12 +39,13 @@ void profile_next_frame(void) {
 	last_frame = count;
 }
 
-static void stats(ProfileSlot slot, uint64_t frame_avg, uint32_t *mean, float *partial) {
+static void my_stats(ProfileSlot slot, uint64_t frame_avg, uint32_t *mean, float *partial) {
 	*mean = slot_total[slot]/frames;
 	*partial = (float)*mean * 100.0 / (float)frame_avg;
 }
 
-void profile_dump(void) {
+void my_profile_dump(void) {
+	debugf("Performance profile\n");
 	debugf("%-14s %4s %6s %6s\n", "Slot", "Cnt", "Avg", "Cum");
 	debugf("----------------------------------\n");
 
@@ -55,7 +56,7 @@ void profile_dump(void) {
 
 #define DUMP_SLOT(slot, name) ({ \
 	uint32_t mean; float partial; \
-	stats(slot, frame_avg, &mean, &partial); \
+	my_stats(slot, frame_avg, &mean, &partial); \
 	sprintf(buf, "%2.1f", partial); \
 	debugf("%-25s %4llu %6ld %5s%%\n", name, \
 		  slot_total_count[slot] / frames, \

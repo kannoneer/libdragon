@@ -1,20 +1,19 @@
-#ifndef PROFILE_H
-#define PROFILE_H
+#ifndef MYPROFILE_H
+#define MYPROFILE_H
 
-#define LIBDRAGON_PROFILE 1
 
 // Global enable/disable of libdragon profiler.
 //
 // You can force this to 0 at compile-time if you want
 // to keep PROFILE() calls in your code but remove references
 // everywhere.
-#ifndef LIBDRAGON_PROFILE
+#ifndef MY_PROFILE
 #ifdef N64
-	#define LIBDRAGON_PROFILE     1
+	#define MY_PROFILE     1
 #else
 	// If we're compiling the same codebase on PC, just ignore
 	// profile calls.
-	#define LIBDRAGON_PROFILE     0
+	#define MY_PROFILE     0
 #endif
 #endif
 
@@ -37,28 +36,28 @@ typedef enum {
 } ProfileSlot;
 
 // Internal data structures, exposed here to allow inlining of profile_record
-extern uint64_t slot_frame_cur[PS_NUM_SLOTS];
+extern uint64_t my_slot_frame_cur[PS_NUM_SLOTS];
 
-void profile_init(void);
-void profile_next_frame(void);
-void profile_dump(void);
-static inline void profile_record(ProfileSlot slot, int32_t len) {
+void my_profile_init(void);
+void my_profile_next_frame(void);
+void my_profile_dump(void);
+static inline void my_profile_record(ProfileSlot slot, int32_t len) {
 	// High part: profile record
 	// Low part: number of occurrences
-	slot_frame_cur[slot] += ((int64_t)len << 32) + 1;
+	my_slot_frame_cur[slot] += ((int64_t)len << 32) + 1;
 }
 
-#if LIBDRAGON_PROFILE
-	#define PROFILE_START(slot, n) \
+#if MY_PROFILE
+	#define MY_PROFILE_START(slot, n) \
 		uint32_t __prof_start_##slot##_##n = TICKS_READ(); \
 
-	#define PROFILE_STOP(slot, n) \
+	#define MY_PROFILE_STOP(slot, n) \
 		uint32_t __prof_stop_##slot##_##n = TICKS_READ(); \
-		profile_record(slot, TICKS_DISTANCE(__prof_start_##slot##_##n, __prof_stop_##slot##_##n));
+		my_profile_record(slot, TICKS_DISTANCE(__prof_start_##slot##_##n, __prof_stop_##slot##_##n));
 #else
-	#define PROFILE_START(slot, n)  ({ })
-	#define PROFILE_STOP(slot, n)   ({ })
+	#define MY_PROFILE_START(slot, n)  ({ })
+	#define MY_PROFILE_STOP(slot, n)   ({ })
 
-#endif /* LIBDRAGON_PROFILE */
+#endif /* MY_PROFILE */
 
-#endif /* PROFILE_H */
+#endif /* MYPROFILE_H */
