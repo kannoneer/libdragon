@@ -22,9 +22,7 @@
 
 #include "myprofile.h"
 
-// Set this to 1 to enable rdpq debug output.
-// The demo will only run for a single frame and stop.
-#define DEBUG_RDP 1
+#define DEBUG_RDP 0
 
 static const bool music_enabled = true;
 
@@ -38,8 +36,10 @@ static int time_frames = 0;
 
 static bool debug_freeze = false;
 
-bool tweak_double_sided_gems = false;
-bool tweak_dont_test_plane_depth = true; // 3% faster plane drawing when enabled
+static bool tweak_double_sided_gems = false;
+static bool tweak_dont_test_plane_depth = true; // 3% faster plane drawing when enabled
+static bool tweak_enable_sphere_map = true;
+static bool tweak_sync_before_shadows = true;
 
 #define NUM_TEXTURES (9)
 #define TEX_CEILING (4)
@@ -153,6 +153,18 @@ static void set_textured_shadow_material()
 #define MESH_MAX_VERTICES (36)
 #define MESH_MAX_INDICES (60)
 
+// The end result after extracting a model64 mesh
+struct basic_mesh {
+    float verts[MESH_MAX_VERTICES][3];
+    float normals[MESH_MAX_VERTICES][3];
+    float texcoords[MESH_MAX_VERTICES][2];
+    uint16_t indices[MESH_MAX_INDICES];
+    int num_vertices;
+    int num_indices;
+};
+
+
+// A mesh with special projected shadow vertices
 struct shadow_mesh {
     float verts[MESH_MAX_VERTICES][3];
     float verts_proj[MESH_MAX_VERTICES][3];
@@ -164,9 +176,29 @@ struct shadow_mesh {
 };
 
 static struct shadow_mesh smesh_gemstone;
+static struct basic_mesh bmesh_gemstone;
 
 static float debug_z_shift = 0.0f;
 static float debug_x_shift = 0.0f;
+
+void apply_sphere_mapping()
+{
+    // apply sphere mapping texgen in world space
+    //TODO extract regular positions + normals mesh from model64
+
+    // case GL_SPHERE_MAP:
+    //     GLfloat norm_eye_pos[3];
+    //     gl_normalize(norm_eye_pos, eye_pos);
+    //     GLfloat d2 = 2.0f * dot_product3(norm_eye_pos, eye_normal);
+    //     GLfloat r[3] = {
+    //         norm_eye_pos[0] - eye_normal[0] * d2,
+    //         norm_eye_pos[1] - eye_normal[1] * d2,
+    //         norm_eye_pos[2] - eye_normal[2] * d2 + 1.0f,
+    //     };
+    //     GLfloat m = 1.0f / (2.0f * sqrtf(dot_product3(r, r)));
+    //     dest[coord_index] = r[coord_index] * m + 0.5f;
+    //     break;
+}
 
 void sim_render(struct Simulation* s, mat4_t out_basis)
 {
@@ -246,11 +278,12 @@ void sim_render(struct Simulation* s, mat4_t out_basis)
         glEnable(GL_LIGHTING);
         glBindTexture(GL_TEXTURE_2D, textures[TEX_CEILING]);
 
-        //HACK: disable env mapping
-        // glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
-        // glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
-        // glEnable(GL_TEXTURE_GEN_S);
-        // glEnable(GL_TEXTURE_GEN_T);
+        if (tweak_enable_sphere_map) {
+            glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
+            glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
+            glEnable(GL_TEXTURE_GEN_S);
+            glEnable(GL_TEXTURE_GEN_T);
+        }
 
     if (true) {
 
@@ -265,8 +298,10 @@ void sim_render(struct Simulation* s, mat4_t out_basis)
             }
 
             glDisable(GL_TEXTURE_2D);
-            glDisable(GL_TEXTURE_GEN_S);
-            glDisable(GL_TEXTURE_GEN_T);
+            if (tweak_enable_sphere_map) {
+                glDisable(GL_TEXTURE_GEN_S);
+                glDisable(GL_TEXTURE_GEN_T);
+            }
             glDisable(GL_BLEND);
         glPopMatrix();
         MY_PROFILE_STOP(PS_RENDER_SIM_DRAWCALLS, 0);
@@ -371,22 +406,103 @@ static bool shadow_mesh_extract(struct shadow_mesh* mesh, model64_t* model)
 }
 
 void shadow_mesh_draw(struct shadow_mesh* mesh) {
+    const bool verbose = false;
     if (mesh->num_indices == 0) {
         debugf("Warning: shadow mesh had an empty index buffer\n");
         return;
     }
+
+    assert(mesh->num_vertices <= MESH_MAX_VERTICES);
+    assert(mesh->num_indices <= MESH_MAX_INDICES);
 
     glEnableClientState(GL_VERTEX_ARRAY);
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
     glDisableClientState(GL_NORMAL_ARRAY);
     glDisableClientState(GL_COLOR_ARRAY);
 
+    if (verbose) {
+    for (int i=0;i<mesh->num_vertices;i++) {
+        debugf("[%s] verts_proj[%d] = (%f, %f, %f), texcoords[%d] = (%f, %f)\n", __FUNCTION__,
+            i,
+            mesh->verts_proj[i][0],
+            mesh->verts_proj[i][1],
+            mesh->verts_proj[i][2],
+            i,
+            mesh->texcoords[i][0],
+            mesh->texcoords[i][1]
+        );
+    }
+    }
+
+    if (verbose) {
+    debugf("[%s] mesh->num_indices=%d\n", __FUNCTION__, mesh->num_indices);
+    debugf("mesh->indices[] = {");
+    for (int i=0;i<mesh->num_indices;i++) {
+        debugf("%d, ", mesh->indices[i]);
+    }
+    debugf("}\n");
+    }
+
+    if (tweak_sync_before_shadows) {
+        rdpq_fence();
+        rspq_wait();
+    }
+
     glVertexPointer(3, GL_FLOAT, sizeof(float) * 3, &mesh->verts_proj[0]);
     glTexCoordPointer(2, GL_FLOAT, sizeof(float) * 2, &mesh->texcoords[0]);
     glDrawElements(GL_TRIANGLES, mesh->num_indices, GL_UNSIGNED_SHORT, &mesh->indices[0]);
+    //HACK Draw only a part
+    //glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, &mesh->indices[0]);
 
     glDisableClientState(GL_VERTEX_ARRAY);
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+}
+
+static void basic_mesh_extract(struct basic_mesh* mesh, model64_t* model)
+{
+    bool verbose = true;
+    if (verbose) debugf("%s(%p, %p)\n", __FUNCTION__, mesh, model);
+
+    memset(mesh, 0, sizeof(struct basic_mesh));
+
+    primitive_t* prim = &model->meshes[0].primitives[0];
+    attribute_t* attr = &prim->position;
+
+    if (verbose) {
+        debugf("Num primitives: %lu\n", model->meshes[0].num_primitives);
+        debugf("Num vertices: %lu\n", prim->num_vertices);
+        debugf("Num indices: %lu\n", prim->num_indices);
+
+        debugf("Primitive 0 pos attribute:\nsize=%lu, type=%lu, stride=%lu, pointer=%p\n",
+               attr->size,
+               attr->type,
+               attr->stride,
+               attr->pointer);
+    }
+
+    assert(prim->num_vertices <= MESH_MAX_VERTICES);
+    assert(prim->num_indices <= MESH_MAX_INDICES);
+    assert(prim->position.type == GL_HALF_FIXED_N64);
+
+    int bits = prim->vertex_precision;
+    float scale = 1.0f / (1 << bits);
+    if (verbose) debugf("position bits: %d, scale: %f\n", bits, scale);
+
+    attribute_t* position = &prim->position;
+    assert(position->size == 3);
+
+    typedef int16_t u_int16_t __attribute__((aligned(1)));
+
+    for (uint32_t vertex_id=0; vertex_id < prim->num_vertices; vertex_id++) {
+        u_int16_t* pos = (u_int16_t*)(position->pointer + position->stride * vertex_id);
+        float f[3] = {scale * pos[0], scale * pos[1], scale * pos[2]};
+        // debugf("[%lu] (%d, %d, %d) -> (%f, %f, %f)\n", vertex_id, pos[0], pos[1], pos[2], f[0], f[1], f[2]);
+
+        // debugf(" setting slot %d\n", new_idx);
+        mesh->verts[vertex_id][0] = f[0];
+        mesh->verts[vertex_id][1] = f[1];
+        mesh->verts[vertex_id][2] = f[2];
+    }
 }
 
 void set_frustum(float fov_factor)
@@ -473,9 +589,12 @@ void setup()
     model_gemstone = model64_load("rom:/gemstone.model64");
     assert(model_gemstone);
 
+    shadow_mesh_clear(&smesh_gemstone);
     if (!shadow_mesh_extract(&smesh_gemstone, model_gemstone)) {
         debugf("Shadow mesh generation failed\n");
     }
+
+    basic_mesh_extract(&bmesh_gemstone, model_gemstone);
     
     // Setup simulations
 
