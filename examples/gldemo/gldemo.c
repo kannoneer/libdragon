@@ -24,9 +24,9 @@
 
 // Set this to 1 to enable rdpq debug output.
 // The demo will only run for a single frame and stop.
-#define DEBUG_RDP 0
+#define DEBUG_RDP 1
 
-static const bool music_enabled = false;
+static const bool music_enabled = true;
 
 static uint32_t texture_index = 0;
 static camera_t camera;
@@ -237,36 +237,40 @@ void sim_render(struct Simulation* s, mat4_t out_basis)
         print_mat4(basis);
     }
 
-    MY_PROFILE_STOP(PS_RENDER_SIM_SETUP, 0);
-    MY_PROFILE_START(PS_RENDER_SIM_DRAWCALLS, 0);
-    glEnable(GL_BLEND);
-    set_gemstone_material();
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        MY_PROFILE_STOP(PS_RENDER_SIM_SETUP, 0);
+        MY_PROFILE_START(PS_RENDER_SIM_DRAWCALLS, 0);
+        glEnable(GL_BLEND);
+        set_gemstone_material();
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    glEnable(GL_LIGHTING);
-    glBindTexture(GL_TEXTURE_2D, textures[TEX_CEILING]);
+        glEnable(GL_LIGHTING);
+        glBindTexture(GL_TEXTURE_2D, textures[TEX_CEILING]);
 
-    glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
-    glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
-    glEnable(GL_TEXTURE_GEN_S);
-    glEnable(GL_TEXTURE_GEN_T);
+        //HACK: disable env mapping
+        // glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
+        // glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
+        // glEnable(GL_TEXTURE_GEN_S);
+        // glEnable(GL_TEXTURE_GEN_T);
 
-    glPushMatrix();
-        glMultMatrixf(&basis[0][0]);
+    if (true) {
 
-        glCullFace(GL_FRONT);
-        model64_draw(model_gemstone);
-        glCullFace(GL_BACK);
-        if (tweak_double_sided_gems) {
+        glPushMatrix();
+            glMultMatrixf(&basis[0][0]);
+
+            glCullFace(GL_FRONT);
             model64_draw(model_gemstone);
-        }
+            glCullFace(GL_BACK);
+            if (tweak_double_sided_gems) {
+                model64_draw(model_gemstone);
+            }
 
-        glDisable(GL_TEXTURE_2D);
-        glDisable(GL_TEXTURE_GEN_S);
-        glDisable(GL_TEXTURE_GEN_T);
-        glDisable(GL_BLEND);
-    glPopMatrix();
-    MY_PROFILE_STOP(PS_RENDER_SIM_DRAWCALLS, 0);
+            glDisable(GL_TEXTURE_2D);
+            glDisable(GL_TEXTURE_GEN_S);
+            glDisable(GL_TEXTURE_GEN_T);
+            glDisable(GL_BLEND);
+        glPopMatrix();
+        MY_PROFILE_STOP(PS_RENDER_SIM_DRAWCALLS, 0);
+    }
 }
 
 static void shadow_mesh_clear(struct shadow_mesh* mesh)
@@ -660,19 +664,6 @@ void render_shadows(mat4_t object_to_world)
 void apply_postproc(surface_t *disp)
 {
 
-    /*
-    rdpq_set_mode_standard();
-    //rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY);
-
-    //rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY);
-    //rdpq_set_mode_copy(true);
-    // rdpq_mode_combiner(RDPQ_COMBINER1((NOISE,0,PRIM,0),       (0,0,0,PRIM)));
-    const int lvl = 8;
-    rdpq_set_prim_color(RGBA32(lvl, lvl, lvl, 255));
-    rdpq_mode_combiner(RDPQ_COMBINER1((NOISE,0,PRIM,TEX0), (0,0,0,TEX0)));
-    rdpq_tex_blit(disp, 0, 0, NULL);
-    */
-
     const int lvl = 255;
     color_t colors[2] = {
         RGBA32(0, lvl, lvl, 255),
@@ -684,10 +675,8 @@ void apply_postproc(surface_t *disp)
         int y;
     } offsets[2] = {{2,0}, {-2, 0}};
 
-    // surface_t* sources[2] = {disp, &tempbuffer};
-    // surface_t* targets[2] = {&tempbuffer, disp};
     surface_t* sources[2] = {disp, &tempbuffer};
-    surface_t* targets[2] = {&tempbuffer, disp}; // FIXME doesnhas no effect?
+    surface_t* targets[2] = {&tempbuffer, disp}; 
 
     for (int pass=0;pass<2;pass++) {
         rdpq_attach(targets[pass], NULL);
@@ -714,21 +703,6 @@ void apply_postproc(surface_t *disp)
             rdpq_detach_show();
         }
     }
-
-    /*
-    rdpq_set_mode_standard();
-    rdpq_set_prim_color(RGBA32(0,0,0, 128));
-    rdpq_mode_combiner(RDPQ_COMBINER_FLAT);
-    rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY);
-    rdpq_fill_rectangle(0, 0, 320, 240);
-
-    // Additive noise
-    rdpq_set_prim_color(RGBA32(255,255,255, 128));
-    rdpq_mode_blender(RDPQ_BLENDER_ADDITIVE);
-
-    rdpq_mode_combiner(RDPQ_COMBINER1((NOISE,0,PRIM,0),       (0,0,0,PRIM)));
-    */
-
 }
 
 void run_animation()
@@ -886,31 +860,31 @@ void render()
         glDepthMask(GL_TRUE);
     }
     MY_PROFILE_STOP(PS_RENDER_BG, 0);
-    
 
     glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
-    // render_sphere(rotation);
 
     MY_PROFILE_START(PS_RENDER_SIM, 0);
-    for (int i=0;i<NUM_SIMULATIONS;i++) {
+    for (int i = 0; i < NUM_SIMULATIONS; i++) {
         sim_render(&sims[i], sim_object_to_worlds[i]);
     }
     MY_PROFILE_STOP(PS_RENDER_SIM, 0);
 
-    //set_diffuse_material();
+        // set_diffuse_material();
 
-    glDisable(GL_TEXTURE_2D);
-    glDisable(GL_LIGHTING);
+        glDisable(GL_TEXTURE_2D);
+        glDisable(GL_LIGHTING);
 
-    MY_PROFILE_START(PS_RENDER_SHADOWS, 0);
-    for (int i=0;i<NUM_SIMULATIONS;i++) {
-        // render_shadows(sim_object_to_worlds[i]);
+        MY_PROFILE_START(PS_RENDER_SHADOWS, 0);
+        for (int i = 0; i < NUM_SIMULATIONS; i++) {
+            render_shadows(sim_object_to_worlds[i]);
+        }
+        MY_PROFILE_STOP(PS_RENDER_SHADOWS, 0);
+
+    if (false) {
+        MY_PROFILE_START(PS_RENDER_FLARE, 0);
+        render_flare();
+        MY_PROFILE_STOP(PS_RENDER_FLARE, 0);
     }
-    MY_PROFILE_STOP(PS_RENDER_SHADOWS, 0);
-
-    MY_PROFILE_START(PS_RENDER_FLARE, 0);
-    //render_flare();
-    MY_PROFILE_STOP(PS_RENDER_FLARE, 0);
 
     gl_context_end();
 
@@ -919,17 +893,9 @@ void render()
         rdpq_detach();
         apply_postproc(disp);
         MY_PROFILE_STOP(PS_RENDER_POSTPROC, 0);
-    } else if (false) {
-        // buggy! crashes
-        //MY_PROFILE_START(PS_RENDER_POSTPROC, 0);
-        //if (false) apply_postproc(disp);
-        //MY_PROFILE_STOP(PS_RENDER_POSTPROC, 0);
-        rdpq_detach();
-        rdpq_attach(disp, NULL);
-        rdpq_detach_show(); // FIXME does attach + detach without calls make sense?
-
-    } else {
-        rdpq_detach_show(); 
+    }
+    else {
+        rdpq_detach_show();
     }
 }
 
@@ -1014,7 +980,7 @@ int main()
 
     rdpq_init();
     gl_init();
-    rdpq_debug_start();
+    //rdpq_debug_start();
 
     my_profile_init();
 
@@ -1025,7 +991,7 @@ int main()
 
 #if DEBUG_RDP
     rdpq_debug_start();
-    rdpq_debug_log(true);
+    //rdpq_debug_log(true);
 #endif
 
     setup();
@@ -1053,9 +1019,7 @@ int main()
     //     render_video(&mp2);
     // }
 
-#if !DEBUG_RDP
     while (1)
-#endif
     {
         time_secs = TIMER_MICROS(timer_ticks()) / 1e6;
 
@@ -1168,8 +1132,6 @@ int main()
             MY_PROFILE_START(PS_RENDER, 0);
             render();
             MY_PROFILE_STOP(PS_RENDER, 0);
-            if (DEBUG_RDP)
-                rspq_wait();
 
             my_profile_next_frame();
             time_frames++;
@@ -1186,6 +1148,9 @@ int main()
         else {
             debugf("Invalid demo part %d\n", demo.current_part);
         }
+
+        // if (DEBUG_RDP)
+        //     rspq_wait();
     }
 
 }
