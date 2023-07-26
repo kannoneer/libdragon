@@ -423,8 +423,9 @@ void mixer_ch_set_pos(int ch, float pos) {
 float mixer_ch_get_pos(int ch) {
 	mixer_channel_t *c = &Mixer.channels[ch];
 	assertf(!(c->flags & CH_FLAGS_STEREO_SUB), "mixer_ch_get_pos: cannot call on secondary stereo channel %d", ch);
-	uint32_t pos = c->pos >> (c->flags & CH_FLAGS_BPS_SHIFT);
-	return (float)pos / (float)(1<<MIXER_FX64_FRAC);
+	uint64_t pos = c->pos >> (uint64_t)(c->flags & CH_FLAGS_BPS_SHIFT);
+	float frac = (float)pos / (float)(1LLU<<MIXER_FX64_FRAC);
+	return frac;
 }
 
 void mixer_ch_stop(int ch) {
