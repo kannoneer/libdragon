@@ -35,12 +35,23 @@ static int time_frames = 0;
 
 static bool debug_freeze = false;
 
+// Set this true to avoid the RDP hang.
+static bool tweak_sync_after_shadows = false; // must be on, set to false to trigger a crash
+
 static bool tweak_double_sided_gems = false;
 static bool tweak_dont_test_plane_depth = true; // 3% faster plane drawing when enabled
 static bool tweak_enable_sphere_map = true;
-static bool tweak_sync_before_shadows = false;
-static bool tweak_sync_before_video = true;
 static bool tweak_enable_sim_rendering = true;
+static bool tweak_sync_before_shadows = true;
+static bool tweak_sync_before_video = true;
+static bool tweak_sync_after_video = true;
+
+
+static bool tweak_sync_before_mixer_poll = false;
+static bool tweak_sync_after_mixer_poll = false;
+
+static bool tweak_wait_after_render_plane = true;
+static bool tweak_wait_after_sim_render = true; // must be on
 
 #define NUM_TEXTURES (9)
 #define TEX_CEILING (4)
@@ -847,6 +858,12 @@ void run_animation()
         demo.current_part = PART_GEMS;
     }
 
+    static int last_part;
+    if (demo.current_part != last_part) {
+        debugf("Changed part %d -> %d\n", last_part, demo.current_part);
+        last_part = demo.current_part;
+    }
+
     //demo.current_part = PART_VIDEO; // HACK: use only video
 
     // Cameras
@@ -969,7 +986,12 @@ void render()
         glDepthMask(GL_FALSE);
         glDisable(GL_DEPTH_TEST);
     }
+
     render_plane();
+    if (tweak_wait_after_render_plane) {
+        rspq_wait();
+    }
+
     if (tweak_dont_test_plane_depth) {
         glEnable(GL_DEPTH_TEST);
         glDepthMask(GL_TRUE);
@@ -982,6 +1004,9 @@ void render()
     for (int i = 0; i < NUM_SIMULATIONS; i++) {
         if (tweak_enable_sim_rendering) {
             sim_render(&sims[i], sim_object_to_worlds[i]);
+            if (tweak_wait_after_sim_render) {
+                rspq_wait();
+            }
         } else {
             mat4_set_identity(sim_object_to_worlds[i]);
         }
@@ -991,7 +1016,6 @@ void render()
     gl_context_end();
 
     if (tweak_sync_before_shadows) {
-        rdpq_fence();
         rspq_wait();
     }
 
@@ -1003,8 +1027,12 @@ void render()
         MY_PROFILE_START(PS_RENDER_SHADOWS, 0);
         for (int i = 0; i < NUM_SIMULATIONS; i++) {
             render_shadows(sim_object_to_worlds[i]);
+            if (tweak_sync_after_shadows) {
+                rspq_wait();
+            }
         }
         MY_PROFILE_STOP(PS_RENDER_SHADOWS, 0);
+
 
     if (false) {
         MY_PROFILE_START(PS_RENDER_FLARE, 0);
@@ -1031,7 +1059,17 @@ void audio_poll(void) {
 	if (audio_can_write()) {    	
 		short *buf = audio_write_begin();
         int bufsize = audio_get_buffer_length();
+
+        if (tweak_sync_before_mixer_poll) {
+            rspq_wait();
+        }
+
 		mixer_poll(buf, bufsize);
+
+        if (tweak_sync_after_mixer_poll) {
+            rspq_wait();
+        }
+
         audio_sample_time += (uint32_t)bufsize;
 		audio_write_end();
 	}
@@ -1053,6 +1091,9 @@ void render_video(mpeg2_t* mp2)
         rdpq_attach(disp, NULL);
         mpeg2_draw_frame(mp2, disp);
 
+        if (tweak_sync_after_video) {
+            rspq_wait();
+        }
         /*
         rdpq_fence();
 
@@ -1147,12 +1188,16 @@ int main()
 
     // debugf("DEBUG HACK: only play video\n");
     // while (true) {
+    //      if (music_enabled) {
+    //          audio_poll();
+    //      }
     //     render_video(&mp2);
     // }
 
     while (1)
     {
         time_secs = TIMER_MICROS(timer_ticks()) / 1e6;
+        debugf("[%.4f] begin frame %d\n", time_secs, time_frames);
 
         controller_scan();
 
@@ -1265,7 +1310,6 @@ int main()
             MY_PROFILE_STOP(PS_RENDER, 0);
 
             my_profile_next_frame();
-            time_frames++;
 
             #if LIBDRAGON_MY_PROFILE
             if (time_frames == 128) {
@@ -1274,7 +1318,13 @@ int main()
             }
             #endif
         } else if (demo.current_part == PART_VIDEO) {
+            if (tweak_sync_before_video) {
+                rspq_wait();
+            }
             render_video(&mp2);
+            if (tweak_sync_after_video) {
+                rspq_wait();
+            }
         }
         else {
             debugf("Invalid demo part %d\n", demo.current_part);
@@ -1282,6 +1332,7 @@ int main()
 
         // if (DEBUG_RDP)
         //     rspq_wait();
+        time_frames++;
     }
 
 }
