@@ -8,7 +8,6 @@
 #include <malloc.h>
 #include <math.h>
 
-
 #include "camera.h"
 #include "cube.h"
 #include "decal.h"
@@ -39,7 +38,9 @@ static bool debug_freeze = false;
 static bool tweak_double_sided_gems = false;
 static bool tweak_dont_test_plane_depth = true; // 3% faster plane drawing when enabled
 static bool tweak_enable_sphere_map = true;
-static bool tweak_sync_before_shadows = true;
+static bool tweak_sync_before_shadows = false;
+static bool tweak_sync_before_video = true;
+static bool tweak_enable_sim_rendering = true;
 
 #define NUM_TEXTURES (9)
 #define TEX_CEILING (4)
@@ -443,11 +444,6 @@ void shadow_mesh_draw(struct shadow_mesh* mesh) {
     debugf("}\n");
     }
 
-    if (tweak_sync_before_shadows) {
-        rdpq_fence();
-        rspq_wait();
-    }
-
     glVertexPointer(3, GL_FLOAT, sizeof(float) * 3, &mesh->verts_proj[0]);
     glTexCoordPointer(2, GL_FLOAT, sizeof(float) * 2, &mesh->texcoords[0]);
     glDrawElements(GL_TRIANGLES, mesh->num_indices, GL_UNSIGNED_SHORT, &mesh->indices[0]);
@@ -833,7 +829,7 @@ void run_animation()
 
     // Parts
 
-    if (time_secs < 4.0f) {
+    if (time_secs < 2.0f) {
         demo.current_part = PART_VIDEO;
     } else if (time_secs > 8.0f && time_secs < 14.0f) {
         // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
@@ -984,11 +980,22 @@ void render()
 
     MY_PROFILE_START(PS_RENDER_SIM, 0);
     for (int i = 0; i < NUM_SIMULATIONS; i++) {
-        sim_render(&sims[i], sim_object_to_worlds[i]);
+        if (tweak_enable_sim_rendering) {
+            sim_render(&sims[i], sim_object_to_worlds[i]);
+        } else {
+            mat4_set_identity(sim_object_to_worlds[i]);
+        }
     }
     MY_PROFILE_STOP(PS_RENDER_SIM, 0);
 
-        // set_diffuse_material();
+    gl_context_end();
+
+    if (tweak_sync_before_shadows) {
+        rdpq_fence();
+        rspq_wait();
+    }
+
+    gl_context_begin();
 
         glDisable(GL_TEXTURE_2D);
         glDisable(GL_LIGHTING);
@@ -1037,6 +1044,13 @@ void render_video(mpeg2_t* mp2)
         debugf("videoplayer: frame too slow (%d Kcycles)\n", -ret);
     }
     if (mpeg2_next_frame(mp2)) {
+
+        if (tweak_sync_before_video) {
+            debugf("rspq_wait before video rendering\n");
+            rspq_wait();
+            debugf("rspq_wait done\n");
+        }
+
         surface_t *disp = display_get();
         rdpq_attach(disp, NULL);
         mpeg2_draw_frame(mp2, disp);
