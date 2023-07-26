@@ -25,7 +25,7 @@ filesystem/%.sprite: assets/%.png
 	@$(N64_MKSPRITE) --compress -o "$(dir $@)" "$<"
 
 
-filesystem/AlteHaasGroteskRegular.font64: MKFONT_FLAGS+=--size 14
+filesystem/AlteHaasGroteskRegular.font64: MKFONT_FLAGS+=--size 15
 
 $(BUILD_DIR)/gldemo.dfs: $(assets_conv)
 $(BUILD_DIR)/gldemo.elf: $(src:%.c=$(BUILD_DIR)/%.o)

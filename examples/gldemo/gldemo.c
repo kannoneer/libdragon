@@ -29,6 +29,7 @@ static uint32_t texture_index = 0;
 static camera_t camera;
 static surface_t zbuffer;
 static surface_t tempbuffer;
+static wav64_t music_wav;
 
 static float time_secs = 0.0f;
 static int time_frames = 0;
@@ -48,7 +49,6 @@ static bool tweak_sync_after_mixer_poll = false;
 static bool tweak_wait_after_render_plane = true;
 static bool tweak_wait_after_sim_render = true; // must be on
 static bool tweak_sync_after_shadows = true; // must be on, set to false to trigger a crash
-
 
 #define NUM_TEXTURES (9)
 #define TEX_CEILING (4)
@@ -94,7 +94,9 @@ static struct Viewer {
 
 #define PART_GEMS 0
 #define PART_VIDEO 1
-#define NUM_PARTS (2)
+#define PART_END 2
+#define PART_INTRO 3
+#define NUM_PARTS (4)
 
 static struct {
     bool interactive;
@@ -614,7 +616,7 @@ void setup()
         );
 
 
-    for (int iter=0;iter<10;iter++) {
+    for (int iter=0;iter<100;iter++) {
         for (int i = 0; i < NUM_SIMULATIONS; i++) {
             sim_update(&sims[i]);
         }
@@ -828,24 +830,33 @@ void apply_postproc(surface_t *disp)
     }
 }
 
+// Parts
+const float music_start = 2.0f;
+const float smooth_start = 21.4f;
+const float drop_start = 52.3f;
+const float c_start = 60.f + 23.2f;
+
 void run_animation()
 {
-    // 0 - 8  verse
-    // 8 - 16 verse with synth
-    // 23 - 40 chorus, 31 midpoint
-    // 40 - 50 end verse
 
-    // Parts
-
-    if (time_secs < 2.0f) {
+    if (time_secs < 1.0f) {
+        demo.current_part = PART_INTRO;
+    } else if (time_secs < smooth_start) {
         demo.current_part = PART_VIDEO;
-    } else if (time_secs > 8.0f && time_secs < 14.0f) {
+    } else if (time_secs > smooth_start + 30.f && time_secs < smooth_start + 60.0f) {
         // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
         demo.current_part = PART_VIDEO;
-    } else if (time_secs > 23.0f && time_secs < 25.0f) {
+    } else if (time_secs > 16.0f && time_secs < 18.0f) {
         // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
         demo.current_part = PART_VIDEO;
-    } else if (time_secs > 27.0f && time_secs < 30.0f) {
+        // chorus
+    } else if(time_secs > 23.0f && time_secs < 27.0f) {
+        // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
+        demo.current_part = PART_VIDEO;
+    } else if (time_secs > 29.0f && time_secs < 31.0f) {
+        // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
+        demo.current_part = PART_VIDEO;
+    } else if (time_secs > 32.0f && time_secs < 33.0f) {
         // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
         demo.current_part = PART_VIDEO;
     } else if (time_secs > 35.0f && time_secs < 40.0f) {
@@ -882,10 +893,10 @@ void run_animation()
         viewer.active_camera = ((int)(time_secs / 3) % NUM_CAMERAS);
     }
 
-    float drop_start = 45.0f;
-    if (time_secs > drop_start) {
+    float slump_start = 60+45.0f;
+    if (time_secs > slump_start) {
         for (int i=0;i<NUM_SIMULATIONS;i++) {
-            if (time_secs > drop_start + i) {
+            if (time_secs > slump_start + i) {
             sims[i].config.root_is_static = false;
             }
         }
@@ -1091,8 +1102,6 @@ void render_video(mpeg2_t* mp2)
         if (tweak_sync_after_video) {
             rspq_wait();
         }
-        /*
-        rdpq_fence();
 
         rdpq_set_mode_standard();
         const int lvl = 14;
@@ -1100,31 +1109,34 @@ void render_video(mpeg2_t* mp2)
         rdpq_mode_combiner(RDPQ_COMBINER1((NOISE, 0, PRIM, TEX0), (0, 0, 0, TEX0)));
         rdpq_tex_blit(disp, 0, 0, NULL);
 
-        if (false) {
+        //color_t black = RGBA32(0, 0, 0, 0xFF);
+        color_t white = RGBA32(0xFF, 0xFF, 0xFF, 0xFF);
+
         struct {
+            color_t color;
             float start;
-            const char* msg;
-            int x;
+            const char* msg1;
+            const char* msg2;
+            int x1;
+            int x2;
         } messages[] = {
-            {1.0f, "PRESENTS", 50},
-            {5.0f, "Why worry?", 50},
+            {white, drop_start + 0.5f, "        our longing is our pledge,", "    and blessed are the homesick,", 50, 50},
+            {white, drop_start + 3.5f, "", "        for they shall come home.", 50, 50},
         };
 
         const float duration = 3.0f;
 
         for (int i = 0; i < sizeof(messages) / sizeof(messages[0]); i++) {
             if (time_secs > messages[i].start && time_secs < messages[i].start + duration) {
-                rdpq_font_begin(RGBA32(0, 0, 0, 0xFF));
-                rdpq_font_position(messages[i].x, 240 - 39);
-                rdpq_font_print(font_subtitle, messages[i].msg);
+                rdpq_font_begin(messages[i].color);
+                rdpq_font_position(messages[i].x1, 240 - 50);
+                rdpq_font_print(font_subtitle, messages[i].msg1);
+                rdpq_font_position(messages[i].x2, 240 - 30);
+                rdpq_font_print(font_subtitle, messages[i].msg2);
                 rdpq_font_end();
                 break;
             }
         }
-        }
-
-        */
-
 
         rdpq_detach_show();
     }
@@ -1133,10 +1145,33 @@ void render_video(mpeg2_t* mp2)
     }
 }
 
-const char* video_paths[] = {
-    "rom:/supercut.m1v",
-    "rom:/hirvikallo1.m1v",
-};
+void render_ending()
+{
+
+    surface_t *disp = display_get();
+    rdpq_attach(disp, &zbuffer);
+    gl_context_begin();
+
+    const float fudge = 0.01f;
+    glClearColor(environment_color[0] + fudge, environment_color[1] + fudge, environment_color[2] + fudge, environment_color[3]);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    gl_context_end();
+
+    rdpq_detach_show();
+}
+
+void render_intro()
+{
+}
+
+
+static void seek_to(float secs) {
+    float time = secs * 44100.f;
+    if (time < 0.f) time =0.0f;
+    if (time > music_wav.wave.len) time = music_wav.wave.len-1;
+    mixer_ch_set_pos(0, time);
+}
 
 int main()
 {
@@ -1176,12 +1211,13 @@ int main()
 	float video_fps = mpeg2_get_framerate(&mp2);
 	throttle_init(video_fps, 0, 8);
 
-    static wav64_t music_wav;
     if (music_enabled) {
-        const char* songpath = "/music1.wav64";
+        const char* songpath = "/music2.wav64";
         wav64_open(&music_wav, songpath);
         wav64_play(&music_wav, 0);
     }
+
+    seek_to(30.0f);
 
     // debugf("DEBUG HACK: only play video\n");
     // while (true) {
@@ -1193,8 +1229,13 @@ int main()
 
     while (1)
     {
-        time_secs = TIMER_MICROS(timer_ticks()) / 1e6;
-        debugf("[%.4f] begin frame %d\n", time_secs, time_frames);
+        if (music_enabled) {
+            time_secs = mixer_ch_get_pos(0) / 44100.f;
+        } else {
+            time_secs = TIMER_MICROS(timer_ticks()) / 1e6;
+        }
+
+        debugf("[%.4f] frame %d\n", time_secs, time_frames);
 
         controller_scan();
 
@@ -1322,6 +1363,12 @@ int main()
             if (tweak_sync_after_video) {
                 rspq_wait();
             }
+        }
+        else if (demo.current_part == PART_END) {
+            render_ending();
+        }
+        else if (demo.current_part == PART_INTRO) {
+            render_intro();
         }
         else {
             debugf("Invalid demo part %d\n", demo.current_part);
