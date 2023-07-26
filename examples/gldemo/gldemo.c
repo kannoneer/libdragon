@@ -1046,9 +1046,7 @@ void render_video(mpeg2_t* mp2)
     if (mpeg2_next_frame(mp2)) {
 
         if (tweak_sync_before_video) {
-            debugf("rspq_wait before video rendering\n");
             rspq_wait();
-            debugf("rspq_wait done\n");
         }
 
         surface_t *disp = display_get();
