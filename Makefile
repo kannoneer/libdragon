@@ -191,7 +191,8 @@ test:
 test-clean: install-mk
 	$(MAKE) -C tests clean
 
-clobber: clean examples-clean tools-clean test-clean
+# clobber: clean examples-clean tools-clean test-clean
+clobber: clean test-clean
 
 .PHONY : clobber clean doxygen-api examples examples-clean tools tools-clean tools-install test test-clean install-mk
 
