@@ -26,6 +26,8 @@ filesystem/%.sprite: assets/%.png
 
 
 filesystem/AlteHaasGroteskRegular.font64: MKFONT_FLAGS+=--size 15
+filesystem/OSD.font64: MKFONT_FLAGS+=--size 16
+filesystem/1942.font64: MKFONT_FLAGS+=--size 16
 
 $(BUILD_DIR)/gldemo.dfs: $(assets_conv)
 $(BUILD_DIR)/gldemo.elf: $(src:%.c=$(BUILD_DIR)/%.o)

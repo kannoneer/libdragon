@@ -99,13 +99,16 @@ static struct Viewer {
 #define PART_END 2
 #define PART_INTRO 3
 #define PART_SIGN1 4
-#define NUM_PARTS (5)
+#define PART_BLACK 5
+#define NUM_PARTS (6)
 
 static struct {
     bool interactive;
     bool moved; // did use arrows?
     int current_part;
     int overlay;
+    float impacts;
+    bool part_changed;
 } demo;
 
 void viewer_init()
@@ -156,7 +159,9 @@ static void set_diffuse_material()
 static void set_gemstone_material()
 {
     GLfloat color[] = { 8.0f, 8.0f, 8.0f, 0.75f };
+    //GLfloat color[] = { 1.0f, 1.0f, 1.0f, 0.1 };
     //GLfloat color[] = { 0.2f, 0.2f, 0.3f, 0.1f };
+    glColor3fv(color);
     glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, color);
 }
 
@@ -287,21 +292,22 @@ void sim_render(struct Simulation* s, mat4_t out_basis)
         print_mat4(basis);
     }
 
-        MY_PROFILE_STOP(PS_RENDER_SIM_SETUP, 0);
-        MY_PROFILE_START(PS_RENDER_SIM_DRAWCALLS, 0);
-        glEnable(GL_BLEND);
-        set_gemstone_material();
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    MY_PROFILE_STOP(PS_RENDER_SIM_SETUP, 0);
+    MY_PROFILE_START(PS_RENDER_SIM_DRAWCALLS, 0);
+    glEnable(GL_BLEND);
+    //glEnable(GL_COLOR_MATERIAL);
+    //glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+    set_gemstone_material();
 
-        glEnable(GL_LIGHTING);
-        glBindTexture(GL_TEXTURE_2D, textures[TEX_CEILING]);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glBindTexture(GL_TEXTURE_2D, textures[TEX_CEILING]);
 
-        if (tweak_enable_sphere_map) {
-            glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
-            glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
-            glEnable(GL_TEXTURE_GEN_S);
-            glEnable(GL_TEXTURE_GEN_T);
-        }
+    if (tweak_enable_sphere_map) {
+        glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
+        glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
+        glEnable(GL_TEXTURE_GEN_S);
+        glEnable(GL_TEXTURE_GEN_T);
+    }
 
     if (true) {
 
@@ -542,8 +548,8 @@ void setup()
     }
 
     font_subtitle = rdpq_font_load("rom:/AlteHaasGroteskRegular.font64");
-    font_sign = rdpq_font_load("rom:/AlteHaasGroteskRegular.font64");
-    font_mono = rdpq_font_load("rom:/AlteHaasGroteskRegular.font64");
+    font_sign = rdpq_font_load("rom:/1942.font64");
+    font_mono = rdpq_font_load("rom:/OSD.font64");
 
     spr_sign1 = sprite_load("rom:/esp.rgba16.sprite");
     spr_sign2 = sprite_load("rom:/esp2.rgba16.sprite");
@@ -880,9 +886,11 @@ void run_animation()
     int part = PART_GEMS;
     int cam = ((int)(time_secs / 3) % NUM_CAMERAS);
     demo.overlay = 0;
+    demo.impacts = 0.0f;
 
-
-    if (time_secs < 3.7515f) {
+    if (time_secs < 0.0) {
+        part = PART_BLACK;
+    } else if (time_secs < 3.7515f) {
         part = PART_INTRO;
     } else if (time_secs < 9.4984f) {
         part = PART_VIDEO;
@@ -902,12 +910,18 @@ void run_animation()
     } else if (time_secs < 38.5) { 
         part = PART_GEMS;
         cam = CAM_OVERVIEW;
-    } else if (time_secs < 43.8603f) {
+
+        if (time_secs > 37.f) {
         demo.overlay = 1;
-    } else if (time_secs < 52.0417f) { // drop
-        part = PART_VIDEO;
+        }
+    } else if (time_secs < 52.8603f) { // drop
+        demo.overlay = 1;
+        demo.impacts = 0.01f;
+    //} else if (time_secs < 52.0417f) { // drop
     } else if (time_secs < 56.9107f) {
+        part = PART_VIDEO;
     } else if (time_secs < 59.2653f) {
+        demo.impacts = 0.03f;
     } else if (time_secs < 63.1365f) {
         part = PART_VIDEO;
     } else if (time_secs < 64.2141f) {
@@ -920,6 +934,7 @@ void run_animation()
     } else if (time_secs < 83.4902f) { // C part arpeggio
         part = PART_VIDEO;
     } else if (time_secs < 89.0376f) {
+        part = PART_VIDEO;
     } else if (time_secs < 90.6739f) {
         part = PART_VIDEO;
     } else if (time_secs < 92.9088f) {
@@ -928,9 +943,12 @@ void run_animation()
     } else if (time_secs < 99.4141f) { // ending verse
     } else if (time_secs < 102.8463f) {
         part = PART_VIDEO;
-    } else if (time_secs < 105.6798f) {
-    } else if (time_secs < 110.5887f) {
-    } else if (time_secs < 115.0585f) {
+    } else if (time_secs < 110.6798f) {
+        cam = CAM_OVERVIEW;
+    } else if (time_secs < 115.0000f) {
+        part = PART_END;
+    } else {
+        part = PART_BLACK;
     }
 
     demo.current_part = part;
@@ -963,13 +981,16 @@ void run_animation()
     //     demo.current_part = PART_GEMS;
     // }
 
+    demo.part_changed = false;
+
     static int last_part;
     if (demo.current_part != last_part) {
-        debugf("Changed part %d -> %d\n", last_part, demo.current_part);
+        // debugf("Changed part %d -> %d\n", last_part, demo.current_part);
         last_part = demo.current_part;
+        demo.part_changed = true;
     }
 
-    float slump_start = 60+35.0f;
+    float slump_start = 60+37.0f;
     if (time_secs > slump_start) {
         for (int i = 0; i < NUM_SIMULATIONS; i++) {
             if (time_secs > slump_start + i) {
@@ -1249,13 +1270,32 @@ void render_video(mpeg2_t* mp2, surface_t* disp)
 void render_ending(surface_t* disp)
 {
     rdpq_attach(disp, &zbuffer);
-    gl_context_begin();
 
-    const float fudge = 0.01f;
-    glClearColor(environment_color[0] + fudge, environment_color[1] + fudge, environment_color[2] + fudge, environment_color[3]);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    rdpq_set_mode_fill(RGBA32(0, 0, 64, 255));
+    rdpq_fill_rectangle(0, 0, display_get_width(), display_get_height());
 
-    gl_context_end();
+    rdpq_font_position(20, 170);
+    rdpq_font_print(font_sign, "CONCLUSION");
+    rdpq_font_position(20, 200);
+    rdpq_font_print(font_sign, "No evidence of Salvation");
+    rdpq_font_position(230, 20);
+
+    rdpq_font_position(240, 20);
+    //rdpq_font_printf(font_sign, "%3f", time_secs);
+    rdpq_font_end();
+
+    render_noise(disp);
+
+    rdpq_detach();
+    rspq_wait();
+}
+
+void render_black(surface_t* disp)
+{
+    rdpq_attach(disp, &zbuffer);
+
+    rdpq_set_mode_fill(RGBA32(0, 0, 0, 255));
+    rdpq_fill_rectangle(0, 0, display_get_width(), display_get_height());
     rdpq_detach();
     rspq_wait();
 }
@@ -1269,14 +1309,14 @@ void render_intro(surface_t* disp)
 
     // rdpq_set_mode_fill(RGBA32(77,77,81, 255));
     // rdpq_fill_rectangle(17, 128, 196, 21);
-    char* msg = "/WRK/HERMENEUTICS/ZVOKZ2023.Z64";
+    char* msg = "/wrk/hermeneut/zvokz23.z64";
     int len = strlen(msg);
     int stop=(int)(time_secs*9);
     if (stop > len) stop=len;
 
     rdpq_font_begin(RGBA32(242,242,245, 0xFF));
     rdpq_font_position(20, 200);
-    rdpq_font_printn(font_mono, msg, stop);
+    rdpq_font_printn(font_sign, msg, stop);
 
     rdpq_font_position(240, 20);
     //rdpq_font_printf(font_sign, "%3f", time_secs);
@@ -1299,10 +1339,12 @@ void render_sign(surface_t* disp)
     // rdpq_fill_rectangle(17, 128, 196, 21);
 
     rdpq_font_begin(RGBA32(242,242,245, 0xFF));
+    rdpq_font_position(20, 170);
+    rdpq_font_print(font_sign, "EXPERIMENT");
     rdpq_font_position(20, 200);
-    rdpq_font_print(font_sign, "Extra Sensory Perception Test");
-    rdpq_font_position(240, 20);
-    rdpq_font_printf(font_sign, "%3f", time_secs);
+    rdpq_font_print(font_sign, "Extra Scholastic Perception");
+    rdpq_font_position(230, 20);
+    //rdpq_font_printf(font_mono, "%.3f", time_secs);
     rdpq_font_end();
 
     render_noise(disp);
@@ -1325,13 +1367,14 @@ void render_overlay(surface_t* disp)
     float local_time = time_secs - overlay_start ;
     if (local_time < 0) local_time = 0.0f;
 
-    float scale = 1.0f + 1.0f/(0.1f+local_time*2); //sin(time_secs * 0.9) * .1f;
+    float scale = 1.0f; // + 1.0f/(0.1f+local_time*2); //sin(time_secs * 0.9) * .1f;
 
     uint32_t mask = rand();
     uint32_t mask2 = rand_func((uint32_t)(time_secs*2));
     int size = spr_sign2->width / 5;
 
-    int step = time_secs*3;
+    int step = time_secs*5;
+    bool animated = true;
 
     int xstart = 160 - (spr_sign2->width/2) * scale;
     for (int i=0;i<5;i++) {
@@ -1345,6 +1388,7 @@ void render_overlay(surface_t* disp)
         blit.filtering = true;
         int noise = ((mask & (1<<idx)) > 0);
         int shown = ((mask2 & (1<<idx)) > 0);
+        if (!animated) shown = true;
         if (shown) {
         rdpq_set_fog_color(RGBA32(128, 128, 128, 192 + noise * 16));
         float ofs = 0.0f; // 10 * cos(time_secs + i) * scale;
@@ -1531,6 +1575,16 @@ int main()
         }
 
         if (demo.current_part == PART_GEMS) {
+            if (demo.impacts > 0.0f) {
+                for (int i=0;i<NUM_SIMULATIONS;i++) {
+                    if (randf() < demo.impacts) {
+                        const float scale=0.1f;
+                        float vel[3] = {scale*(randf()-0.5f), scale*(randf()), scale*(randf()-0.5f)};
+                        sim_apply_impact(&sims[i], vel);
+                    }
+                }
+            }
+
             MY_PROFILE_START(PS_UPDATE, 0);
             if (true || time_frames < 40) {
                 for (int i = 0; i < NUM_SIMULATIONS; i++) {
@@ -1570,7 +1624,10 @@ int main()
             render_sign(disp);
             rspq_wait();
         }
-        else {
+        else if (demo.current_part == PART_BLACK) {
+            render_black(disp);
+            rspq_wait();
+        } else {
             debugf("Invalid demo part %d\n", demo.current_part);
         }
 
