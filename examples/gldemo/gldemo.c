@@ -825,7 +825,7 @@ void apply_postproc(surface_t *disp)
         if (pass == 0) {
             rdpq_detach();
         } else {
-            rdpq_detach_show();
+            //rdpq_detach_show(); // done in main loop
         }
     }
 }
@@ -904,10 +904,8 @@ void run_animation()
 
 }
 
-void render()
+void render(surface_t *disp)
 {
-    surface_t *disp = display_get();
-
     rdpq_attach(disp, &zbuffer);
 
     gl_context_begin();
@@ -1057,7 +1055,7 @@ void render()
         MY_PROFILE_STOP(PS_RENDER_POSTPROC, 0);
     }
     else {
-        rdpq_detach_show();
+        rdpq_detach();
     }
 }
 
@@ -1083,20 +1081,19 @@ void audio_poll(void) {
 	}
 }
 
-void render_video(mpeg2_t* mp2)
+void render_video(mpeg2_t* mp2, surface_t* disp)
 {
     int ret = throttle_wait();
     if (ret < 0) {
         debugf("videoplayer: frame too slow (%d Kcycles)\n", -ret);
     }
     if (mpeg2_next_frame(mp2)) {
+        rdpq_attach(disp, &zbuffer);
 
         if (tweak_sync_before_video) {
             rspq_wait();
         }
 
-        surface_t *disp = display_get();
-        rdpq_attach(disp, NULL);
         mpeg2_draw_frame(mp2, disp);
 
         if (tweak_sync_after_video) {
@@ -1120,8 +1117,8 @@ void render_video(mpeg2_t* mp2)
             int x1;
             int x2;
         } messages[] = {
-            {white, drop_start + 0.5f, "        our longing is our pledge,", "    and blessed are the homesick,", 50, 50},
-            {white, drop_start + 3.5f, "", "        for they shall come home.", 50, 50},
+            {white, c_start + 0.5f, "        our longing is our pledge,", "    and blessed are the homesick,", 50, 50},
+            {white, c_start + 3.5f, "", "        for they shall come home.", 50, 50},
         };
 
         const float duration = 3.0f;
@@ -1138,17 +1135,15 @@ void render_video(mpeg2_t* mp2)
             }
         }
 
-        rdpq_detach_show();
+        rdpq_detach();
     }
     else {
         debugf("Video ended\n");
     }
 }
 
-void render_ending()
+void render_ending(surface_t* disp)
 {
-
-    surface_t *disp = display_get();
     rdpq_attach(disp, &zbuffer);
     gl_context_begin();
 
@@ -1157,8 +1152,7 @@ void render_ending()
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     gl_context_end();
-
-    rdpq_detach_show();
+    rdpq_detach();
 }
 
 void render_intro()
@@ -1217,8 +1211,6 @@ int main()
         wav64_play(&music_wav, 0);
     }
 
-    seek_to(30.0f);
-
     // debugf("DEBUG HACK: only play video\n");
     // while (true) {
     //      if (music_enabled) {
@@ -1246,20 +1238,22 @@ int main()
             demo.interactive = !demo.interactive;
             debugf("%s mode\n", demo.interactive ? "Interactive" : "Playback");
         }
+        surface_t *disp = display_get();
 
         if (demo.interactive) {
-            if (down.c[0].L) {
-                viewer.active_camera--;
-                if (viewer.active_camera < 0) viewer.active_camera = NUM_CAMERAS - 1;
-
-                debugf("Active camera: %d\n", viewer.active_camera);
+            if (pressed.c[0].L) {
+                seek_to(time_secs - 1.0f);
+                //viewer.active_camera--;
+                //if (viewer.active_camera < 0) viewer.active_camera = NUM_CAMERAS - 1;
+                //debugf("Active camera: %d\n", viewer.active_camera);
             }
 
-            if (down.c[0].R) {
-                viewer.active_camera++;
-                if (viewer.active_camera >= NUM_CAMERAS) viewer.active_camera = 0;
+            if (pressed.c[0].R) {
+                seek_to(time_secs + 1.0f);
+                // viewer.active_camera++;
+                // if (viewer.active_camera >= NUM_CAMERAS) viewer.active_camera = 0;
 
-                debugf("Active camera: %d\n", viewer.active_camera);
+                // debugf("Active camera: %d\n", viewer.active_camera);
             }
 
             if (down.c[0].A) {
@@ -1344,7 +1338,7 @@ int main()
             MY_PROFILE_STOP(PS_UPDATE, 0);
 
             MY_PROFILE_START(PS_RENDER, 0);
-            render();
+            render(disp);
             MY_PROFILE_STOP(PS_RENDER, 0);
 
             my_profile_next_frame();
@@ -1359,20 +1353,31 @@ int main()
             if (tweak_sync_before_video) {
                 rspq_wait();
             }
-            render_video(&mp2);
+            render_video(&mp2, disp);
             if (tweak_sync_after_video) {
                 rspq_wait();
             }
         }
         else if (demo.current_part == PART_END) {
-            render_ending();
+            render_ending(disp);
         }
         else if (demo.current_part == PART_INTRO) {
-            render_intro();
+            render_intro(disp);
         }
         else {
             debugf("Invalid demo part %d\n", demo.current_part);
         }
+
+        rdpq_attach(disp, &zbuffer);
+
+        if (demo.interactive) {
+            rdpq_font_begin(RGBA32(0xFF, 0xFF, 0xFF, 0xFF));
+            rdpq_font_position(10, 20);
+            rdpq_font_printf(font_subtitle, "Edit %02d:%02d (%.3f)\n", (int)(time_secs/60), ((int)time_secs)%60, time_secs);
+            rdpq_font_end();
+        }
+
+        rdpq_detach_show();
 
         // if (DEBUG_RDP)
         //     rspq_wait();
