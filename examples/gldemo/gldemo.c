@@ -8,6 +8,8 @@
 #include <malloc.h>
 #include <math.h>
 
+#include "fmath.h"
+
 #include "camera.h"
 #include "cube.h"
 #include "decal.h"
@@ -23,20 +25,20 @@
 
 #define DEBUG_RDP 0
 
-static const bool music_enabled = true;
+static const bool music_enabled = false;
 
-static uint32_t texture_index = 0;
 static camera_t camera;
 static surface_t zbuffer;
 static surface_t tempbuffer;
 static wav64_t music_wav;
 
 static float time_secs = 0.0f;
+static float time_secs_offset = 0.0f;
 static int time_frames = 0;
 
 static bool debug_freeze = false;
 
-static bool tweak_double_sided_gems = false;
+static bool tweak_double_sided_gems = true;
 static bool tweak_dont_test_plane_depth = true; // 3% faster plane drawing when enabled
 static bool tweak_enable_sphere_map = true;
 static bool tweak_enable_sim_rendering = true;
@@ -109,6 +111,7 @@ static struct {
     int overlay;
     float impacts;
     bool part_changed;
+    float plane_brite;
 } demo;
 
 void viewer_init()
@@ -156,18 +159,25 @@ static void set_diffuse_material()
     glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, mat_diffuse);
 }
 
-static void set_gemstone_material()
+static void set_plane_material(float brite)
 {
-    GLfloat color[] = { 8.0f, 8.0f, 8.0f, 0.75f };
+    GLfloat color[] = { brite, brite, brite, 1.0f };
+    glColor4fv(color);
+    glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, color);
+}
+
+static void set_gemstone_material(float brite)
+{
+    GLfloat color[] = { brite, brite, brite, 1.0f };
     //GLfloat color[] = { 1.0f, 1.0f, 1.0f, 0.1 };
     //GLfloat color[] = { 0.2f, 0.2f, 0.3f, 0.1f };
-    glColor3fv(color);
+    glColor4fv(color);
     glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, color);
 }
 
 static void set_textured_shadow_material()
 {
-    const float shade = 0.0f;
+    const float shade = 0.1f;
     GLfloat color[] = { shade, shade, shade, 0.6f };
     //glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, color);
     glColor4fv(color);
@@ -223,9 +233,36 @@ void apply_sphere_mapping()
     //     break;
 }
 
-void sim_render(struct Simulation* s, mat4_t out_basis)
+void sim_prepare_render(struct Simulation* s, mat4_t out_basis)
 {
     MY_PROFILE_START(PS_RENDER_SIM_SETUP, 0);
+
+    mat4_t basis;
+    mat4_set_identity(basis);
+
+    vec3_copy(s->pose.u, &basis[2][0]);
+    vec3_copy(s->pose.n, &basis[1][0]);
+    vec3_cross(s->pose.u, s->pose.n, &basis[0][0]);
+
+    // translate
+    vec3_copy(s->pose.origin, &basis[3][0]);
+
+    mat4_t shift;
+    mat4_make_translation(debug_x_shift, -0.28f, 0.0f, shift);
+    mat4_mul(basis, shift, basis);
+
+    mat4_ucopy(basis, out_basis);
+    if (false) {
+        debugf("%p basis:\n", s);
+        print_mat4(basis);
+    }
+    MY_PROFILE_STOP(PS_RENDER_SIM_SETUP, 0);
+}
+
+void sim_render(struct Simulation* s, mat4_t basis)
+{
+    MY_PROFILE_START(PS_RENDER_SIM_DRAWCALLS, 0);
+
     glDisable(GL_TEXTURE_2D);
     if (s->debug.show_wires) {
         glDisable(GL_LIGHTING);
@@ -249,57 +286,12 @@ void sim_render(struct Simulation* s, mat4_t out_basis)
 
     glEnable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
-
-    mat4_t basis;
-    mat4_set_identity(basis);
-
-    vec3_copy(s->pose.u, &basis[2][0]);
-    vec3_copy(s->pose.n, &basis[1][0]);
-    vec3_cross(s->pose.u, s->pose.n, &basis[0][0]);
-
-    // translate
-    vec3_copy(s->pose.origin, &basis[3][0]);
-
-    mat4_t shift;
-    mat4_make_translation(debug_x_shift, -0.28f, 0.0f, shift);
-    mat4_mul(basis, shift, basis);
-
-    mat4_ucopy(basis, out_basis);
-
-    if (false) {
-        mat4_t inverse;
-        mat4_t result;
-        mat4_invert_rigid_xform(basis, inverse);
-        mat4_mul(inverse, basis, result);
-
-        debugf("basis:\n");
-        print_mat4(basis);
-        debugf("inverse:\n");
-        print_mat4(inverse);
-        debugf("result:\n");
-        print_mat4(result);
-    }
-
-    if (false) {
-        debugf("shift:\n");
-        print_mat4(shift);
-
-        debugf("u: (%f, %f, %f)\n", s->pose.u[0], s->pose.u[1], s->pose.u[2]);
-        debugf("v: (%f, %f, %f)\n", s->pose.v[0], s->pose.v[1], s->pose.v[2]);
-        debugf("n: (%f, %f, %f)\n", s->pose.n[0], s->pose.n[1], s->pose.n[2]);
-
-        debugf("basis:\n");
-        print_mat4(basis);
-    }
-
-    MY_PROFILE_STOP(PS_RENDER_SIM_SETUP, 0);
-    MY_PROFILE_START(PS_RENDER_SIM_DRAWCALLS, 0);
     glEnable(GL_BLEND);
+
     //glEnable(GL_COLOR_MATERIAL);
     //glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
-    set_gemstone_material();
 
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
     glBindTexture(GL_TEXTURE_2D, textures[TEX_CEILING]);
 
     if (tweak_enable_sphere_map) {
@@ -313,13 +305,22 @@ void sim_render(struct Simulation* s, mat4_t out_basis)
 
         glPushMatrix();
             glMultMatrixf(&basis[0][0]);
+            glDisable(GL_DEPTH_TEST);
 
-            glCullFace(GL_FRONT);
-            model64_draw(model_gemstone);
-            glCullFace(GL_BACK);
             if (tweak_double_sided_gems) {
+                set_gemstone_material(0.1f);
+                glDepthMask(GL_FALSE);
+                glCullFace(GL_BACK);
+                glDepthMask(GL_TRUE);
                 model64_draw(model_gemstone);
+
             }
+            glCullFace(GL_FRONT); // wtf dude
+            set_gemstone_material(0.5f);
+            model64_draw(model_gemstone);
+            rspq_wait();
+            glEnable(GL_DEPTH_TEST);
+            glCullFace(GL_BACK);
 
             glDisable(GL_TEXTURE_2D);
             if (tweak_enable_sphere_map) {
@@ -328,8 +329,8 @@ void sim_render(struct Simulation* s, mat4_t out_basis)
             }
             glDisable(GL_BLEND);
         glPopMatrix();
-        MY_PROFILE_STOP(PS_RENDER_SIM_DRAWCALLS, 0);
     }
+    MY_PROFILE_STOP(PS_RENDER_SIM_DRAWCALLS, 0);
 }
 
 static void shadow_mesh_clear(struct shadow_mesh* mesh)
@@ -664,6 +665,7 @@ void render_flare()
     //render_unit_cube_points();
     glColor3f(1.0f, 1.0f, 1.0f);
     glTexCoord2f(0.0f, 0.0f);
+
     glVertex3f(0.f, 0.f, 0.f);
     glEnd();
     glPopMatrix();
@@ -775,6 +777,7 @@ void render_shadows(mat4_t object_to_world)
         }
     }
 
+
     // HACK: If any of the rays missed the plane, use last frames mesh.
     if (missed_rays) {
         memcpy(mesh->verts_proj, mesh->verts_proj_old, sizeof(mesh->verts_proj));
@@ -789,14 +792,18 @@ void render_shadows(mat4_t object_to_world)
 
     glDepthMask(GL_FALSE);
     glDepthFunc(GL_LESS_INTERPENETRATING_N64);
+    //glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+    if (!missed_rays) {
     glCullFace(GL_FRONT);
     shadow_mesh_draw(&smesh_gemstone);
     glCullFace(GL_BACK);
     shadow_mesh_draw(&smesh_gemstone);
+    }
 
+    //glEnable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
     glDepthMask(GL_TRUE);
     glDepthFunc(GL_LESS);
@@ -887,7 +894,14 @@ void run_animation()
     int cam = ((int)(time_secs / 3) % NUM_CAMERAS);
     demo.overlay = 0;
     demo.impacts = 0.0f;
-
+    demo.plane_brite = 0.7f;
+    if (time_secs > 30.f) {
+        demo.plane_brite = 0.5f;
+    }
+    if (time_secs > 57.f) {
+        demo.plane_brite = 0.1f;
+    }
+ 
     if (time_secs < 0.0) {
         part = PART_BLACK;
     } else if (time_secs < 3.7515f) {
@@ -1024,6 +1038,7 @@ void render(surface_t *disp)
 {
     rdpq_attach(disp, &zbuffer);
 
+    rdpq_mode_dithering(DITHER_NOISE_SQUARE);
     gl_context_begin();
 
     glFogf(GL_FOG_START, 5);
@@ -1064,9 +1079,9 @@ void render(surface_t *disp)
         glMatrixMode(GL_PROJECTION);
         set_frustum(1.1f);
 
-        float yshake = 0.05f * sin(0.5f*time_secs);
-        float target_xshake = 1.0f + 0.025f * cos(time_secs*0.3f);
-        float eye_yshake = 1.0f + 0.015f* sin(time_secs*1.3f);
+        float yshake = 0.05f * fm_sinf(0.5f*time_secs);
+        float target_xshake = 0.0f + 0.025f * fm_cosf(time_secs*0.3f);
+        float eye_yshake = 1.0f + 0.015f* fm_sinf(time_secs*1.3f);
         glMatrixMode(GL_MODELVIEW);
         gluLookAt(
             2.0f, 10.0f * eye_yshake, 1.0f,
@@ -1080,10 +1095,13 @@ void render(surface_t *disp)
         float *pos = &sims[0].pose.origin[0];
         float angle=time_secs*0.7f;
         gluLookAt(
-            pos[0] + 3.0f*cos(angle), pos[1] + 2.0f, pos[2] + 3.0f*sin(angle),
+            pos[0] + 3.0f*fm_cosf(angle), pos[1] + 2.0f, pos[2] + 3.0f*sin(angle),
             pos[0], pos[1], pos[2],
             0, 1, 0);
     }
+
+    //float gshake = 5.0f * fm_sinf(1.5f*time_secs);
+    //glRotatef(gshake, 0.1f, 0.5f, 0.5f);
 
     glMatrixMode(GL_MODELVIEW);
     // camera_transform(&camera);
@@ -1114,6 +1132,7 @@ void render(surface_t *disp)
         glDisable(GL_DEPTH_TEST);
     }
 
+    set_plane_material(demo.plane_brite);
     render_plane();
     if (tweak_wait_after_render_plane) {
         rspq_wait();
@@ -1125,7 +1144,21 @@ void render(surface_t *disp)
     }
     MY_PROFILE_STOP(PS_RENDER_BG, 0);
 
-    glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
+    for (int i = 0; i < NUM_SIMULATIONS; i++) {
+        sim_prepare_render(&sims[i], sim_object_to_worlds[i]);
+    }
+
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+
+    MY_PROFILE_START(PS_RENDER_SHADOWS, 0);
+    for (int i = 0; i < NUM_SIMULATIONS; i++) {
+        render_shadows(sim_object_to_worlds[i]);
+        if (tweak_sync_after_shadows) {
+            rspq_wait();
+        }
+    }
+    MY_PROFILE_STOP(PS_RENDER_SHADOWS, 0);
 
     MY_PROFILE_START(PS_RENDER_SIM, 0);
     for (int i = 0; i < NUM_SIMULATIONS; i++) {
@@ -1148,17 +1181,6 @@ void render(surface_t *disp)
 
     gl_context_begin();
 
-        glDisable(GL_TEXTURE_2D);
-        glDisable(GL_LIGHTING);
-
-        MY_PROFILE_START(PS_RENDER_SHADOWS, 0);
-        for (int i = 0; i < NUM_SIMULATIONS; i++) {
-            render_shadows(sim_object_to_worlds[i]);
-            if (tweak_sync_after_shadows) {
-                rspq_wait();
-            }
-        }
-        MY_PROFILE_STOP(PS_RENDER_SHADOWS, 0);
 
 
     if (false) {
@@ -1231,8 +1253,8 @@ void render_video(mpeg2_t* mp2, surface_t* disp)
 
         render_noise(disp);
 
-        //color_t black = RGBA32(0, 0, 0, 0xFF);
-        color_t white = RGBA32(0xFF, 0xFF, 0xFF, 0xFF);
+        color_t black = RGBA32(0, 0, 0, 0xFF);
+        //color_t white = RGBA32(0xFF, 0xFF, 0xFF, 0xFF);
 
         struct {
             color_t color;
@@ -1242,8 +1264,8 @@ void render_video(mpeg2_t* mp2, surface_t* disp)
             int x1;
             int x2;
         } messages[] = {
-            {white, c_start + 0.5f, "        our longing is our pledge,", "    and blessed are the homesick,", 50, 50},
-            {white, c_start + 3.5f, "", "        for they shall come home.", 50, 50},
+            {black, c_start + 0.5f, "        our longing is our pledge,", "    and blessed are the homesick,", 50, 50},
+            {black, c_start + 3.5f, "", "        for they shall come home.", 50, 50},
         };
 
         const float duration = 3.0f;
@@ -1251,9 +1273,9 @@ void render_video(mpeg2_t* mp2, surface_t* disp)
         for (int i = 0; i < sizeof(messages) / sizeof(messages[0]); i++) {
             if (time_secs > messages[i].start && time_secs < messages[i].start + duration) {
                 rdpq_font_begin(messages[i].color);
-                rdpq_font_position(messages[i].x1, 240 - 50);
+                rdpq_font_position(messages[i].x1, 240 - 55);
                 rdpq_font_print(font_subtitle, messages[i].msg1);
-                rdpq_font_position(messages[i].x2, 240 - 30);
+                rdpq_font_position(messages[i].x2, 240 - 35);
                 rdpq_font_print(font_subtitle, messages[i].msg2);
                 rdpq_font_end();
                 break;
@@ -1277,7 +1299,7 @@ void render_ending(surface_t* disp)
     rdpq_font_position(20, 170);
     rdpq_font_print(font_sign, "CONCLUSION");
     rdpq_font_position(20, 200);
-    rdpq_font_print(font_sign, "No evidence of Salvation");
+    rdpq_font_print(font_sign, "No Evidence of Salvation");
     rdpq_font_position(230, 20);
 
     rdpq_font_position(240, 20);
@@ -1309,14 +1331,19 @@ void render_intro(surface_t* disp)
 
     // rdpq_set_mode_fill(RGBA32(77,77,81, 255));
     // rdpq_fill_rectangle(17, 128, 196, 21);
-    char* msg = "/wrk/hermeneut/zvokz23.z64";
+    char* msg = "Serial Experiments";
     int len = strlen(msg);
     int stop=(int)(time_secs*9);
     if (stop > len) stop=len;
 
+
     rdpq_font_begin(RGBA32(242,242,245, 0xFF));
+
+    rdpq_font_position(20, 170);
+    rdpq_font_print(font_sign, "CONCEPT");
     rdpq_font_position(20, 200);
     rdpq_font_printn(font_sign, msg, stop);
+    rdpq_font_position(230, 20);
 
     rdpq_font_position(240, 20);
     //rdpq_font_printf(font_sign, "%3f", time_secs);
@@ -1414,11 +1441,13 @@ int main()
 {
 	debug_init_isviewer();
 	debug_init_usblog();
+
+    debugf("Built at %s\n", __TIMESTAMP__);
     
     dfs_init(DFS_DEFAULT_LOCATION);
 
     display_init(RESOLUTION_320x240, DEPTH_16_BPP, 3, GAMMA_NONE, ANTIALIAS_RESAMPLE_FETCH_NEEDED);
-
+    
     rdpq_init();
     gl_init();
     //rdpq_debug_start();
@@ -1467,7 +1496,8 @@ int main()
         if (music_enabled) {
             time_secs = mixer_ch_get_pos(0) / 44100.f;
         } else {
-            time_secs = TIMER_MICROS(timer_ticks()) / 1e6;
+            time_secs = TIMER_MICROS(timer_ticks()) / 1e6 + time_secs_offset;
+            if (time_secs < 0) time_secs = 0.f;
         }
 
         controller_scan();
@@ -1485,6 +1515,7 @@ int main()
         if (demo.interactive) {
             if (pressed.c[0].L) {
                 seek_to(time_secs - 1.0f);
+                time_secs_offset -= 1.0f;
                 //viewer.active_camera--;
                 //if (viewer.active_camera < 0) viewer.active_camera = NUM_CAMERAS - 1;
                 //debugf("Active camera: %d\n", viewer.active_camera);
@@ -1492,6 +1523,7 @@ int main()
 
             if (pressed.c[0].R) {
                 seek_to(time_secs + 1.0f);
+                time_secs_offset += 1.0f;
                 // viewer.active_camera++;
                 // if (viewer.active_camera >= NUM_CAMERAS) viewer.active_camera = 0;
 
@@ -1517,8 +1549,9 @@ int main()
             bool c_pressed = false;
 
             if (down.c[0].C_up) {
-                debug_z_shift += nudge;
-                c_pressed = true;
+                tweak_double_sided_gems = !tweak_double_sided_gems;
+                debugf("double sided: %s\n", tweak_double_sided_gems ? "ON" : "OFF");
+
             }
 
             if (down.c[0].C_down) {
