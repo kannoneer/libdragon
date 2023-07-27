@@ -16,6 +16,14 @@ static uint32_t rand(void) {
 	return rand_state = x;
 }
 
+static uint32_t rand_func(uint32_t x) {
+	x ^= x << 13;
+	x ^= x >> 7;
+	x ^= x << 5;
+	return x;
+}
+
+
 static float randf()
 {
     return rand()/(float)RAND_MAX;

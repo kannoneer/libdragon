@@ -66,6 +66,8 @@ static const GLfloat environment_color[] = { 0.03f, 0.03f, 0.05f, 1.f };
 //static const GLfloat environment_color[] = { 0.0f, 0.0f, 0.0f, 1.f };
 
 rdpq_font_t *font_subtitle;
+rdpq_font_t *font_sign;
+rdpq_font_t *font_mono;
 
 static GLfloat light_pos[8][4] = {
     { 0.1f, 0, 0, 1 },
@@ -96,11 +98,14 @@ static struct Viewer {
 #define PART_VIDEO 1
 #define PART_END 2
 #define PART_INTRO 3
-#define NUM_PARTS (4)
+#define PART_SIGN1 4
+#define NUM_PARTS (5)
 
 static struct {
     bool interactive;
+    bool moved; // did use arrows?
     int current_part;
+    int overlay;
 } demo;
 
 void viewer_init()
@@ -139,6 +144,8 @@ static const char *texture_path[NUM_TEXTURES] = {
 };
 
 static sprite_t *sprites[NUM_TEXTURES];
+static sprite_t* spr_sign1 = NULL;
+static sprite_t* spr_sign2 = NULL;
 
 static void set_diffuse_material()
 {
@@ -535,6 +542,11 @@ void setup()
     }
 
     font_subtitle = rdpq_font_load("rom:/AlteHaasGroteskRegular.font64");
+    font_sign = rdpq_font_load("rom:/AlteHaasGroteskRegular.font64");
+    font_mono = rdpq_font_load("rom:/AlteHaasGroteskRegular.font64");
+
+    spr_sign1 = sprite_load("rom:/esp.rgba16.sprite");
+    spr_sign2 = sprite_load("rom:/esp2.rgba16.sprite");
 
     setup_sphere();
     make_sphere_mesh();
@@ -564,11 +576,6 @@ void setup()
     }
 
     set_diffuse_material();
-
-    glFogf(GL_FOG_START, 5);
-    glFogf(GL_FOG_END, 40);
-    glFogfv(GL_FOG_COLOR, environment_color);
-    glEnable(GL_FOG);
 
     glGenTextures(NUM_TEXTURES, textures);
 
@@ -616,7 +623,12 @@ void setup()
         );
 
 
-    for (int iter=0;iter<100;iter++) {
+    const int warmup_frames = 30;
+    for (int i = 0; i < NUM_SIMULATIONS; i++) {
+        sims[i].config.warmup_frames = warmup_frames;
+    }
+
+    for (int iter=0;iter<warmup_frames;iter++) {
         for (int i = 0; i < NUM_SIMULATIONS; i++) {
             sim_update(&sims[i]);
         }
@@ -835,36 +847,121 @@ const float music_start = 2.0f;
 const float smooth_start = 21.4f;
 const float drop_start = 52.3f;
 const float c_start = 60.f + 23.2f;
+const float overlay_start = 30.5914f;
 
 void run_animation()
 {
+    // 3.7515
+    // 9.4984
+    // 17.6798
+    // 21.5510
+    // 30.0517
+    // 38.9914
+    // 43.8603
+    // 52.0417
+    // 56.9107
+    // 59.2653
+    // 63.1365
+    // 64.2141
+    // 68.9633
+    // 71.3977
+    // 77.2644
+    // 79.1002
+    // 83.4902
+    // 89.0376
+    // 90.6739
+    // 92.9088
+    // 96.4608
+    // 99.4141
+    // 102.8463
+    // 105.6798
+    // 110.5887
+    // 115.0585
+    int part = PART_GEMS;
+    int cam = ((int)(time_secs / 3) % NUM_CAMERAS);
+    demo.overlay = 0;
 
-    if (time_secs < 1.0f) {
-        demo.current_part = PART_INTRO;
-    } else if (time_secs < smooth_start) {
-        demo.current_part = PART_VIDEO;
-    } else if (time_secs > smooth_start + 30.f && time_secs < smooth_start + 60.0f) {
-        // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
-        demo.current_part = PART_VIDEO;
-    } else if (time_secs > 16.0f && time_secs < 18.0f) {
-        // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
-        demo.current_part = PART_VIDEO;
-        // chorus
-    } else if(time_secs > 23.0f && time_secs < 27.0f) {
-        // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
-        demo.current_part = PART_VIDEO;
-    } else if (time_secs > 29.0f && time_secs < 31.0f) {
-        // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
-        demo.current_part = PART_VIDEO;
-    } else if (time_secs > 32.0f && time_secs < 33.0f) {
-        // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
-        demo.current_part = PART_VIDEO;
-    } else if (time_secs > 35.0f && time_secs < 40.0f) {
-        // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
-        demo.current_part = PART_VIDEO;
-    } else {
-        demo.current_part = PART_GEMS;
+
+    if (time_secs < 3.7515f) {
+        part = PART_INTRO;
+    } else if (time_secs < 9.4984f) {
+        part = PART_VIDEO;
+    } else if (time_secs < 17.6798f) { 
+        part = PART_VIDEO;
+        // part = PART_GEMS;
+        // cam = CAM_CLOSEUP;
+    } else if (time_secs < 21.5510f) { // smooth start
+        float tl = time_secs - 21.5510f;
+        part = PART_GEMS;
+        cam = ((int)(tl / 3) % NUM_CAMERAS);
+        //cam = CAM_OVERVIEW;
+    } else if (time_secs < 29.9999f) {
+        part = PART_GEMS;
+    } else if (time_secs < 35.009) { // smooth hats
+        part = PART_SIGN1;
+    } else if (time_secs < 38.5) { 
+        part = PART_GEMS;
+        cam = CAM_OVERVIEW;
+    } else if (time_secs < 43.8603f) {
+        demo.overlay = 1;
+    } else if (time_secs < 52.0417f) { // drop
+        part = PART_VIDEO;
+    } else if (time_secs < 56.9107f) {
+    } else if (time_secs < 59.2653f) {
+    } else if (time_secs < 63.1365f) {
+        part = PART_VIDEO;
+    } else if (time_secs < 64.2141f) {
+    } else if (time_secs < 68.9633f) { // drop, 2nd half
+        part = PART_VIDEO;
+    } else if (time_secs < 71.3977f) {
+    } else if (time_secs < 77.2644f) {
+        part = PART_VIDEO;
+    } else if (time_secs < 79.1002f) {
+    } else if (time_secs < 83.4902f) { // C part arpeggio
+        part = PART_VIDEO;
+    } else if (time_secs < 89.0376f) {
+    } else if (time_secs < 90.6739f) {
+        part = PART_VIDEO;
+    } else if (time_secs < 92.9088f) {
+    } else if (time_secs < 96.4608f) {
+        part = PART_VIDEO;
+    } else if (time_secs < 99.4141f) { // ending verse
+    } else if (time_secs < 102.8463f) {
+        part = PART_VIDEO;
+    } else if (time_secs < 105.6798f) {
+    } else if (time_secs < 110.5887f) {
+    } else if (time_secs < 115.0585f) {
     }
+
+    demo.current_part = part;
+    viewer.active_camera = cam;
+
+    // if (time_secs < 1.0f) {
+    //     demo.current_part = PART_INTRO;
+    // } else if (time_secs < smooth_start) {
+    //     demo.current_part = PART_VIDEO;
+    // } else if (time_secs > smooth_start + 30.f && time_secs < smooth_start + 60.0f) {
+    //     // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
+    //     demo.current_part = PART_VIDEO;
+    // } else if (time_secs > 16.0f && time_secs < 18.0f) {
+    //     // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
+    //     demo.current_part = PART_VIDEO;
+    //     // chorus
+    // } else if(time_secs > 23.0f && time_secs < 27.0f) {
+    //     // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
+    //     demo.current_part = PART_VIDEO;
+    // } else if (time_secs > 29.0f && time_secs < 31.0f) {
+    //     // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
+    //     demo.current_part = PART_VIDEO;
+    // } else if (time_secs > 32.0f && time_secs < 33.0f) {
+    //     // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
+    //     demo.current_part = PART_VIDEO;
+    // } else if (time_secs > 35.0f && time_secs < 40.0f) {
+    //     // debugf("anim %s at %d\n", __FUNCTION__, __LINE__);
+    //     demo.current_part = PART_VIDEO;
+    // } else {
+    //     demo.current_part = PART_GEMS;
+    // }
 
     static int last_part;
     if (demo.current_part != last_part) {
@@ -872,35 +969,33 @@ void run_animation()
         last_part = demo.current_part;
     }
 
-    //demo.current_part = PART_VIDEO; // HACK: use only video
-
-    // Cameras
-
-    
-    viewer.active_camera = CAM_CLOSEUP;
-
-
-    if (time_secs > 8) {
-        viewer.active_camera = CAM_OVERVIEW;
-    }
-    if (time_secs > 16) {
-        viewer.active_camera = CAM_CLOSEUP;
-    }
-    if (time_secs > 23) {
-        viewer.active_camera = CAM_ACTION;
-    }
-    if (time_secs > 31) {
-        viewer.active_camera = ((int)(time_secs / 3) % NUM_CAMERAS);
-    }
-
-    float slump_start = 60+45.0f;
+    float slump_start = 60+35.0f;
     if (time_secs > slump_start) {
-        for (int i=0;i<NUM_SIMULATIONS;i++) {
+        for (int i = 0; i < NUM_SIMULATIONS; i++) {
             if (time_secs > slump_start + i) {
-            sims[i].config.root_is_static = false;
+                sims[i].config.root_is_static = false;
             }
         }
     }
+
+    //demo.current_part = PART_VIDEO; // HACK: use only video
+
+    // Cameras
+    
+    // viewer.active_camera = CAM_CLOSEUP;
+
+    // if (time_secs > 8) {
+    //     viewer.active_camera = CAM_OVERVIEW;
+    // }
+    // if (time_secs > 16) {
+    //     viewer.active_camera = CAM_CLOSEUP;
+    // }
+    // if (time_secs > 23) {
+    //     viewer.active_camera = CAM_ACTION;
+    // }
+    // if (time_secs > 31) {
+    //     viewer.active_camera = ((int)(time_secs / 3) % NUM_CAMERAS);
+    // }
 
 }
 
@@ -909,6 +1004,11 @@ void render(surface_t *disp)
     rdpq_attach(disp, &zbuffer);
 
     gl_context_begin();
+
+    glFogf(GL_FOG_START, 5);
+    glFogf(GL_FOG_END, 40);
+    glFogfv(GL_FOG_COLOR, environment_color);
+    glEnable(GL_FOG);
 
     const float fudge = 0.01f;
     glClearColor(environment_color[0] + fudge, environment_color[1] + fudge, environment_color[2] + fudge, environment_color[3]);
@@ -1080,6 +1180,14 @@ void audio_poll(void) {
 		audio_write_end();
 	}
 }
+        
+void render_noise(surface_t* disp) {
+    rdpq_set_mode_standard();
+    const int lvl = 14;
+    rdpq_set_prim_color(RGBA32(lvl, lvl, lvl, 255));
+    rdpq_mode_combiner(RDPQ_COMBINER1((NOISE, 0, PRIM, TEX0), (0, 0, 0, TEX0)));
+    rdpq_tex_blit(disp, 0, 0, NULL);
+}
 
 void render_video(mpeg2_t* mp2, surface_t* disp)
 {
@@ -1100,11 +1208,7 @@ void render_video(mpeg2_t* mp2, surface_t* disp)
             rspq_wait();
         }
 
-        rdpq_set_mode_standard();
-        const int lvl = 14;
-        rdpq_set_prim_color(RGBA32(lvl, lvl, lvl, 255));
-        rdpq_mode_combiner(RDPQ_COMBINER1((NOISE, 0, PRIM, TEX0), (0, 0, 0, TEX0)));
-        rdpq_tex_blit(disp, 0, 0, NULL);
+        render_noise(disp);
 
         //color_t black = RGBA32(0, 0, 0, 0xFF);
         color_t white = RGBA32(0xFF, 0xFF, 0xFF, 0xFF);
@@ -1138,7 +1242,7 @@ void render_video(mpeg2_t* mp2, surface_t* disp)
         rdpq_detach();
     }
     else {
-        debugf("Video ended\n");
+        //debugf("Video ended\n");
     }
 }
 
@@ -1153,10 +1257,105 @@ void render_ending(surface_t* disp)
 
     gl_context_end();
     rdpq_detach();
+    rspq_wait();
 }
 
-void render_intro()
+void render_intro(surface_t* disp)
 {
+    rdpq_attach(disp, &zbuffer);
+
+    rdpq_set_mode_fill(RGBA32(0, 0, 64, 255));
+    rdpq_fill_rectangle(0, 0, display_get_width(), display_get_height());
+
+    // rdpq_set_mode_fill(RGBA32(77,77,81, 255));
+    // rdpq_fill_rectangle(17, 128, 196, 21);
+    char* msg = "/WRK/HERMENEUTICS/ZVOKZ2023.Z64";
+    int len = strlen(msg);
+    int stop=(int)(time_secs*9);
+    if (stop > len) stop=len;
+
+    rdpq_font_begin(RGBA32(242,242,245, 0xFF));
+    rdpq_font_position(20, 200);
+    rdpq_font_printn(font_mono, msg, stop);
+
+    rdpq_font_position(240, 20);
+    //rdpq_font_printf(font_sign, "%3f", time_secs);
+    rdpq_font_end();
+
+    render_noise(disp);
+
+    rdpq_detach();
+    rspq_wait();
+}
+
+void render_sign(surface_t* disp)
+{
+    rdpq_attach(disp, &zbuffer);
+
+    rdpq_set_mode_fill(RGBA32(0, 0, 64, 255));
+    rdpq_fill_rectangle(0, 0, display_get_width(), display_get_height());
+
+    // rdpq_set_mode_fill(RGBA32(77,77,81, 255));
+    // rdpq_fill_rectangle(17, 128, 196, 21);
+
+    rdpq_font_begin(RGBA32(242,242,245, 0xFF));
+    rdpq_font_position(20, 200);
+    rdpq_font_print(font_sign, "Extra Sensory Perception Test");
+    rdpq_font_position(240, 20);
+    rdpq_font_printf(font_sign, "%3f", time_secs);
+    rdpq_font_end();
+
+    render_noise(disp);
+
+    rdpq_detach();
+    rspq_wait();
+}
+
+void render_overlay(surface_t* disp)
+{
+    rspq_wait();
+    rdpq_attach(disp, NULL);
+
+    surface_t bkgsurf = sprite_get_pixels(spr_sign2);
+    //rdpq_set_mode_copy(true);
+    rdpq_set_mode_standard();
+    //rdpq_mode_blender(RDPQ_BLENDER_ADDITIVE);
+    rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY_CONST);
+
+    float local_time = time_secs - overlay_start ;
+    if (local_time < 0) local_time = 0.0f;
+
+    float scale = 1.0f + 1.0f/(0.1f+local_time*2); //sin(time_secs * 0.9) * .1f;
+
+    uint32_t mask = rand();
+    uint32_t mask2 = rand_func((uint32_t)(time_secs*2));
+    int size = spr_sign2->width / 5;
+
+    int step = time_secs*3;
+
+    int xstart = 160 - (spr_sign2->width/2) * scale;
+    for (int i=0;i<5;i++) {
+        int idx = rand_func(step+i) % 5;
+        rdpq_blitparms_t blit={0};
+        blit.s0 = idx*size;
+        blit.width = size;
+        //blit.scale_y = 1.0f + 0.1f * ;
+        blit.scale_x = scale;
+        blit.scale_y = scale;
+        blit.filtering = true;
+        int noise = ((mask & (1<<idx)) > 0);
+        int shown = ((mask2 & (1<<idx)) > 0);
+        if (shown) {
+        rdpq_set_fog_color(RGBA32(128, 128, 128, 192 + noise * 16));
+        float ofs = 0.0f; // 10 * cos(time_secs + i) * scale;
+        int x = xstart + i*size*scale;
+        rdpq_tex_blit(&bkgsurf, x, 80 + ofs, &blit);
+        rspq_wait();
+        }
+    }
+
+    rdpq_detach();
+    rspq_wait();
 }
 
 
@@ -1227,8 +1426,6 @@ int main()
             time_secs = TIMER_MICROS(timer_ticks()) / 1e6;
         }
 
-        debugf("[%.4f] frame %d\n", time_secs, time_frames);
-
         controller_scan();
 
         struct controller_data pressed = get_keys_pressed();
@@ -1237,6 +1434,7 @@ int main()
         if (down.c[0].start) {
             demo.interactive = !demo.interactive;
             debugf("%s mode\n", demo.interactive ? "Interactive" : "Playback");
+            if (demo.interactive == false) demo.moved = false;
         }
         surface_t *disp = display_get();
 
@@ -1264,9 +1462,11 @@ int main()
             }
 
             if (down.c[0].B) {
-                float vel[3] = {randf()-0.5f, randf()-0.5f, randf()-0.5f};
-                debugf("impact (%f, %f, %f)\n", vel[0], vel[1], vel[2]);
-                sim_apply_impact(&sims[0], vel);
+                // debugf("[%.4f] frame %d\n", time_secs, time_frames);
+                debugf("%.4f\n", time_secs);
+                // float vel[3] = {randf()-0.5f, randf()-0.5f, randf()-0.5f};
+                // debugf("impact (%f, %f, %f)\n", vel[0], vel[1], vel[2]);
+                // sim_apply_impact(&sims[0], vel);
             }
 
             const float nudge = 0.01f;
@@ -1296,12 +1496,14 @@ int main()
                 demo.current_part--;
                 if (demo.current_part < 0) demo.current_part = NUM_PARTS-1;
                 debugf("Part: %d\n", demo.current_part);
+                demo.moved = true;
             }
 
             if (down.c[0].right) {
                 demo.current_part++;
                 if (demo.current_part >= NUM_PARTS) demo.current_part = 0;
                 debugf("Part: %d\n", demo.current_part);
+                demo.moved = true;
             }
 
             if (c_pressed) {
@@ -1324,7 +1526,7 @@ int main()
         }
         MY_PROFILE_STOP(PS_MUSIC, 0);
 
-        if (!demo.interactive) {
+        if (!(demo.interactive && demo.moved)) {
             run_animation();
         }
 
@@ -1364,8 +1566,16 @@ int main()
         else if (demo.current_part == PART_INTRO) {
             render_intro(disp);
         }
+        else if (demo.current_part == PART_SIGN1) {
+            render_sign(disp);
+            rspq_wait();
+        }
         else {
             debugf("Invalid demo part %d\n", demo.current_part);
+        }
+
+        if (demo.overlay == 1) {
+            render_overlay(disp);
         }
 
         rdpq_attach(disp, &zbuffer);

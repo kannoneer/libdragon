@@ -21,6 +21,7 @@ struct SimConfig
 {
     float root[3];
     bool root_is_static;
+    int warmup_frames;
 };
 
 struct Simulation {
@@ -121,7 +122,7 @@ void sim_update(struct Simulation* s)
     const bool verbose = false;
     const int num_iters = 3;
     const float gravity = -0.02f;
-    const float velocity_damping = 1.0f;
+    const float velocity_damping = s->num_updates_done < s->config.warmup_frames ? 0.35f : 1.0f;
     const float constraint_damping = 0.5f;
 
     // Verlet integration
@@ -262,6 +263,7 @@ void sim_update(struct Simulation* s)
     // Debug movement
 
     s->num_updates_done++;
+
 
     if (false) {
         if (s->num_updates_done % 75 == 0) {
