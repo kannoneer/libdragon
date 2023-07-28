@@ -52,12 +52,13 @@ static bool tweak_wait_after_render_plane = true;
 static bool tweak_wait_after_sim_render = true; // must be on
 static bool tweak_sync_after_shadows = true; // must be on, set to false to trigger a crash
 
-#define NUM_TEXTURES (9)
 #define TEX_CEILING (4)
 #define TEX_FLARE (5)
 #define TEX_ICON (6)
 #define TEX_DIAMOND (7)
 #define TEX_TABLE (8)
+#define TEX_CLOUDS (9)
+#define NUM_TEXTURES (10)
 
 static GLuint textures[NUM_TEXTURES];
 
@@ -67,9 +68,9 @@ static model64_t* model_gemstone = NULL;
 static const GLfloat environment_color[] = { 0.03f, 0.03f, 0.05f, 1.f };
 //static const GLfloat environment_color[] = { 0.0f, 0.0f, 0.0f, 1.f };
 
-rdpq_font_t *font_subtitle;
-rdpq_font_t *font_sign;
-rdpq_font_t *font_mono;
+rdpq_font_t *font_subtitle = NULL;
+rdpq_font_t *font_sign = NULL;
+rdpq_font_t *font_mono = NULL;
 
 static GLfloat light_pos[8][4] = {
     { 0.1f, 0, 0, 1 },
@@ -102,7 +103,8 @@ static struct Viewer {
 #define PART_INTRO 3
 #define PART_SIGN1 4
 #define PART_BLACK 5
-#define NUM_PARTS (6)
+#define PART_FLIGHT 6
+#define NUM_PARTS (7)
 
 static struct {
     bool interactive;
@@ -147,6 +149,7 @@ static const char *texture_path[NUM_TEXTURES] = {
     "rom:/icon.rgba16.sprite",
     "rom:/squaremond.i4.sprite",
     "rom:/concrete.ci4.sprite",
+    "rom:/clouds1.ci4.sprite",
 };
 
 static sprite_t *sprites[NUM_TEXTURES];
@@ -549,8 +552,11 @@ void setup()
     }
 
     font_subtitle = rdpq_font_load("rom:/AlteHaasGroteskRegular.font64");
+    assert(font_subtitle);
     font_sign = rdpq_font_load("rom:/1942.font64");
+    assert(font_sign);
     font_mono = rdpq_font_load("rom:/OSD.font64");
+    assert(font_mono);
 
     spr_sign1 = sprite_load("rom:/esp.rgba16.sprite");
     spr_sign2 = sprite_load("rom:/esp2.rgba16.sprite");
@@ -922,15 +928,15 @@ void run_animation()
     } else if (time_secs < 35.009) { // smooth hats
         part = PART_SIGN1;
     } else if (time_secs < 38.5) { 
-        part = PART_GEMS;
+        part = PART_FLIGHT;
         cam = CAM_OVERVIEW;
 
         if (time_secs > 37.f) {
         demo.overlay = 1;
         }
     } else if (time_secs < 52.8603f) { // drop
+        part = PART_FLIGHT;
         demo.overlay = 1;
-        demo.impacts = 0.01f;
     //} else if (time_secs < 52.0417f) { // drop
     } else if (time_secs < 56.9107f) {
         part = PART_VIDEO;
@@ -1202,6 +1208,59 @@ void render(surface_t *disp)
     }
 }
 
+void render_flight(surface_t *disp)
+{
+    rdpq_attach(disp, &zbuffer);
+    gl_context_begin();
+
+    float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    const float fudge = 0.01f;
+    glClearColor(white[0], white[1], white[2], 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    float plane_tile = PLANE_SIZE / PLANE_SEGMENTS;
+
+    glFogf(GL_FOG_START, 5);
+    glFogf(GL_FOG_END, 40);
+    glFogfv(GL_FOG_COLOR, white);
+    glEnable(GL_FOG);
+
+    glMatrixMode(GL_PROJECTION);
+    set_frustum(0.6f);
+
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+
+    gluLookAt(
+        0.0f, -4.0f + 0.5 * sin(time_secs*0.5f), 4.5f,
+        0.0f, 0.0f, 0.0f,
+        0, 1, 0);
+
+    float zmove = fmodf(time_secs*3.f, plane_tile);
+
+    glTranslatef(0.0f, 0.0f, zmove);
+    glRotatef(sin(time_secs*0.3f) * 10.0f, 0.0f, 0.0f, -1.0f);
+    //glRotatef(sin(time_secs*0.6f+1.0f) * 5.0f, 0.5f, 0.5f, 0.0f);
+    // glRotatef(45.f + time_secs * 10.0f, 1.0f, 0.0f, 0.0f);
+    
+    glDisable(GL_LIGHTING);
+    glEnable(GL_NORMALIZE);
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
+
+    glEnable(GL_TEXTURE_2D);
+
+    set_plane_material(1.0f);
+    glBindTexture(GL_TEXTURE_2D, textures[TEX_CLOUDS]);
+    glPushMatrix();
+        glRotatef(180.f, 0.0f, 0.0f, 1.0f);
+        render_plane();
+    glPopMatrix();
+
+    gl_context_end();
+    rdpq_detach();
+}
+
 static uint32_t audio_sample_time = 0;
 
 void audio_poll(void) {	
@@ -1238,6 +1297,11 @@ void render_video(mpeg2_t* mp2, surface_t* disp)
     if (ret < 0) {
         debugf("videoplayer: frame too slow (%d Kcycles)\n", -ret);
     }
+
+    if (music_enabled) {
+        audio_poll();
+    }
+
     if (mpeg2_next_frame(mp2)) {
         rdpq_attach(disp, &zbuffer);
 
@@ -1267,6 +1331,8 @@ void render_video(mpeg2_t* mp2, surface_t* disp)
             {black, c_start + 0.5f, "        our longing is our pledge,", "    and blessed are the homesick,", 50, 50},
             {black, c_start + 3.5f, "", "        for they shall come home.", 50, 50},
         };
+
+        // "and thereby attaining a \"perfecting unity\" with the Great Being, which would bring about mankind’s \"ultimate regeneration\""
 
         const float duration = 3.0f;
 
@@ -1331,7 +1397,7 @@ void render_intro(surface_t* disp)
 
     // rdpq_set_mode_fill(RGBA32(77,77,81, 255));
     // rdpq_fill_rectangle(17, 128, 196, 21);
-    char* msg = "Serial Experiments";
+    char* msg = "\"Bringing You Back\"";
     int len = strlen(msg);
     int stop=(int)(time_secs*9);
     if (stop > len) stop=len;
@@ -1342,7 +1408,8 @@ void render_intro(surface_t* disp)
     rdpq_font_position(20, 170);
     rdpq_font_print(font_sign, "CONCEPT");
     rdpq_font_position(20, 200);
-    rdpq_font_printn(font_sign, msg, stop);
+    //rdpq_font_printn(font_sign, msg, stop);
+    rdpq_font_print(font_sign, msg);
     rdpq_font_position(230, 20);
 
     rdpq_font_position(240, 20);
@@ -1641,6 +1708,11 @@ int main()
             }
             #endif
         } else if (demo.current_part == PART_VIDEO) {
+
+            if (music_enabled) {
+                audio_poll();
+            }
+
             if (tweak_sync_before_video) {
                 rspq_wait();
             }
@@ -1662,8 +1734,15 @@ int main()
         else if (demo.current_part == PART_BLACK) {
             render_black(disp);
             rspq_wait();
+        } else if (demo.current_part == PART_FLIGHT) {
+            render_flight(disp);
+            rspq_wait();
         } else {
             debugf("Invalid demo part %d\n", demo.current_part);
+        }
+
+        if (music_enabled) {
+            audio_poll();
         }
 
         if (demo.overlay == 1) {
