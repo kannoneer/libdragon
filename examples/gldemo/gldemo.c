@@ -25,7 +25,7 @@
 
 #define DEBUG_RDP 0
 
-static const bool music_enabled = false;
+static const bool music_enabled = true;
 
 static camera_t camera;
 static surface_t zbuffer;
@@ -999,7 +999,7 @@ void run_animation()
 
     static int last_part;
     if (demo.current_part != last_part) {
-        // debugf("Changed part %d -> %d\n", last_part, demo.current_part);
+        debugf("Changed part %d -> %d\n", last_part, demo.current_part);
         last_part = demo.current_part;
         demo.part_changed = true;
     }
@@ -1079,9 +1079,9 @@ void render(surface_t *disp)
         glMatrixMode(GL_PROJECTION);
         set_frustum(1.1f);
 
-        float yshake = 0.05f * fm_sinf(0.5f*time_secs);
-        float target_xshake = 0.0f + 0.025f * fm_cosf(time_secs*0.3f);
-        float eye_yshake = 1.0f + 0.015f* fm_sinf(time_secs*1.3f);
+        float yshake = 0.05f * sin(0.5f*time_secs);
+        float target_xshake = 0.0f + 0.025f * cos(time_secs*0.3f);
+        float eye_yshake = 1.0f + 0.015f* sin(time_secs*1.3f);
         glMatrixMode(GL_MODELVIEW);
         gluLookAt(
             2.0f, 10.0f * eye_yshake, 1.0f,
@@ -1095,7 +1095,7 @@ void render(surface_t *disp)
         float *pos = &sims[0].pose.origin[0];
         float angle=time_secs*0.7f;
         gluLookAt(
-            pos[0] + 3.0f*fm_cosf(angle), pos[1] + 2.0f, pos[2] + 3.0f*sin(angle),
+            pos[0] + 3.0f*cos(angle), pos[1] + 2.0f, pos[2] + 3.0f*sin(angle),
             pos[0], pos[1], pos[2],
             0, 1, 0);
     }
@@ -1335,7 +1335,7 @@ void render_intro(surface_t* disp)
     int len = strlen(msg);
     int stop=(int)(time_secs*9);
     if (stop > len) stop=len;
-
+    if (stop < 0) stop=0;
 
     rdpq_font_begin(RGBA32(242,242,245, 0xFF));
 
@@ -1478,7 +1478,7 @@ int main()
 	throttle_init(video_fps, 0, 8);
 
     if (music_enabled) {
-        const char* songpath = "/music2.wav64";
+        const char* songpath = "/20230727_neo_occult_wave.wav64";
         wav64_open(&music_wav, songpath);
         wav64_play(&music_wav, 0);
     }
@@ -1499,6 +1499,8 @@ int main()
             time_secs = TIMER_MICROS(timer_ticks()) / 1e6 + time_secs_offset;
             if (time_secs < 0) time_secs = 0.f;
         }
+
+        debugf("[%.4f] frame %d, part: %d\n", time_secs, time_frames, demo.current_part);
 
         controller_scan();
 
