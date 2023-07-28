@@ -680,7 +680,7 @@ gl_matrix_palette_loop:
     andi t1, state_flags, FLAG_DITHER
     beqz t1, 1f
     li t0, (SOM_RGBDITHER_NONE | SOM_ALPHADITHER_NONE) >> 32
-    li t0, (SOM_RGBDITHER_SQUARE | SOM_ALPHADITHER_SAME) >> 32
+    li t0, (SOM_RGBDITHER_NOISE | SOM_ALPHADITHER_SAME) >> 32
 1:
     or modes0, t0
 
