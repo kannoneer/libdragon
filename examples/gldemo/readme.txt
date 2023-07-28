@@ -21,7 +21,8 @@ Thanks to supramaterial for his 64drive flash cart!
 Thanks to mankeli, noby, Shaiggon, and potati for support.
 
 Diamond image by Steve Jurvetson https://www.flickr.com/photos/jurvetson/156830367/ Attribution 2.0 Generic (CC BY 2.0) 
-
+Stormy clouds image by Tengyart on Unsplash
+  
 
 Hyper Web Connections
 ---------------------

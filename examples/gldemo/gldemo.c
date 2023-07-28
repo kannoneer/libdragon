@@ -58,7 +58,8 @@ static bool tweak_sync_after_shadows = true; // must be on, set to false to trig
 #define TEX_DIAMOND (7)
 #define TEX_TABLE (8)
 #define TEX_CLOUDS (9)
-#define NUM_TEXTURES (10)
+#define TEX_CLOUDS_FAST (10)
+#define NUM_TEXTURES (11)
 
 static GLuint textures[NUM_TEXTURES];
 
@@ -114,6 +115,10 @@ static struct {
     float impacts;
     bool part_changed;
     float plane_brite;
+    float glitch;
+    float shake;
+    float flight_speed;
+    float flight_brite;
 } demo;
 
 void viewer_init()
@@ -150,6 +155,7 @@ static const char *texture_path[NUM_TEXTURES] = {
     "rom:/squaremond.i4.sprite",
     "rom:/concrete.ci4.sprite",
     "rom:/clouds1.ci4.sprite",
+    "rom:/clouds2.ci4.sprite",
 };
 
 static sprite_t *sprites[NUM_TEXTURES];
@@ -551,7 +557,7 @@ void setup()
         sprites[i] = sprite_load(texture_path[i]);
     }
 
-    font_subtitle = rdpq_font_load("rom:/AlteHaasGroteskRegular.font64");
+    font_subtitle = rdpq_font_load("rom:/AlteHaasGroteskBold.font64");
     assert(font_subtitle);
     font_sign = rdpq_font_load("rom:/1942.font64");
     assert(font_sign);
@@ -901,6 +907,11 @@ void run_animation()
     demo.overlay = 0;
     demo.impacts = 0.0f;
     demo.plane_brite = 0.7f;
+    demo.glitch = 0.0f; // hack
+    demo.shake = 0.0f;
+    demo.flight_speed = 3.0f;
+    demo.flight_brite = 1.0f;
+
     if (time_secs > 30.f) {
         demo.plane_brite = 0.5f;
     }
@@ -912,6 +923,7 @@ void run_animation()
         part = PART_BLACK;
     } else if (time_secs < 3.7515f) {
         part = PART_INTRO;
+        demo.glitch = 2.0f;
     } else if (time_secs < 9.4984f) {
         part = PART_VIDEO;
     } else if (time_secs < 17.6798f) { 
@@ -934,38 +946,57 @@ void run_animation()
         if (time_secs > 37.f) {
         demo.overlay = 1;
         }
-    } else if (time_secs < 52.8603f) { // drop
+    } else if (time_secs < 52.8603f) {
         part = PART_FLIGHT;
         demo.overlay = 1;
     //} else if (time_secs < 52.0417f) { // drop
-    } else if (time_secs < 56.9107f) {
+    } else if (time_secs < 56.f /*56.9107f*/) {
         part = PART_VIDEO;
+        demo.shake = 1.0f;
+        demo.glitch = 1.0f;
     } else if (time_secs < 59.2653f) {
         demo.impacts = 0.03f;
+        demo.shake = 1.0f;
+        demo.glitch = 2.0f;
     } else if (time_secs < 63.1365f) {
         part = PART_VIDEO;
+        demo.glitch = 3.0f;
     } else if (time_secs < 64.2141f) {
+        demo.shake = 1.0f;
+        demo.glitch = 2.0f;
     } else if (time_secs < 68.9633f) { // drop, 2nd half
         part = PART_VIDEO;
+        demo.glitch = 0.0f;
     } else if (time_secs < 71.3977f) {
+        part = PART_FLIGHT;
+        demo.shake = 1.0f;
+        demo.glitch = 0.0f;
+        demo.flight_speed = 12.0f;
+        demo.flight_brite = 0.8f;
     } else if (time_secs < 77.2644f) {
         part = PART_VIDEO;
+        demo.glitch = 1.0f;
     } else if (time_secs < 79.1002f) {
+        demo.glitch = 0.0f;
+        demo.shake = 3.0f;
     } else if (time_secs < 83.4902f) { // C part arpeggio
+        demo.glitch = 8.0f;
         part = PART_VIDEO;
     } else if (time_secs < 89.0376f) {
         part = PART_VIDEO;
     } else if (time_secs < 90.6739f) {
         part = PART_VIDEO;
     } else if (time_secs < 92.9088f) {
+        part = PART_FLIGHT;
+        demo.flight_speed = -1.0f;
+        demo.flight_brite = 0.5f;
     } else if (time_secs < 96.4608f) {
         part = PART_VIDEO;
     } else if (time_secs < 99.4141f) { // ending verse
     } else if (time_secs < 102.8463f) {
-        part = PART_VIDEO;
-    } else if (time_secs < 110.6798f) {
+    } else if (time_secs < 114.0000f) {
         cam = CAM_OVERVIEW;
-    } else if (time_secs < 115.0000f) {
+    } else if (time_secs < 121.0000f) {
         part = PART_END;
     } else {
         part = PART_BLACK;
@@ -1106,8 +1137,8 @@ void render(surface_t *disp)
             0, 1, 0);
     }
 
-    //float gshake = 5.0f * fm_sinf(1.5f*time_secs);
-    //glRotatef(gshake, 0.1f, 0.5f, 0.5f);
+    // float gshake = demo.shake * 0.5f * sinf(15.1f*time_secs);
+    // glRotatef(gshake, 0.1f, 0.5f, 0.5f);
 
     glMatrixMode(GL_MODELVIEW);
     // camera_transform(&camera);
@@ -1236,7 +1267,7 @@ void render_flight(surface_t *disp)
         0.0f, 0.0f, 0.0f,
         0, 1, 0);
 
-    float zmove = fmodf(time_secs*3.f, plane_tile);
+    float zmove = fmodf(time_secs*demo.flight_speed, plane_tile);
 
     glTranslatef(0.0f, 0.0f, zmove);
     glRotatef(sin(time_secs*0.3f) * 10.0f, 0.0f, 0.0f, -1.0f);
@@ -1250,8 +1281,10 @@ void render_flight(surface_t *disp)
 
     glEnable(GL_TEXTURE_2D);
 
-    set_plane_material(1.0f);
-    glBindTexture(GL_TEXTURE_2D, textures[TEX_CLOUDS]);
+    set_plane_material(demo.flight_brite);
+    glBindTexture(GL_TEXTURE_2D,
+        demo.flight_speed > 4.0f
+            ? textures[TEX_CLOUDS_FAST] : textures[TEX_CLOUDS]);
     glPushMatrix();
         glRotatef(180.f, 0.0f, 0.0f, 1.0f);
         render_plane();
@@ -1355,20 +1388,22 @@ void render_video(mpeg2_t* mp2, surface_t* disp)
     }
 }
 
+const int sign_text_y = 40;
+const int sign_text_margin = 30;
+
 void render_ending(surface_t* disp)
 {
-    rdpq_attach(disp, &zbuffer);
+    rdpq_attach(disp, NULL);
 
     rdpq_set_mode_fill(RGBA32(0, 0, 64, 255));
     rdpq_fill_rectangle(0, 0, display_get_width(), display_get_height());
 
-    rdpq_font_position(20, 170);
+    rdpq_font_position(20, sign_text_y);
     rdpq_font_print(font_sign, "CONCLUSION");
-    rdpq_font_position(20, 200);
+    rdpq_font_position(20, sign_text_y + sign_text_margin);
     rdpq_font_print(font_sign, "No Evidence of Salvation");
-    rdpq_font_position(230, 20);
-
-    rdpq_font_position(240, 20);
+    //rdpq_font_position(230, 20);
+    //rdpq_font_position(240, 20);
     //rdpq_font_printf(font_sign, "%3f", time_secs);
     rdpq_font_end();
 
@@ -1395,25 +1430,14 @@ void render_intro(surface_t* disp)
     rdpq_set_mode_fill(RGBA32(0, 0, 64, 255));
     rdpq_fill_rectangle(0, 0, display_get_width(), display_get_height());
 
-    // rdpq_set_mode_fill(RGBA32(77,77,81, 255));
-    // rdpq_fill_rectangle(17, 128, 196, 21);
     char* msg = "\"Bringing You Back\"";
-    int len = strlen(msg);
-    int stop=(int)(time_secs*9);
-    if (stop > len) stop=len;
-    if (stop < 0) stop=0;
 
     rdpq_font_begin(RGBA32(242,242,245, 0xFF));
 
-    rdpq_font_position(20, 170);
+    rdpq_font_position(20, sign_text_y);
     rdpq_font_print(font_sign, "CONCEPT");
-    rdpq_font_position(20, 200);
-    //rdpq_font_printn(font_sign, msg, stop);
+    rdpq_font_position(20, sign_text_y + sign_text_margin);
     rdpq_font_print(font_sign, msg);
-    rdpq_font_position(230, 20);
-
-    rdpq_font_position(240, 20);
-    //rdpq_font_printf(font_sign, "%3f", time_secs);
     rdpq_font_end();
 
     render_noise(disp);
@@ -1433,9 +1457,9 @@ void render_sign(surface_t* disp)
     // rdpq_fill_rectangle(17, 128, 196, 21);
 
     rdpq_font_begin(RGBA32(242,242,245, 0xFF));
-    rdpq_font_position(20, 170);
+    rdpq_font_position(20, sign_text_y);
     rdpq_font_print(font_sign, "EXPERIMENT");
-    rdpq_font_position(20, 200);
+    rdpq_font_position(20, sign_text_y + sign_text_margin);
     rdpq_font_print(font_sign, "Extra Scholastic Perception");
     rdpq_font_position(230, 20);
     //rdpq_font_printf(font_mono, "%.3f", time_secs);
@@ -1496,6 +1520,77 @@ void render_overlay(surface_t* disp)
     rspq_wait();
 }
 
+void render_glitch(surface_t* disp)
+{
+    if (demo.glitch <= 0.f) return;
+    if (randf()*5.f > demo.glitch) {
+        return;
+    }
+
+    rspq_wait();
+    rdpq_attach(disp, NULL);
+
+        //rdpq_set_prim_color(colors[pass]);
+        //rdpq_mode_blender(RDPQ_BLENDER_ADDITIVE);
+        //rdpq_mode_combiner(RDPQ_COMBINER1((TEX0,0,PRIM,0), (0,0,0,PRIM)));
+        bool colors = false;
+        if (colors) {
+            rdpq_set_mode_standard();
+            rdpq_mode_combiner(RDPQ_COMBINER1((TEX0,0,PRIM,0), (0,0,0,PRIM)));
+        } else {
+            rdpq_set_mode_copy(false);
+        }
+        //rdpq_set_fog_color(RGBA32(255, 0, 0, 255));
+
+        int n = rand() % (int)demo.glitch;
+
+        for (int iter=0; iter<n; iter++) {
+            rdpq_blitparms_t blit={0};
+            //blit.scale_x = 1.0f + zoom;
+            //blit.scale_y = 1.0f + zoom;
+            //blit.cx = 160*zoom;
+            //blit.cy = 120*zoom;
+
+            if (colors) {
+            if ((rand()&0xF) == 0) {
+            rdpq_set_prim_color(RGBA32(255, 0, 0, 255));
+            } else {
+            rdpq_set_prim_color(RGBA32(255, 255, 255, 255));
+            }
+            }
+
+            uint32_t x = 0;
+            uint32_t y =rand() % 240; 
+            uint32_t w = 320;
+            uint32_t h = rand() % 25;
+            blit.scale_y = 1.5f;
+            if (x+w > 320) w = 320-x;
+            if (y+h > 240) h = 240-y;
+            if (y+h*blit.scale_y > 240) {
+                h/=2;
+            }
+            if (h <= 0) h = 1;
+            //debugf("%lu, %lu, wh: %lu, %lu\n", x, y, w, h);
+
+            blit.filtering = false;
+            blit.s0 = x;
+            blit.t0 = y;
+            blit.width = w;
+            blit.height = h;
+            rdpq_tex_blit(disp, x, y, &blit);
+        }
+
+    //surface_t bkgsurf = sprite_get_pixels(spr_sign2);
+    // for (int y=0;y<disp->height;y++) {
+    //     uint32_t* line = (uint32_t*)&((uint8_t*)(&disp->buffer))[y*disp->stride];
+    //     line[100] = line[50];
+    // }
+
+    rdpq_detach();
+    rspq_wait();
+}
+
+
 
 static void seek_to(float secs) {
     float time = secs * 44100.f;
@@ -1545,7 +1640,7 @@ int main()
 	throttle_init(video_fps, 0, 8);
 
     if (music_enabled) {
-        const char* songpath = "/20230727_neo_occult_wave.wav64";
+        const char* songpath = "/20230728_6_neo_occult_wave_blessed1.wav64";
         wav64_open(&music_wav, songpath);
         wav64_play(&music_wav, 0);
     }
@@ -1614,7 +1709,7 @@ int main()
                 // sim_apply_impact(&sims[0], vel);
             }
 
-            const float nudge = 0.01f;
+            const float nudge = 0.02f;
             bool c_pressed = false;
 
             if (down.c[0].C_up) {
@@ -1747,6 +1842,10 @@ int main()
 
         if (demo.overlay == 1) {
             render_overlay(disp);
+        }
+
+        if (demo.glitch > 0) {
+            render_glitch(disp);
         }
 
         rdpq_attach(disp, &zbuffer);
