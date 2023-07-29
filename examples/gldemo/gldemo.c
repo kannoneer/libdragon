@@ -26,6 +26,8 @@
 
 #define DEBUG_RDP 0
 
+void render_noise(surface_t* disp);
+
 static const bool music_enabled = true;
 
 static camera_t camera;
@@ -99,7 +101,8 @@ static struct Viewer {
 #define PART_SIGN1 4
 #define PART_BLACK 5
 #define PART_FLIGHT 6
-#define NUM_PARTS (7)
+#define PART_SPIN 7
+#define NUM_PARTS (8)
 
 static struct {
     bool interactive;
@@ -1011,6 +1014,10 @@ void run_animation()
         part = PART_BLACK;
     }
 
+    // DEBUG HACK
+    // part = PART_FLIGHT;
+    // demo.flight_speed = -1.0f;
+
     demo.current_part = part;
     viewer.active_camera = cam;
 
@@ -1282,10 +1289,6 @@ void render_flight(surface_t *disp)
         0.0f, 0.0f, 0.0f,
         0, 1, 0);
 
-    float zmove = fmodf(time_secs*demo.flight_speed, plane_tile);
-
-    glTranslatef(0.0f, 0.0f, zmove);
-    glRotatef(sin(time_secs*0.3f) * 10.0f, 0.0f, 0.0f, -1.0f);
     //glRotatef(sin(time_secs*0.6f+1.0f) * 5.0f, 0.5f, 0.5f, 0.0f);
     // glRotatef(45.f + time_secs * 10.0f, 1.0f, 0.0f, 0.0f);
     
@@ -1296,19 +1299,66 @@ void render_flight(surface_t *disp)
 
     glEnable(GL_TEXTURE_2D);
 
+    const bool dark = demo.flight_speed < 0.0f;
+
     set_plane_material(demo.flight_brite);
     GLuint tex = textures[TEX_CLOUDS];
     if (demo.flight_speed > 4.0f) tex = textures[TEX_CLOUDS_FAST];
-    if (demo.flight_speed < 0.0f) tex = textures[TEX_CLOUDS_DARK];
+    if (dark) tex = textures[TEX_CLOUDS_DARK];
     glBindTexture(GL_TEXTURE_2D, tex);
     glPushMatrix();
+        float zmove = fmodf(time_secs*demo.flight_speed, plane_tile);
+
+        glTranslatef(0.0f, 0.0f, zmove);
+        glRotatef(sin(time_secs*0.3f) * 10.0f, 0.0f, 0.0f, -1.0f);
+
         glRotatef(180.f, 0.0f, 0.0f, 1.0f);
         render_plane();
     glPopMatrix();
 
+    if (dark) {
+        glEnable(GL_TEXTURE_2D);
+        glDisable(GL_LIGHTING);
+        //glEnable(GL_BLEND);
+        glDisable(GL_BLEND);
+        glDisable(GL_DEPTH_TEST);
+
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+        glBindTexture(GL_TEXTURE_2D, textures[TEX_CEILING]);
+        set_gemstone_material(0.1f);
+
+        if (tweak_enable_sphere_map) {
+            glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
+            glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
+            glEnable(GL_TEXTURE_GEN_S);
+            glEnable(GL_TEXTURE_GEN_T);
+        }
+
+        glPushMatrix();
+        const float sc = 0.2f;
+        const float rise = -2.f + 2.f * cos(time_secs*0.4f);
+        glTranslatef(-2.3f, rise, 1.0f);
+        glScalef(sc, sc, sc);
+        for (int i=0;i<3;i++) {
+            glRotatef(120.f, 0.6f, 0.2f, 0.3f);
+            glTranslatef(7.0f, 3.0f, 1.0f);
+            glPushMatrix();
+                glRotatef(time_secs*50.f, 0.0f, 1.0f, 1.0f);
+                model64_draw(model_gemstone);
+            glPopMatrix();
+        }
+        glPopMatrix();
+
+        glEnable(GL_DEPTH_TEST);
+        glDisable(GL_BLEND);
+        glDisable(GL_TEXTURE_GEN_S);
+        glDisable(GL_TEXTURE_GEN_T);
+        glDisable(GL_TEXTURE_2D);
+    }
+
     gl_context_end();
 
-    if (demo.flight_speed < 0.0f) {
+    if (dark) {
         render_noise(disp);
     }
     rdpq_detach();
@@ -1374,6 +1424,7 @@ void render_video(mpeg2_t* mp2, surface_t* disp)
         color_t col = RGBA32(248, 227, 106 , 255);
 
         //color_t white = RGBA32(0xFF, 0xFF, 0xFF, 0xFF);
+        float quotestart = 55.f;
 
         struct {
             color_t color;
@@ -1383,6 +1434,7 @@ void render_video(mpeg2_t* mp2, surface_t* disp)
             int x1;
             int x2;
         } messages[] = {
+            //{col, quotestart, "It's a Vervaeke-level event", " ", 50, 50},
             {col, c_start + 0.5f, "       our longing is our pledge,", "    and blessed are the homesick,", 40, 40},
             {col, c_start + 3.5f, " ", "       for they shall come home.", 50, 50},
         };
