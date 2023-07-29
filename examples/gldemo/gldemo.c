@@ -1380,7 +1380,7 @@ void render_video(mpeg2_t* mp2, surface_t* disp)
             int x2;
         } messages[] = {
             {col, c_start + 0.5f, "       our longing is our pledge,", "    and blessed are the homesick,", 40, 40},
-            {col, c_start + 3.5f, "", "       for they shall come home.", 50, 50},
+            {col, c_start + 3.5f, " ", "       for they shall come home.", 50, 50},
         };
 
         // "and thereby attaining a \"perfecting unity\" with the Great Being, which would bring about mankind’s \"ultimate regeneration\""
@@ -1465,8 +1465,8 @@ static void render_intro(surface_t* disp)
     rdpq_font_print(font_sign, "Supersensory Investigation");
     rdpq_font_position(20, sign_text_y + sign_text_margin);
     rdpq_font_print(font_sign, msg);
-    rdpq_font_position(20, 240 - 4*20);
-    rdpq_font_print(font_sign, "");
+    //rdpq_font_position(20, 240 - 4*20);
+    //rdpq_font_print(font_sign, " ");
     rdpq_font_position(20, 240 - 3*20);
     rdpq_font_print(font_sign, "Codes by cce AKA tykkiman");
     rdpq_font_position(20, 240 - 2*20);
@@ -1497,7 +1497,7 @@ void render_sign(surface_t* disp)
     rdpq_font_position(230, 20);
     rdpq_font_end();
 
-    /* if (time_secs > 32.f) {
+    if (time_secs > 32.f) {
         rdpq_font_begin(RGBA32(242,242,245, 0xFF));
         rdpq_font_position(20, 240 - 4*20);
         rdpq_font_print(font_sign, "Belief transmission with");
@@ -1506,7 +1506,7 @@ void render_sign(surface_t* disp)
         //rdpq_font_position(20, 240 - 2*20);
         //rdpq_font_print(font_sign, "no Faith.");
         rdpq_font_end();
-    } */
+    }
 
     render_noise(disp);
 
