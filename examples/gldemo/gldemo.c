@@ -1481,14 +1481,16 @@ static void render_ending(surface_t* disp)
     rdpq_set_mode_fill(RGBA32(0, 0, 64, 255));
     rdpq_fill_rectangle(0, 0, display_get_width(), display_get_height());
 
-    char* msg = "Salvation unlikely.";
+    char* msg = "One soul recovered.";
 
     rdpq_font_begin(RGBA32(242,242,245, 0xFF));
 
     rdpq_font_position(20, sign_text_y);
-    rdpq_font_print(font_sign, "CONCLUSION");
-    rdpq_font_position(20, sign_text_y + sign_text_margin);
-    rdpq_font_print(font_sign, msg);
+    rdpq_font_print(font_sign, "TRIAL OUTCOME");
+    if (time_secs > 116.f) {
+        rdpq_font_position(20, sign_text_y + sign_text_margin);
+        rdpq_font_print(font_sign, msg);
+    }
     rdpq_font_end();
 
     render_noise(disp);
