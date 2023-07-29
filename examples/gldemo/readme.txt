@@ -37,4 +37,4 @@ the friendliest programming chat room on the planet! Highly recommended.
 Final Words
 -----------
 
-It's never too late become a Witch House Dark Wave Cyber Goth. Not even after you've turned 30.
+It's never too late become a Witch House Hard Wave Cyber Goth. Not even after you've turned 30.

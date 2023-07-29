@@ -972,7 +972,7 @@ void run_animation()
     } else if (time_secs < 64.2141f) {
         demo.shake = 1.0f;
         demo.glitch = 2.0f;
-    } else if (time_secs < 68.9633f) { // drop, 2nd half
+    } else if (time_secs < 68.4633f) { // drop, 2nd half
         part = PART_VIDEO;
         demo.glitch = 5.0f;
     } else if (time_secs < 71.3977f) {
@@ -1147,6 +1147,9 @@ void render(surface_t *disp)
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
         float *pos = &sims[0].pose.origin[0];
+        if (time_secs > 60.f+30.f) {
+            pos[1] -= 1.0f;
+        }
         float angle=time_secs*0.7f;
         gluLookAt(
             pos[0] + 3.0f*cos(angle), pos[1] + 2.0f, pos[2] + 3.0f*sin(angle),
@@ -1953,6 +1956,7 @@ int main()
             render_black(disp);
             rspq_wait();
         } else if (demo.current_part == PART_FLIGHT) {
+            audio_poll();
             render_flight(disp);
             rspq_wait();
         } else {
