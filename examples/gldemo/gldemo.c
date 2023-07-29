@@ -72,7 +72,7 @@ static const GLfloat environment_color[] = { 0.03f, 0.03f, 0.03f, 1.f };
 
 rdpq_font_t *font_subtitle = NULL;
 rdpq_font_t *font_sign = NULL;
-rdpq_font_t *font_mono = NULL;
+//rdpq_font_t *font_mono = NULL;
 
 static GLfloat light_pos[1][4] = {
     { 0.1f, 0, 0, 1 }
@@ -550,8 +550,8 @@ void setup()
     assert(font_subtitle);
     font_sign = rdpq_font_load("rom:/1942.font64");
     assert(font_sign);
-    font_mono = rdpq_font_load("rom:/OSD.font64");
-    assert(font_mono);
+    //font_mono = rdpq_font_load("rom:/OSD.font64");
+    //assert(font_mono);
 
     //spr_sign1 = sprite_load("rom:/esp.rgba16.sprite");
     spr_sign2 = sprite_load("rom:/esp2.rgba16.sprite");
@@ -1307,6 +1307,10 @@ void render_flight(surface_t *disp)
     glPopMatrix();
 
     gl_context_end();
+
+    if (demo.flight_speed < 0.0f) {
+        render_noise(disp);
+    }
     rdpq_detach();
 }
 
@@ -1457,7 +1461,7 @@ static void render_intro(surface_t* disp)
     rdpq_set_mode_fill(RGBA32(0, 0, 64, 255));
     rdpq_fill_rectangle(0, 0, display_get_width(), display_get_height());
 
-    char* msg = "\"Bringing You Back\"";
+    char* msg = "\"Point Borealis\"";
 
     rdpq_font_begin(RGBA32(242,242,245, 0xFF));
 
@@ -1729,7 +1733,7 @@ int main()
             if (time_secs < 0) time_secs = 0.f;
         }
 
-        debugf("[%.4f] frame %d, part: %d\n", time_secs, time_frames, demo.current_part);
+        //debugf("[%.4f] frame %d, part: %d\n", time_secs, time_frames, demo.current_part);
 
         controller_scan();
 
@@ -1776,7 +1780,7 @@ int main()
                 // sim_apply_impact(&sims[0], vel);
             }
 
-            const float nudge = 0.02f;
+            const float nudge = 0.015f;
             bool c_pressed = false;
 
             if (down.c[0].C_up) {

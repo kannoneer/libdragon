@@ -1,5 +1,5 @@
-Serial Experiments by Macau Exports
-===================================
+Supersensory Investigation "Point Borealis" by Macau Exports
+============================================================
 
 A Nintendo 64 demo for Evoke 2023 in Cologne, Germany.
 
