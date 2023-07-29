@@ -1,4 +1,5 @@
 #define LIBDRAGON_PROFILE 0
+#define MY_PROFILE 0
 
 #include <libdragon.h>
 #include "../../src/model64_internal.h"
@@ -73,15 +74,8 @@ rdpq_font_t *font_subtitle = NULL;
 rdpq_font_t *font_sign = NULL;
 rdpq_font_t *font_mono = NULL;
 
-static GLfloat light_pos[8][4] = {
-    { 0.1f, 0, 0, 1 },
-    { -1, 0, 0, 0 },
-    { 0, 0, 1, 0 },
-    { 0, 0, -1, 0 },
-    { 8, 3, 0, 1 },
-    { -8, 3, 0, 1 },
-    { 0, 3, 8, 1 },
-    { 0, 3, -8, 1 },
+static GLfloat light_pos[1][4] = {
+    { 0.1f, 0, 0, 1 }
 };
 
 #define NUM_CAMERAS (3)
@@ -133,15 +127,8 @@ static struct Simulation sims[NUM_SIMULATIONS];
 
 mat4_t sim_object_to_worlds[NUM_SIMULATIONS];
 
-static const GLfloat light_diffuse[8][4] = {
+static const GLfloat light_diffuse[1][4] = {
     { 1.0f, 1.0f, 1.0f, 1.0f }, //{ 1.0f, 0.1f, 0.0f, 1.0f },
-    { 0.0f, 1.0f, 0.0f, 1.0f },
-    { 0.0f, 0.0f, 1.0f, 1.0f },
-    { 1.0f, 1.0f, 0.0f, 1.0f },
-    { 1.0f, 0.0f, 1.0f, 1.0f },
-    { 0.0f, 1.0f, 1.0f, 1.0f },
-    { 1.0f, 1.0f, 1.0f, 1.0f },
-    { 1.0f, 1.0f, 1.0f, 1.0f },
 };
 
 static const char *texture_path[NUM_TEXTURES] = {
@@ -160,7 +147,7 @@ static const char *texture_path[NUM_TEXTURES] = {
 };
 
 static sprite_t *sprites[NUM_TEXTURES];
-static sprite_t* spr_sign1 = NULL;
+//static sprite_t* spr_sign1 = NULL;
 static sprite_t* spr_sign2 = NULL;
 static sprite_t* spr_splash = NULL;
 
@@ -655,6 +642,11 @@ void setup()
             sim_update(&sims[i]);
         }
     }
+
+    /* surface_t *disp = display_get();
+    for (int iter=0;iter<10;iter++) {
+        render(disp);
+    } */
 }
 
 void render_flare()
@@ -873,7 +865,7 @@ void apply_postproc(surface_t *disp)
 // Parts
 const float music_start = 2.0f;
 const float smooth_start = 21.4f;
-const float drop_start = 52.3f;
+const float drop_start = 51.3f;
 const float c_start = 60.f + 23.2f;
 const float overlay_start = 30.5914f;
 
@@ -958,6 +950,10 @@ void run_animation()
     } else if (time_secs < 52.8603f) {
         part = PART_FLIGHT;
         demo.overlay = 1;
+        if (time_secs > 45.f) demo.glitch = 1.0f;
+        if (time_secs > 48.f) demo.glitch = 3.0f;
+        if (time_secs > 50.f) demo.glitch = 4.0f;
+        if (time_secs > 55.f) demo.glitch = 12.0f;
     //} else if (time_secs < 52.0417f) { // drop
     } else if (time_secs < 56.f /*56.9107f*/) {
         part = PART_VIDEO;
@@ -975,30 +971,33 @@ void run_animation()
         demo.glitch = 2.0f;
     } else if (time_secs < 68.9633f) { // drop, 2nd half
         part = PART_VIDEO;
-        demo.glitch = 3.0f;
+        demo.glitch = 5.0f;
     } else if (time_secs < 71.3977f) {
         part = PART_FLIGHT;
         demo.shake = 1.0f;
         demo.glitch = 0.0f;
+        if (time_secs > 75.f) demo.glitch = 2.f;
+        if (time_secs > 77.f) demo.glitch = 8.f;
         demo.flight_speed = 12.0f;
         demo.flight_brite = 0.8f;
     } else if (time_secs < 77.2644f) {
         part = PART_VIDEO;
-        demo.glitch = 1.0f;
+        demo.glitch = 3.0f;
     } else if (time_secs < 79.1002f) {
         demo.glitch = 0.0f;
         demo.shake = 3.0f;
     } else if (time_secs < 83.4902f) { // C part arpeggio
-        demo.glitch = 8.0f;
+        demo.glitch = 3.0f;
+        if (time_secs > 87.f) demo.glitch = 5.0f;
         part = PART_VIDEO;
     } else if (time_secs < 89.0376f) {
         part = PART_VIDEO;
-    } else if (time_secs < 90.6739f) {
+    } else if (time_secs < 89.0f /* 90.6739f */) {
         part = PART_VIDEO;
     } else if (time_secs < 92.9088f) {
         part = PART_FLIGHT;
         demo.flight_speed = -1.0f;
-        demo.flight_brite = 0.5f;
+        demo.flight_brite = 1.0f;
     } else if (time_secs < 96.4608f) {
         part = PART_VIDEO;
     } else if (time_secs < 99.4141f) { // ending verse
@@ -1103,17 +1102,18 @@ void render(surface_t *disp)
     
     glLoadIdentity();
 
+    static float cam_target[3];
+    float cam_target_blend = 0.1f;
+    float inv_cam_target_blend = 1.0f - cam_target_blend;
+
+    cam_target[0] = inv_cam_target_blend * cam_target[0] + cam_target_blend * sims[0].pose.origin[0];
+    cam_target[1] = inv_cam_target_blend * cam_target[1] + cam_target_blend * sims[0].pose.origin[1];
+    cam_target[2] = inv_cam_target_blend * cam_target[2] + cam_target_blend * sims[0].pose.origin[2];
+
     if (viewer.active_camera == CAM_CLOSEUP) {
         glMatrixMode(GL_PROJECTION);
-        set_frustum(0.6f);
+        set_frustum(0.7f);
 
-        static float cam_target[3];
-        float cam_target_blend = 0.1f;
-        float inv_cam_target_blend = 1.0f - cam_target_blend;
-
-        cam_target[0] = inv_cam_target_blend * cam_target[0] + cam_target_blend * sims[0].pose.origin[0];
-        cam_target[1] = inv_cam_target_blend * cam_target[1] + cam_target_blend * sims[0].pose.origin[1];
-        cam_target[2] = inv_cam_target_blend * cam_target[2] + cam_target_blend * sims[0].pose.origin[2];
 
         glMatrixMode(GL_MODELVIEW);
         gluLookAt(
@@ -1124,7 +1124,7 @@ void render(surface_t *disp)
     }
     else if (viewer.active_camera == CAM_OVERVIEW) {
         glMatrixMode(GL_PROJECTION);
-        set_frustum(1.1f);
+        set_frustum(1.2f);
 
         float yshake = 0.05f * sin(0.5f*time_secs);
         float target_xshake = 0.0f + 0.025f * cos(time_secs*0.3f);
@@ -1255,19 +1255,24 @@ void render_flight(surface_t *disp)
     gl_context_begin();
 
     float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
-    const float fudge = 0.01f;
-    glClearColor(white[0], white[1], white[2], 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    float black[] = {0.01f, 0.01f, 0.02f, 1.0f};
 
     float plane_tile = PLANE_SIZE / PLANE_SEGMENTS;
 
     glFogf(GL_FOG_START, 5);
     glFogf(GL_FOG_END, 40);
-    glFogfv(GL_FOG_COLOR, white);
+    if (demo.flight_speed > 0.f) {
+        glFogfv(GL_FOG_COLOR, white);
+        glClearColor(white[0], white[1], white[2], 1.0f);
+    }else {
+        glFogfv(GL_FOG_COLOR, black);
+        glClearColor(black[0], black[1], black[2], 1.0f);
+    }
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_FOG);
 
     glMatrixMode(GL_PROJECTION);
-    set_frustum(0.6f);
+    set_frustum(0.7f);
 
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
@@ -1410,7 +1415,7 @@ void render_video(mpeg2_t* mp2, surface_t* disp)
 const int sign_text_y = 40;
 const int sign_text_margin = 30;
 
-void render_ending(surface_t* disp)
+static void render_ending(surface_t* disp)
 {
     rdpq_attach(disp, &zbuffer);
 
@@ -1433,7 +1438,7 @@ void render_ending(surface_t* disp)
     rspq_wait();
 }
 
-void render_black(surface_t* disp)
+static void render_black(surface_t* disp)
 {
     rdpq_attach(disp, &zbuffer);
 
@@ -1443,8 +1448,10 @@ void render_black(surface_t* disp)
     rspq_wait();
 }
 
-void render_intro(surface_t* disp)
+static void render_intro(surface_t* disp)
 {
+    // rspq_wait();
+
     rdpq_attach(disp, &zbuffer);
 
     rdpq_set_mode_fill(RGBA32(0, 0, 64, 255));
@@ -1488,8 +1495,18 @@ void render_sign(surface_t* disp)
     rdpq_font_position(20, sign_text_y + sign_text_margin);
     rdpq_font_print(font_sign, "Extra Scholastic Perception");
     rdpq_font_position(230, 20);
-    //rdpq_font_printf(font_mono, "%.3f", time_secs);
     rdpq_font_end();
+
+    /* if (time_secs > 32.f) {
+        rdpq_font_begin(RGBA32(242,242,245, 0xFF));
+        rdpq_font_position(20, 240 - 4*20);
+        rdpq_font_print(font_sign, "Belief transmission with");
+        rdpq_font_position(20, 240 - 3*20);
+        rdpq_font_print(font_sign, "no subjective Faith.");
+        //rdpq_font_position(20, 240 - 2*20);
+        //rdpq_font_print(font_sign, "no Faith.");
+        rdpq_font_end();
+    } */
 
     render_noise(disp);
 
