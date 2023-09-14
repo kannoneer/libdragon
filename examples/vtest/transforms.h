@@ -181,13 +181,13 @@ static void vertex_calc_screenspace(vtx_t *v)
 
     v->depth = v->cs_pos[2] * v->inv_w * state.current_viewport.scale[2] + state.current_viewport.offset[2];
 
-    debugf("%s viewport.scale=(%f, %f), viewport.offset=(%f, %f)\n",
-        __FUNCTION__,
-        state.current_viewport.scale[0],
-        state.current_viewport.scale[1],
-        state.current_viewport.offset[0],
-        state.current_viewport.offset[1]
-    );
+    // debugf("%s viewport.scale=(%f, %f), viewport.offset=(%f, %f)\n",
+    //     __FUNCTION__,
+    //     state.current_viewport.scale[0],
+    //     state.current_viewport.scale[1],
+    //     state.current_viewport.offset[0],
+    //     state.current_viewport.offset[1]
+    // );
 
     debugf("%s cs_pos=(%f, %f, %f, %f), inv_w=%f, depth=%f\n",
     __FUNCTION__,
@@ -202,7 +202,7 @@ static void vertex_calc_screenspace(vtx_t *v)
     float da  = v->cs_pos[2] * v->inv_w;
     float db = state.current_viewport.scale[2];
     float dc = da * db;
-    debugf("%s %f * %f = %f\n", __FUNCTION__, da, db, dc);
+    debugf("%s v->depth = %f * %f + %f = %f + %f = %f\n", __FUNCTION__, da, db, state.current_viewport.offset[2], dc, state.current_viewport.offset[2], v->depth);
 }
 
 static uint8_t get_clip_codes(float *pos, float *ref)

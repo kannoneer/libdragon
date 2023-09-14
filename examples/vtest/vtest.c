@@ -37,8 +37,14 @@
 
 unsigned short gButtons = 0;
 struct controller_data gKeys;
+static int global_frame_num = 0;
 
 volatile int gTicks;                    /* incremented every vblank */
+
+static struct {
+	bool wait_for_press;
+	bool verbose_setup;
+} config;
 
 /* input - do getButtons() first, then getAnalogX() and/or getAnalogY() */
 unsigned short getButtons(int pad)
@@ -341,6 +347,7 @@ void draw_tri2(
 	debugf("bias0: %d\nbias1: %d\nbias2: %d\n", bias0, bias1, bias2);
 
 	float worst_relerror = 0.0f;
+	float worst_abserror = 0.0f;
 
     for (p.y = minb.y; p.y <= maxb.y; p.y++) {
         // Barycentric coordinates at start of row
@@ -350,7 +357,6 @@ void draw_tri2(
 
         float zf = zf_row;
 		int32_t z_fixed32 = z_row_fixed32;
-		// debugf("(%d, %d) = %f\n", p.x, p.y, zf);
 
         for (p.x = minb.x; p.x <= maxb.x; p.x++) {
 			if (
@@ -371,6 +377,7 @@ void draw_tri2(
 				float error = (zf - zfi);
 				float relerror = error / max(zf, 1e-6);
 				worst_relerror = max(worst_relerror, relerror);
+				worst_abserror = max(worst_abserror, error);
 
 				#if 0
 				int red = lambda0 * 255;
@@ -378,7 +385,7 @@ void draw_tri2(
 				int blue = lambda2 * 255;
 				#else
 				int red = 0;
-				// int green = zf * 255;
+				//int green = zf * 255;
 				int green = z_fixed32 >> 8;
 				int blue = 0;
 				#endif
@@ -406,7 +413,7 @@ void draw_tri2(
 		z_row_fixed32 += dzdy_fixed32;
     }
 
-	debugf("worst_relerror: %f %%\n", 100 * worst_relerror);
+	debugf("worst_relerror: %f %%, worst_abserror: %f\n", 100 * worst_relerror, worst_abserror);
 }
 
 void draw_cube(display_context_t dc)
@@ -419,16 +426,21 @@ void draw_cube(display_context_t dc)
     const float far_plane = 50.0f;
 
 	matrix_t proj = cpu_glFrustum(-near_plane*aspect_ratio, near_plane*aspect_ratio, -near_plane, near_plane, near_plane, far_plane);
-	matrix_t view = cpu_glTranslatef(0.0f, 0.0f, -16.0f);
+	matrix_t translation = cpu_glTranslatef(0.0f, 0.0f, -3.0f);
+	matrix_t rotation = cpu_glRotatef(45.f + 1.f * global_frame_num, 0.0f, 1.0f, 0.0f);
+	matrix_t view;
+	matrix_mult_full(&view, &translation, &rotation);
 	matrix_t mvp = cpu_glLoadIdentity();
 	matrix_mult_full(&mvp, &proj, &view);
 
-	debugf("Projection matrix:\n");
-	for (int i=0;i<4;i++) {
-		for (int j=0;j<4;j++) {
-			debugf("%f ", mvp.m[i][j]);
+	if (config.verbose_setup) {
+		debugf("Projection matrix:\n");
+		for (int i=0;i<4;i++) {
+			for (int j=0;j<4;j++) {
+				debugf("%f ", mvp.m[i][j]);
+			}
+			debugf("\n");
 		}
-		debugf("\n");
 	}
 
 	for (int is=0; is < sizeof(cube_indices)/sizeof(cube_indices[0]); is+=3) {
@@ -438,41 +450,35 @@ void draw_cube(display_context_t dc)
 		for (int i=0;i<3;i++) {
 			verts[i].obj_attributes = cube_vertices[inds[i]];
 			verts[i].obj_attributes.position[3] = 1.0f; // TODO where does cpu pipeline set this?
-			TODO miksi w on 1.1 cs_posissa? luulisi ett' se oli z eik' y
+			// TODO miksi w on 1.1 cs_posissa? luulisi ett' se oli z eik' y
+			// 		Vastaus: se on z, mutta z:n etumerkki flipataan projektiomatriisissa
 			debugf("i=%d, pos[3] = %f\n", i, verts[i].obj_attributes.position[3]);
 		}
-
-		// verts[0].obj_attributes.position[3] = 123;
-		debugf("pos=(%f, %f, %f, %f)\n",
-			verts[0].obj_attributes.position[0],
-			verts[0].obj_attributes.position[1],
-			verts[0].obj_attributes.position[2],
-			verts[0].obj_attributes.position[3]
-		);
 
 		for (int i=0;i<3;i++) {
 			vertex_pre_tr(&verts[i], &mvp);
 			vertex_calc_screenspace(&verts[i]);
 		}
 
-		debugf("pos=(%f, %f, %f, %f), cs_pos=(%f, %f, %f, %f), clip_code=%d\n",
-			verts[0].obj_attributes.position[0],
-			verts[0].obj_attributes.position[1],
-			verts[0].obj_attributes.position[2],
-			verts[0].obj_attributes.position[3],
-			verts[0].cs_pos[0],
-			verts[0].cs_pos[1],
-			verts[0].cs_pos[2],
-			verts[0].cs_pos[3],
-			verts[0].clip_code
-			);
-		debugf("screen_pos: (%f, %f), depth=%f, inv_w=%f\n",
-			verts[0].screen_pos[0], 
-			verts[0].screen_pos[1], 
-			verts[0].depth,
-			verts[0].inv_w);
+        if (config.verbose_setup) {
+            debugf("pos=(%f, %f, %f, %f), cs_pos=(%f, %f, %f, %f), clip_code=%d\n",
+                   verts[0].obj_attributes.position[0],
+                   verts[0].obj_attributes.position[1],
+                   verts[0].obj_attributes.position[2],
+                   verts[0].obj_attributes.position[3],
+                   verts[0].cs_pos[0],
+                   verts[0].cs_pos[1],
+                   verts[0].cs_pos[2],
+                   verts[0].cs_pos[3],
+                   verts[0].clip_code);
+            debugf("screen_pos: (%f, %f), depth=%f, inv_w=%f\n",
+                   verts[0].screen_pos[0],
+                   verts[0].screen_pos[1],
+                   verts[0].depth,
+                   verts[0].inv_w);
+        }
 
-		vec2 screenverts[3];
+        vec2 screenverts[3];
 		float screenzs[3];
 		for (int i=0;i<3;i++) {
 			screenverts[i].x = verts[i].screen_pos[0]; // FIXME: float2int conversion?
@@ -485,12 +491,9 @@ void draw_cube(display_context_t dc)
 			screenzs[0], screenzs[1], screenzs[2],
 			dc, graphics_make_color(255,0,255,255));
 
-		return;
 
 	}
 }
-
-#define INT_TO_FIXED16(x) (x<<16)
 
 int main(void)
 {
@@ -498,6 +501,9 @@ int main(void)
     char temp[128];
 	int res = 0;
 	unsigned short buttons, previous = 0;
+
+	config.wait_for_press = false;
+	config.verbose_setup = false;
 
 	debug_init_usblog();
 	debug_init_isviewer();
@@ -522,24 +528,6 @@ int main(void)
 		graphics_draw_line(_dc, 0, 0, width[res]-1, height[res]-1, color);
 		graphics_draw_line(_dc, 0, height[res]-1, width[res]-1, 0, color);
 
-		// vec2 v0 = {100, 30};
-		// vec2 v1 = {20, 30};
-		// vec2 v2 = {135, 190};
-		// vec2 v3 = {155, 40};
-		// float z0 = 0.0f;
-		// float z1 = 0.25f;
-		// float z2 = 0.5;
-		// float z3 = 1.0;
-
-		// draw_tri2(
-		// 	v0, v1, v2,
-		// 	z0, z1, z2, 
-		// 	_dc, graphics_make_color(255,0,255,255));
-		// draw_tri2(
-		// 	v2, v3, v0,
-		// 	z2, z3, z0,
-		// 	_dc, graphics_make_color(0,255,0,255));
-
 		color = graphics_make_color(0x00, 0x00, 0x00, 0xFF);
 		graphics_set_color(color, 0);
 
@@ -547,35 +535,18 @@ int main(void)
 
         unlockVideo(_dc);
 
-        while (1)
-        {
-            // wait for change in buttons
-            buttons = getButtons(0);
-            if (buttons ^ previous)
-                break;
-            delay(1);
-        }
-
-        if (A_BUTTON(buttons ^ previous))
-        {
-            // A changed
-            if (!A_BUTTON(buttons))
+		if (config.wait_for_press) {
+			while (1)
 			{
-				resolution_t mode[6] = {
-					RESOLUTION_320x240,
-					RESOLUTION_640x480,
-					RESOLUTION_256x240,
-					RESOLUTION_512x480,
-					RESOLUTION_512x240,
-					RESOLUTION_640x240,
-				};
-				res++;
-				res %= 6;
-				display_close();
-				display_init(mode[res], DEPTH_16_BPP, 2, GAMMA_NONE, ANTIALIAS_RESAMPLE);
+				// wait for change in buttons
+				buttons = getButtons(0);
+				if (buttons ^ previous)
+					break;
+				delay(1);
 			}
 		}
 
+		global_frame_num++;
         previous = buttons;
     }
 
