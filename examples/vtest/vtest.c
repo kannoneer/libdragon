@@ -419,9 +419,9 @@ void draw_cube(display_context_t dc)
     const float far_plane = 50.0f;
 
 	matrix_t proj = cpu_glFrustum(-near_plane*aspect_ratio, near_plane*aspect_ratio, -near_plane, near_plane, near_plane, far_plane);
-	matrix_t view = cpu_glTranslatef(0.0f, 0.0f, -8.0f);
+	matrix_t view = cpu_glTranslatef(0.0f, 0.0f, -16.0f);
 	matrix_t mvp = cpu_glLoadIdentity();
-	matrix_mult_full(&mvp, &view, &proj);
+	matrix_mult_full(&mvp, &proj, &view);
 
 	debugf("Projection matrix:\n");
 	for (int i=0;i<4;i++) {
