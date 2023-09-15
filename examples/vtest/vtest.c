@@ -233,8 +233,11 @@ static int orient2d(vec2 a, vec2 b, vec2 c)
 	// return cross2d(ab, ac);
 }
 
+//TODO fill check without barycentrics
 //TODO write to 16-bit framebuffer. can use surface_t* and RGBA16 or IA16 format
 //TODO subpixel accuracy
+//		TODO use integer vertices
+//		TODO orient2d made subpixel aware by result >> fractionalbits
 //TODO center the vertex coordinates for more uniform precision?
 //TODO pixel center "instead use the “integer + 0.5” convention used by both OpenGL and Direct3D"
 //	   The + 0.5 part figures into the initial triangle setup (which now sees slightly different coordinates) but the sampling positions are still on a grid with 1-pixel spacing which is all we need to make this work.
@@ -422,18 +425,29 @@ void draw_tri2(
 	debugf("worst_relerror: %f %%, worst_abserror: %f\n", 100 * worst_relerror, worst_abserror);
 }
 
+#define SUBPIXEL_BITS (2)
+#define SUBPIXEL_SCALE (1<<SUBPIXEL_BITS)
+
+static int orient2d_subpixel(vec2 a, vec2 b, vec2 c)
+{
+	// We multiply two I.F fixed point numbers resulting in (I-F).2F format,
+	// so we shift by F to the right to get the the result in I.F format again.
+	return ((b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x)) >> SUBPIXEL_BITS;
+}
+
+
 void draw_tri3(
-	vec2 v0,
-	vec2 v1,
-	vec2 v2,
+	vec2 v0_in,
+	vec2 v1_in,
+	vec2 v2_in,
 	float z0,
 	float z1,
 	float z2,
 	surface_t* screen,
 	unsigned int color)
 {
-	vec2 minb = {min(v0.x, min(v1.x, v2.x)), min(v0.y, min(v1.y, v2.y))};
-	vec2 maxb = {max(v0.x, max(v1.x, v2.x)), max(v0.y, max(v1.y, v2.y))};
+	vec2 minb = {min(v0_in.x, min(v1_in.x, v2_in.x)), min(v0_in.y, min(v1_in.y, v2_in.y))};
+	vec2 maxb = {max(v0_in.x, max(v1_in.x, v2_in.x)), max(v0_in.y, max(v1_in.y, v2_in.y))};
 
 	int screen_width = (int)display_get_width();
 	int screen_height= (int)display_get_height();
@@ -442,6 +456,10 @@ void draw_tri3(
 	if (minb.y < 0) minb.y = 0;
 	if (maxb.x > screen_width-1) maxb.x = screen_width-1;
 	if (maxb.y > screen_height-1) maxb.y = screen_height-1;
+
+	vec2 v0 = vec2_muls(v0_in, SUBPIXEL_SCALE);
+	vec2 v1 = vec2_muls(v1_in, SUBPIXEL_SCALE);
+	vec2 v2 = vec2_muls(v2_in, SUBPIXEL_SCALE);
 
 	debugf("\n%s\n", __FUNCTION__);
 	debugf("v0: (%d, %d), v1: (%d, %d), v2: (%d, %d)\n",
@@ -458,15 +476,15 @@ void draw_tri3(
 	debugf("A01: %d\nA12: %d\nA20: %d\n", A01, A12, A20);
 	debugf("B01: %d\nB12: %d\nB20: %d\n", B01, B12, B20);
 
-    vec2 p = minb;
+    vec2 p_start = vec2_muls(minb, SUBPIXEL_SCALE);
 
-	int area2x = -orient2d(v0, v1, v2);
+	int area2x = -orient2d_subpixel(v0, v1, v2);
 
     // Barycentric coordinates at minX/minY corner
 
-    int w0_row = -orient2d(v1, v2, p);
-    int w1_row = -orient2d(v2, v0, p);
-    int w2_row = -orient2d(v0, v1, p);
+    int w0_row = -orient2d_subpixel(v1, v2, p_start);
+    int w1_row = -orient2d_subpixel(v2, v0, p_start);
+    int w2_row = -orient2d_subpixel(v0, v1, p_start);
 
 	int bias0 = isTopLeftEdge(v1, v2) ? 0 : -1;
 	int bias1 = isTopLeftEdge(v2, v0) ? 0 : -1;
@@ -515,6 +533,9 @@ void draw_tri3(
 
 	float worst_relerror = 0.0f;
 	float worst_abserror = 0.0f;
+
+	// Only 'p', 'minb' and 'maxb' are in whole-pixel coordinates here. Others all in sub-pixel scale.
+	vec2 p={-1,-1};
 
     for (p.y = minb.y; p.y <= maxb.y; p.y++) {
         // Barycentric coordinates at start of row
