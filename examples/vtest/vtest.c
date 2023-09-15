@@ -179,9 +179,9 @@ vec2 vec2_divs(vec2 a, int s) {
 	return c;
 }
 
-static int cross2d(vec2 a, vec2 b) {
-	return a.x * b.y - a.y * b.x;
-}
+// static int cross2d(vec2 a, vec2 b) {
+// 	return a.x * b.y - a.y * b.x;
+// }
 
 vec3 cross3d(vec3 a, vec3 b) {
 	vec3 c;
@@ -213,10 +213,10 @@ vec3f vec3f_sub(vec3f a, vec3f b) {
  * [ a b ]
  * [ c d ]
  **/
-static int det2d(int a, int b, int c, int d)
-{
-	return a*d - b*c;
-}
+//static int det2d(int a, int b, int c, int d)
+//{
+//	return a*d - b*c;
+//}
 
 // Need x+y+1 bits to represent this result, where x and y are bit widths
 // of the two input coordinates.
@@ -282,10 +282,6 @@ void draw_tri2(
 	debugf("v0: (%d, %d), v1: (%d, %d), v2: (%d, %d)\n",
 		v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
 	debugf("minb: (%d, %d), maxb: (%d, %d)\n", minb.x, minb.y, maxb.x, maxb.y);
-
-    float vertex_z0 = 0.0f;
-    float vertex_z1 = 0.5f;
-    float vertex_z2 = 1.0f;
 
     // Triangle setup
 	// Sign flipped when compared to Fabian Giesen's example code to make it work
@@ -426,6 +422,171 @@ void draw_tri2(
 	debugf("worst_relerror: %f %%, worst_abserror: %f\n", 100 * worst_relerror, worst_abserror);
 }
 
+void draw_tri3(
+	vec2 v0,
+	vec2 v1,
+	vec2 v2,
+	float z0,
+	float z1,
+	float z2,
+	surface_t* screen,
+	unsigned int color)
+{
+	vec2 minb = {min(v0.x, min(v1.x, v2.x)), min(v0.y, min(v1.y, v2.y))};
+	vec2 maxb = {max(v0.x, max(v1.x, v2.x)), max(v0.y, max(v1.y, v2.y))};
+
+	int screen_width = (int)display_get_width();
+	int screen_height= (int)display_get_height();
+
+	if (minb.x < 0) minb.x = 0;
+	if (minb.y < 0) minb.y = 0;
+	if (maxb.x > screen_width-1) maxb.x = screen_width-1;
+	if (maxb.y > screen_height-1) maxb.y = screen_height-1;
+
+	debugf("\n%s\n", __FUNCTION__);
+	debugf("v0: (%d, %d), v1: (%d, %d), v2: (%d, %d)\n",
+		v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
+	debugf("minb: (%d, %d), maxb: (%d, %d)\n", minb.x, minb.y, maxb.x, maxb.y);
+
+    // Triangle setup
+	// Sign flipped when compared to Fabian Giesen's example code to make it work
+	// for counter clockwise triangles in screen coordinates with a flipped Y coord.
+    int A01 = -(v0.y - v1.y), B01 = -(v1.x - v0.x);
+    int A12 = -(v1.y - v2.y), B12 = -(v2.x - v1.x);
+    int A20 = -(v2.y - v0.y), B20 = -(v0.x - v2.x);
+
+	debugf("A01: %d\nA12: %d\nA20: %d\n", A01, A12, A20);
+	debugf("B01: %d\nB12: %d\nB20: %d\n", B01, B12, B20);
+
+    vec2 p = minb;
+
+	int area2x = -orient2d(v0, v1, v2);
+
+    // Barycentric coordinates at minX/minY corner
+
+    int w0_row = -orient2d(v1, v2, p);
+    int w1_row = -orient2d(v2, v0, p);
+    int w2_row = -orient2d(v0, v1, p);
+
+	int bias0 = isTopLeftEdge(v1, v2) ? 0 : -1;
+	int bias1 = isTopLeftEdge(v2, v0) ? 0 : -1;
+	int bias2 = isTopLeftEdge(v0, v1) ? 0 : -1;
+
+	w0_row += bias0;
+	w1_row += bias1;
+	w2_row += bias2;
+	
+	// Setup Z interpolation
+	// See https://tutorial.math.lamar.edu/classes/calciii/eqnsofplanes.aspx
+	// and https://fgiesen.wordpress.com/2011/07/08/a-trip-through-the-graphics-pipeline-2011-part-7/
+
+	vec3f v01 = vec3f_sub((vec3f){v1.x, v1.y, z1}, (vec3f){v0.x, v0.y, z0});
+	vec3f v02 = vec3f_sub((vec3f){v2.x, v2.y, z2}, (vec3f){v0.x, v0.y, z0});
+
+	vec3f N = cross3df(v01, v02);
+
+	debugf("v01: (%f, %f, %f)\n", v01.x, v01.y, v01.z);
+	debugf("v02: (%f, %f, %f)\n", v02.x, v02.y, v02.z);
+	debugf("N: (%f, %f, %f)\n", N.x, N.y, N.z);
+
+	float dZdx = -N.x/N.z;
+	float dZdy = -N.y/N.z;
+
+	debugf("dZdx, dZdy: (%f, %f)\n", dZdx, dZdy);
+
+	int32_t dZdx_fixed32 = FLOAT_TO_FIXED32(-N.x/N.z);
+	int32_t dZdy_fixed32 = FLOAT_TO_FIXED32(-N.y/N.z);
+
+	// Q: Is Z now perspective correct?
+	// A: Yes, see https://fgiesen.wordpress.com/2013/02/11/depth-buffers-done-quick-part/#comment-3892
+
+	// Compute Z at top-left corner of bounding box.
+	// Undo fill rule biases already here because they are a constant offset anyway.
+	float zf_row = 
+		  (w0_row - bias0) * z0
+		+ (w1_row - bias1) * z1
+		+ (w2_row - bias2) * z2;
+	zf_row /= (float)area2x;
+	int32_t Z_row_fixed32 = FLOAT_TO_FIXED32(zf_row);
+
+	debugf("zf_row: %f\n", zf_row);
+	debugf("w0_row: %d\nw1_row: %d\nw2_row: %d\n", w0_row, w1_row, w2_row);
+	debugf("bias0: %d\nbias1: %d\nbias2: %d\n", bias0, bias1, bias2);
+
+	float worst_relerror = 0.0f;
+	float worst_abserror = 0.0f;
+
+    for (p.y = minb.y; p.y <= maxb.y; p.y++) {
+        // Barycentric coordinates at start of row
+        int w0 = w0_row;
+        int w1 = w1_row;
+        int w2 = w2_row;
+
+        float Zf_incr = zf_row;
+		int32_t Z_fixed32 = Z_row_fixed32;
+
+        for (p.x = minb.x; p.x <= maxb.x; p.x++) {
+			if (
+				(p.x == v0.x && p.y == v0.y)
+				|| (p.x == v1.x && p.y == v1.y)
+				|| (p.x == v2.x && p.y == v2.y)
+				) {
+				debugf("(%d, %d) = %f\n", p.x, p.y, Zf_incr);
+			}
+
+			if ((w0|w1|w2) >= 0) {
+				// adjust barycentrics after biasing
+				float lambda0 = (float)(w0 - bias0) / area2x;
+				float lambda1 = (float)(w1 - bias1) / area2x;
+				float lambda2 = (float)(w2 - bias2) / area2x;
+				// zf_incr: 	Incrementally computed floating point Z
+				// zf_bary: 	Barycentric interpolated Z
+				// z_fixed32: 	Incrementally computed 16.16 fixed point Z
+				// zfi: 		z_fixed32 normalized to floating point
+				float Zf_bary = lambda0 * z0 + lambda1 * z1 + lambda2 * z2;
+				float Zfi = Z_fixed32 / (float)0xffff;
+				float error = (Zf_bary - Zfi);
+				float relerror = error / max(Zf_bary, 1e-6);
+				worst_relerror = max(worst_relerror, relerror);
+				worst_abserror = max(worst_abserror, error);
+
+				#if 0
+				int red = lambda0 * 255;
+				int green = lambda1 * 255;
+				int blue = lambda2 * 255;
+				#else
+				int red = 0;
+				//int green = zf * 255;
+				int green = Z_fixed32 >> 8;
+				int blue = 0;
+				#endif
+
+				unsigned int pixelcolor = graphics_make_color(red, green, blue, 255);
+
+				graphics_draw_pixel(screen, p.x, p.y, pixelcolor);
+			}
+
+			// One step to the right
+            w0 += A12;
+            w1 += A20;
+            w2 += A01;
+
+            Zf_incr += dZdx;
+			Z_fixed32 += dZdx_fixed32;
+        }
+
+        // One row step
+        w0_row += B12;
+        w1_row += B20;
+        w2_row += B01;
+
+        zf_row += dZdy;
+		Z_row_fixed32 += dZdy_fixed32;
+    }
+
+	debugf("worst_relerror: %f %%, worst_abserror: %f\n", 100 * worst_relerror, worst_abserror);
+}
+
 void draw_cube(display_context_t dc)
 {
 	cpu_glViewport(0, 0, display_get_width(), display_get_height(), display_get_width(), display_get_height());
@@ -454,7 +615,7 @@ void draw_cube(display_context_t dc)
 	}
 
 	for (int is=0; is < sizeof(cube_indices)/sizeof(cube_indices[0]); is+=3) {
-		uint16_t* inds = &cube_indices[is];
+		const uint16_t* inds = &cube_indices[is];
 		vtx_t verts[3] = {0};
 
 		for (int i=0;i<3;i++) {
@@ -496,7 +657,7 @@ void draw_cube(display_context_t dc)
 			screenzs[i] = verts[i].depth;
 		}
 
-		draw_tri2(
+		draw_tri3(
 			screenverts[0], screenverts[1], screenverts[2],
 			screenzs[0], screenzs[1], screenzs[2],
 			dc, graphics_make_color(255,0,255,255));
@@ -508,7 +669,6 @@ void draw_cube(display_context_t dc)
 int main(void)
 {
     display_context_t _dc;
-    char temp[128];
 	int res = 0;
 	unsigned short buttons, previous = 0;
 
