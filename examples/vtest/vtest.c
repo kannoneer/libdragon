@@ -233,9 +233,11 @@ static int orient2d(vec2 a, vec2 b, vec2 c)
 	// return cross2d(ab, ac);
 }
 
+//TODO write to 16-bit framebuffer. can use surface_t* and RGBA16 or IA16 format
 //TODO subpixel accuracy
 //TODO center the vertex coordinates for more uniform precision?
-//TODO pixel center
+//TODO pixel center "instead use the “integer + 0.5” convention used by both OpenGL and Direct3D"
+//	   The + 0.5 part figures into the initial triangle setup (which now sees slightly different coordinates) but the sampling positions are still on a grid with 1-pixel spacing which is all we need to make this work.
 
 bool isTopLeftEdge(vec2 a, vec2 b)
 {
@@ -253,6 +255,7 @@ bool isTopLeftEdge(vec2 a, vec2 b)
 }
 
 #define FLOAT_TO_FIXED32(f) (int32_t)(f * 0xffff)
+
 
 void draw_tri2(
 	vec2 v0,
@@ -333,6 +336,9 @@ void draw_tri2(
 	int32_t dzdx_fixed32 = FLOAT_TO_FIXED32(-N.x/N.z);
 	int32_t dzdy_fixed32 = FLOAT_TO_FIXED32(-N.y/N.z);
 
+	// Q: Is Z now perspective correct?
+	// A: Yes, see https://fgiesen.wordpress.com/2013/02/11/depth-buffers-done-quick-part/#comment-3892
+
 	// Compute Z at top-left corner of bounding box.
 	// Undo fill rule biases already here because they are a constant offset anyway.
 	float zf_row = 
@@ -355,7 +361,7 @@ void draw_tri2(
         int w1 = w1_row;
         int w2 = w2_row;
 
-        float zf = zf_row;
+        float zf_incr = zf_row;
 		int32_t z_fixed32 = z_row_fixed32;
 
         for (p.x = minb.x; p.x <= maxb.x; p.x++) {
@@ -364,7 +370,7 @@ void draw_tri2(
 				|| (p.x == v1.x && p.y == v1.y)
 				|| (p.x == v2.x && p.y == v2.y)
 				) {
-				debugf("(%d, %d) = %f\n", p.x, p.y, zf);
+				debugf("(%d, %d) = %f\n", p.x, p.y, zf_incr);
 			}
 
 			if ((w0|w1|w2) >= 0) {
@@ -372,10 +378,14 @@ void draw_tri2(
 				float lambda0 = (float)(w0 - bias0) / area2x;
 				float lambda1 = (float)(w1 - bias1) / area2x;
 				float lambda2 = (float)(w2 - bias2) / area2x;
-				float zf = lambda0 * z0 + lambda1 * z1 + lambda2 * z2;
+				// zf_incr: 	Incrementally computed floating point Z
+				// zf_bary: 	Barycentric interpolated Z
+				// z_fixed32: 	Incrementally computed 16.16 fixed point Z
+				// zfi: 		z_fixed32 normalized to floating point
+				float zf_bary = lambda0 * z0 + lambda1 * z1 + lambda2 * z2;
 				float zfi = z_fixed32 / (float)0xffff;
-				float error = (zf - zfi);
-				float relerror = error / max(zf, 1e-6);
+				float error = (zf_bary - zfi);
+				float relerror = error / max(zf_bary, 1e-6);
 				worst_relerror = max(worst_relerror, relerror);
 				worst_abserror = max(worst_abserror, error);
 
@@ -400,7 +410,7 @@ void draw_tri2(
             w1 += A20;
             w2 += A01;
 
-            zf += dzdx;
+            zf_incr += dzdx;
 			z_fixed32 += dzdx_fixed32;
         }
 
