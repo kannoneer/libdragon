@@ -452,17 +452,33 @@ void draw_tri3(
 	vec2 minb = {min(v0_in.x, min(v1_in.x, v2_in.x)), min(v0_in.y, min(v1_in.y, v2_in.y))};
 	vec2 maxb = {max(v0_in.x, max(v1_in.x, v2_in.x)), max(v0_in.y, max(v1_in.y, v2_in.y))};
 
-	int screen_width = (int)display_get_width();
-	int screen_height= (int)display_get_height();
+	int screen_width = (int)screen->width;
+	int screen_height= (int)screen->height;
 
 	if (minb.x < 0) minb.x = 0;
 	if (minb.y < 0) minb.y = 0;
 	if (maxb.x > screen_width-1) maxb.x = screen_width-1;
 	if (maxb.y > screen_height-1) maxb.y = screen_height-1;
 
-	vec2 v0 = vec2_muls(v0_in, SUBPIXEL_SCALE);
-	vec2 v1 = vec2_muls(v1_in, SUBPIXEL_SCALE);
-	vec2 v2 = vec2_muls(v2_in, SUBPIXEL_SCALE);
+	// Round box X coordinate to an even number
+	// minb.x = minb.x & (~1);
+
+	// Discard if any of the vertices cross the near plane
+	if (Z0f <= 0.f || Z1f <= 0.0f || Z2f <= 0.0f) {
+		return;
+	}
+
+	// Move origin to center of the screen for more symmetric range.
+	vec2 center_ofs = {-(screen->width >> 1), -(screen->height >> 1)};
+	vec2 v0 = {v0_in.x + center_ofs.x, v0_in.y + center_ofs.y};
+	vec2 v1 = {v1_in.x + center_ofs.x, v1_in.y + center_ofs.y};
+	vec2 v2 = {v2_in.x + center_ofs.x, v2_in.y + center_ofs.y};
+    vec2 p_start = {minb.x + center_ofs.x, minb.y + center_ofs.y};
+
+	v0 = vec2_muls(v0, SUBPIXEL_SCALE);
+	v1 = vec2_muls(v1, SUBPIXEL_SCALE);
+	v2 = vec2_muls(v2, SUBPIXEL_SCALE);
+    p_start = vec2_muls(p_start, SUBPIXEL_SCALE);
 
 	debugf("\n%s\n", __FUNCTION__);
 	debugf("z0f: %f, z1f: %f, z2f: %f\n", Z0f, Z1f, Z2f);
@@ -480,7 +496,6 @@ void draw_tri3(
 	debugf("A01: %d\nA12: %d\nA20: %d\n", A01, A12, A20);
 	debugf("B01: %d\nB12: %d\nB20: %d\n", B01, B12, B20);
 
-    vec2 p_start = vec2_muls(minb, SUBPIXEL_SCALE);
 
 	int area2x = -orient2d_subpixel(v0, v1, v2);
 	if (area2x <= 0) return;
@@ -623,7 +638,7 @@ void draw_cube(display_context_t dc)
     const float far_plane = 50.0f;
 
 	matrix_t proj = cpu_glFrustum(-near_plane*aspect_ratio, near_plane*aspect_ratio, -near_plane, near_plane, near_plane, far_plane);
-	matrix_t translation = cpu_glTranslatef(0.0f, 0.0f, -15.0f);
+	matrix_t translation = cpu_glTranslatef(0.0f, 0.0f, -3.0f);
 	matrix_t rotation = cpu_glRotatef(45.f + 1.f * global_frame_num, 0.0f, 1.0f, 0.0f);
 	matrix_t view;
 	matrix_mult_full(&view, &translation, &rotation);
