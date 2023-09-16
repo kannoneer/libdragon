@@ -111,11 +111,13 @@ void delay(int cnt)
 void init_n64(void)
 {
     /* Initialize peripherals */
-    display_init( RESOLUTION_320x240, DEPTH_32_BPP, 2, GAMMA_NONE, ANTIALIAS_RESAMPLE );
+    display_init( RESOLUTION_320x240, DEPTH_16_BPP, 2, GAMMA_NONE, ANTIALIAS_RESAMPLE );
 
     register_VI_handler(vblCallback);
 
     controller_init();
+
+
 }
 
 // statement expressions: https://stackoverflow.com/a/58532788
@@ -236,9 +238,13 @@ static int orient2d(vec2 a, vec2 b, vec2 c)
 //TODO setup with integer Z
 //	TODO scale float Z to integer scale
 //TODO write to 16-bit framebuffer. can use surface_t* and RGBA16 or IA16 format
-//TODO center the vertex coordinates for more uniform precision?
+// TODO compute output buffer incrementally and not via multiplication
 //TODO pixel center "instead use the “integer + 0.5” convention used by both OpenGL and Direct3D"
 //	   The + 0.5 part figures into the initial triangle setup (which now sees slightly different coordinates) but the sampling positions are still on a grid with 1-pixel spacing which is all we need to make this work.
+//		Q: N64 follows D3D9 convention with top left corner being (0,0)?
+//TODO flip orient2d winding instead of negating returned signed area
+//TODO support other depth range than (0,1)
+//DONE center the vertex coordinates for more uniform precision?
 //DONE fill check without barycentrics. we already have wX_row as ints
 //DONE subpixel accuracy
 //		DONE use integer vertices
@@ -446,19 +452,15 @@ void draw_tri3(
 	float Z0f,
 	float Z1f,
 	float Z2f,
-	surface_t* screen,
-	unsigned int color)
+	surface_t* zbuffer)
 {
 	vec2 minb = {min(v0_in.x, min(v1_in.x, v2_in.x)), min(v0_in.y, min(v1_in.y, v2_in.y))};
 	vec2 maxb = {max(v0_in.x, max(v1_in.x, v2_in.x)), max(v0_in.y, max(v1_in.y, v2_in.y))};
 
-	int screen_width = (int)screen->width;
-	int screen_height= (int)screen->height;
-
 	if (minb.x < 0) minb.x = 0;
 	if (minb.y < 0) minb.y = 0;
-	if (maxb.x > screen_width-1) maxb.x = screen_width-1;
-	if (maxb.y > screen_height-1) maxb.y = screen_height-1;
+	if (maxb.x > zbuffer->width-1) maxb.x = zbuffer->width-1;
+	if (maxb.y > zbuffer->height-1) maxb.y = zbuffer->height-1;
 
 	// Round box X coordinate to an even number
 	// minb.x = minb.x & (~1);
@@ -469,7 +471,7 @@ void draw_tri3(
 	}
 
 	// Move origin to center of the screen for more symmetric range.
-	vec2 center_ofs = {-(screen->width >> 1), -(screen->height >> 1)};
+	vec2 center_ofs = {-(zbuffer->width >> 1), -(zbuffer->height >> 1)};
 	vec2 v0 = {v0_in.x + center_ofs.x, v0_in.y + center_ofs.y};
 	vec2 v1 = {v1_in.x + center_ofs.x, v1_in.y + center_ofs.y};
 	vec2 v2 = {v2_in.x + center_ofs.x, v2_in.y + center_ofs.y};
@@ -495,7 +497,6 @@ void draw_tri3(
 
 	debugf("A01: %d\nA12: %d\nA20: %d\n", A01, A12, A20);
 	debugf("B01: %d\nB12: %d\nB20: %d\n", B01, B12, B20);
-
 
 	int area2x = -orient2d_subpixel(v0, v1, v2);
 	if (area2x <= 0) return;
@@ -540,14 +541,14 @@ void draw_tri3(
 
 	// Compute Z at top-left corner of bounding box.
 	// Undo fill rule biases already here because they are a constant offset anyway.
-	float zf_row = 
+	float Zf_row = 
 		  (w0_row - bias0) * Z0f
 		+ (w1_row - bias1) * Z1f
 		+ (w2_row - bias2) * Z2f;
-	zf_row /= (float)area2x;
-	int32_t Z_row_fixed32 = FLOAT_TO_FIXED32(zf_row);
+	Zf_row /= (float)area2x;
+	int32_t Z_row_fixed32 = FLOAT_TO_FIXED32(Zf_row);
 
-	debugf("zf_row: %f\n", zf_row);
+	debugf("zf_row: %f\n", Zf_row);
 	debugf("w0_row: %d\nw1_row: %d\nw2_row: %d\n", w0_row, w1_row, w2_row);
 	debugf("bias0: %d\nbias1: %d\nbias2: %d\n", bias0, bias1, bias2);
 
@@ -563,7 +564,7 @@ void draw_tri3(
         int w1 = w1_row;
         int w2 = w2_row;
 
-        float Zf_incr = zf_row;
+        float Zf_incr = Zf_row;
 		int32_t Z_fixed32 = Z_row_fixed32;
 
         for (p.x = minb.x; p.x <= maxb.x; p.x++) {
@@ -596,15 +597,17 @@ void draw_tri3(
 				int green = lambda1 * 255;
 				int blue = lambda2 * 255;
 				#else
-				int red = 0;
-				//int green = zf * 255;
-				int green = Z_fixed32 >> 8;
-				int blue = 0;
+				// int red = 0;
+				// int green = Z_fixed32 >> 8;
+				// int blue = 0;
 				#endif
 
-				unsigned int pixelcolor = graphics_make_color(red, green, blue, 255);
-
-				graphics_draw_pixel(screen, p.x, p.y, pixelcolor);
+				uint16_t depth = Z_fixed32; // TODO don't we want top 16 bits?
+				u_uint16_t* output = (u_uint16_t*)(zbuffer->buffer + (zbuffer->stride * p.y + p.x * sizeof(uint16_t)));
+				*output = depth;
+				//*output = depth;
+				//unsigned int pixelcolor = graphics_make_color(red, green, blue, 255);
+				//graphics_draw_pixel(screen, p.x, p.y, pixelcolor);
 			}
 
 			// One step to the right
@@ -621,21 +624,29 @@ void draw_tri3(
         w1_row += B20;
         w2_row += B01;
 
-        zf_row += dZdy;
+        Zf_row += dZdy;
 		Z_row_fixed32 += dZdy_fixed32;
     }
 
 	debugf("worst_relerror: %f %%, worst_abserror: %f\n", 100 * worst_relerror, worst_abserror);
 }
 
-void draw_cube(display_context_t dc)
-{
-	cpu_glViewport(0, 0, display_get_width(), display_get_height(), display_get_width(), display_get_height());
-	cpu_glDepthRange(0, 1);
+void occ_clear_zbuffer(surface_t* zbuffer) {
+	// 0xffff = max depth
+	for (int y=0;y<zbuffer->height;y++) {
+		memset(zbuffer->buffer + zbuffer->stride * y, 0xff, zbuffer->stride);
+	}
+}
 
-    const float aspect_ratio = (float)display_get_width() / (float)display_get_height();
+void draw_cube(surface_t* zbuffer)
+{
+	cpu_glViewport(0, 0, zbuffer->width, zbuffer->height, zbuffer->width, zbuffer->height);
+	cpu_glDepthRange(0, 1);
+	occ_clear_zbuffer(zbuffer);
+
+    const float aspect_ratio = (float)zbuffer->width / (float)zbuffer->height;
     const float near_plane = 1.0f;
-    const float far_plane = 50.0f;
+    const float far_plane = 20.0f;
 
 	matrix_t proj = cpu_glFrustum(-near_plane*aspect_ratio, near_plane*aspect_ratio, -near_plane, near_plane, near_plane, far_plane);
 	matrix_t translation = cpu_glTranslatef(0.0f, 0.0f, -3.0f);
@@ -701,7 +712,7 @@ void draw_cube(display_context_t dc)
 		draw_tri3(
 			screenverts[0], screenverts[1], screenverts[2],
 			screenzs[0], screenzs[1], screenzs[2],
-			dc, graphics_make_color(255,0,255,255));
+			zbuffer);
 
 
 	}
@@ -709,7 +720,7 @@ void draw_cube(display_context_t dc)
 
 int main(void)
 {
-    display_context_t _dc;
+    surface_t* screen;
 	int res = 0;
 	unsigned short buttons, previous = 0;
 
@@ -719,32 +730,42 @@ int main(void)
 	debug_init_usblog();
 	debug_init_isviewer();
     init_n64();
+	rdpq_init();
+
+	surface_t sw_zbuffer = surface_alloc(FMT_RGBA16, 160, 120);
 
     while (1)
     {
+		draw_cube(&sw_zbuffer);
+
 		int width[6] = { 320, 640, 256, 512, 512, 640 };
 		int height[6] = { 240, 480, 240, 480, 240, 240 };
 		unsigned int color;
 
-        _dc = lockVideo(1);
+        screen = lockVideo(1);
 		color = graphics_make_color(0xCC, 0xCC, 0xCC, 0xFF);
-		graphics_fill_screen(_dc, color);
+		graphics_fill_screen(screen, color);
 
 		color = graphics_make_color(0xFF, 0xFF, 0xFF, 0xFF);
-		graphics_draw_line(_dc, 0, 0, width[res]-1, 0, color);
-		graphics_draw_line(_dc, width[res]-1, 0, width[res]-1, height[res]-1, color);
-		graphics_draw_line(_dc, width[res]-1, height[res]-1, 0, height[res]-1, color);
-		graphics_draw_line(_dc, 0, height[res]-1, 0, 0, color);
+		graphics_draw_line(screen, 0, 0, width[res]-1, 0, color);
+		graphics_draw_line(screen, width[res]-1, 0, width[res]-1, height[res]-1, color);
+		graphics_draw_line(screen, width[res]-1, height[res]-1, 0, height[res]-1, color);
+		graphics_draw_line(screen, 0, height[res]-1, 0, 0, color);
 
-		graphics_draw_line(_dc, 0, 0, width[res]-1, height[res]-1, color);
-		graphics_draw_line(_dc, 0, height[res]-1, width[res]-1, 0, color);
+		graphics_draw_line(screen, 0, 0, width[res]-1, height[res]-1, color);
+		graphics_draw_line(screen, 0, height[res]-1, width[res]-1, 0, color);
 
 		color = graphics_make_color(0x00, 0x00, 0x00, 0xFF);
 		graphics_set_color(color, 0);
 
-		draw_cube(_dc);
+		rdpq_attach(screen, NULL);
+		// rdpq_set_mode_copy(true);
+		rdpq_set_mode_standard(); // Can't use copy mode if we need a 16-bit -> 32-bit conversion
+		rdpq_tex_blit(&sw_zbuffer, 0, 0, NULL);
+		rdpq_detach();
 
-        unlockVideo(_dc);
+        unlockVideo(screen);
+
 
 		if (config.wait_for_press) {
 			while (1)
