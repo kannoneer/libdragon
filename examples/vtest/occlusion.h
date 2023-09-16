@@ -17,9 +17,11 @@
 //		DONE orient2d made subpixel aware by result >> fractionalbits
 
 #include "cpumath.h"
+#include "transforms.h" // for vertex_t
 #include <surface.h>
 #include <n64types.h>
 #include <memory.h>
+#include <malloc.h>
 
 #define SUBPIXEL_BITS (2)
 #define SUBPIXEL_SCALE (1<<SUBPIXEL_BITS)
@@ -27,6 +29,45 @@
 #define FLOAT_TO_FIXED32(f) (int32_t)(f * 0xffff)
 #define FLOAT_TO_U16(f) (uint16_t)(f * 0xffff);
 #define U16_TO_FLOAT(u) ((float)u * 0.0002442002f) // Approximately f/0xffff
+
+struct occ_culler_s {
+    struct {
+        int x;
+        int y;
+        int width;
+        int height;
+    } viewport;
+    matrix_t proj;
+    matrix_t mvp;
+};
+
+typedef struct occ_culler_s occ_culler_t;
+
+occ_culler_t* occ_culler_alloc(int x, int y, int width, int height) {
+    occ_culler_t* culler = malloc(sizeof(occ_culler_t));
+    return culler;
+}
+
+void occ_culler_free(occ_culler_t* culler) {
+    free(culler);
+}
+
+void occ_set_projection_matrix(occ_culler_t* culler, matrix_t proj)
+{
+    culler->proj = proj;
+}
+
+void occ_set_mvp_matrix(occ_culler_t* culler, matrix_t mvp)
+{
+    culler->mvp = mvp;
+}
+
+void occ_clear_zbuffer(surface_t* zbuffer) {
+	// 0xffff = max depth
+	for (int y=0;y<zbuffer->height;y++) {
+		memset(zbuffer->buffer + zbuffer->stride * y, 0xff, zbuffer->stride);
+	}
+}
 
 #if 0
 /* The determinant of a 2D matrix
@@ -262,9 +303,56 @@ void draw_tri3(
 	debugf("worst_relerror: %f %%, worst_abserror: %f\n", 100 * worst_relerror, worst_abserror);
 }
 
-void occ_clear_zbuffer(surface_t* zbuffer) {
-	// 0xffff = max depth
-	for (int y=0;y<zbuffer->height;y++) {
-		memset(zbuffer->buffer + zbuffer->stride * y, 0xff, zbuffer->stride);
+void occ_draw_indexed_mesh(occ_culler_t* occ, surface_t* zbuffer, const vertex_t* cube_vertices, const uint16_t* cube_indices, uint32_t num_indices)
+{
+	for (int is=0; is < num_indices; is+=3) {
+		const uint16_t* inds = &cube_indices[is];
+		vtx_t verts[3] = {0};
+
+		for (int i=0;i<3;i++) {
+			verts[i].obj_attributes = cube_vertices[inds[i]];
+			verts[i].obj_attributes.position[3] = 1.0f; // TODO where does cpu pipeline set this?
+			// TODO miksi w on 1.1 cs_posissa? luulisi ett' se oli z eik' y
+			// 		Vastaus: se on z, mutta z:n etumerkki flipataan projektiomatriisissa
+			debugf("i=%d, pos[3] = %f\n", i, verts[i].obj_attributes.position[3]);
+		}
+
+		for (int i=0;i<3;i++) {
+			vertex_pre_tr(&verts[i], &occ->mvp);
+			vertex_calc_screenspace(&verts[i]);
+		}
+
+        //if (config.verbose_setup) {
+        //    debugf("pos=(%f, %f, %f, %f), cs_pos=(%f, %f, %f, %f), clip_code=%d\n",
+        //           verts[0].obj_attributes.position[0],
+        //           verts[0].obj_attributes.position[1],
+        //           verts[0].obj_attributes.position[2],
+        //           verts[0].obj_attributes.position[3],
+        //           verts[0].cs_pos[0],
+        //           verts[0].cs_pos[1],
+        //           verts[0].cs_pos[2],
+        //           verts[0].cs_pos[3],
+        //           verts[0].clip_code);
+        //    debugf("screen_pos: (%f, %f), depth=%f, inv_w=%f\n",
+        //           verts[0].screen_pos[0],
+        //           verts[0].screen_pos[1],
+        //           verts[0].depth,
+        //           verts[0].inv_w);
+        //}
+
+        vec2 screenverts[3];
+		float screenzs[3];
+		for (int i=0;i<3;i++) {
+			screenverts[i].x = verts[i].screen_pos[0]; // FIXME: float2int conversion?
+			screenverts[i].y = verts[i].screen_pos[1];
+			screenzs[i] = verts[i].depth;
+		}
+
+		draw_tri3(
+			screenverts[0], screenverts[1], screenverts[2],
+			screenzs[0], screenzs[1], screenzs[2],
+			zbuffer);
+
+
 	}
 }

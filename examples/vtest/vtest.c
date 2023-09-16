@@ -6,7 +6,6 @@
 #include <libdragon.h>
 
 #include "occlusion.h"
-#include "transforms.h"
 
 /* hardware definitions */
 // Pad buttons
@@ -41,6 +40,8 @@ struct controller_data gKeys;
 static int global_frame_num = 0;
 
 volatile int gTicks;                    /* incremented every vblank */
+
+static occ_culler_t* g_culler;
 
 static struct {
 	bool wait_for_press;
@@ -117,8 +118,6 @@ void init_n64(void)
     register_VI_handler(vblCallback);
 
     controller_init();
-
-
 }
 
 
@@ -126,7 +125,6 @@ void draw_cube(surface_t* zbuffer)
 {
 	cpu_glViewport(0, 0, zbuffer->width, zbuffer->height, zbuffer->width, zbuffer->height);
 	cpu_glDepthRange(0, 1);
-	occ_clear_zbuffer(zbuffer);
 
     const float aspect_ratio = (float)zbuffer->width / (float)zbuffer->height;
     const float near_plane = 1.0f;
@@ -150,56 +148,14 @@ void draw_cube(surface_t* zbuffer)
 		}
 	}
 
-	for (int is=0; is < sizeof(cube_indices)/sizeof(cube_indices[0]); is+=3) {
-		const uint16_t* inds = &cube_indices[is];
-		vtx_t verts[3] = {0};
+	occ_clear_zbuffer(zbuffer);
+	occ_set_projection_matrix(g_culler, proj);
+	occ_set_mvp_matrix(g_culler, mvp);
 
-		for (int i=0;i<3;i++) {
-			verts[i].obj_attributes = cube_vertices[inds[i]];
-			verts[i].obj_attributes.position[3] = 1.0f; // TODO where does cpu pipeline set this?
-			// TODO miksi w on 1.1 cs_posissa? luulisi ett' se oli z eik' y
-			// 		Vastaus: se on z, mutta z:n etumerkki flipataan projektiomatriisissa
-			debugf("i=%d, pos[3] = %f\n", i, verts[i].obj_attributes.position[3]);
-		}
-
-		for (int i=0;i<3;i++) {
-			vertex_pre_tr(&verts[i], &mvp);
-			vertex_calc_screenspace(&verts[i]);
-		}
-
-        if (config.verbose_setup) {
-            debugf("pos=(%f, %f, %f, %f), cs_pos=(%f, %f, %f, %f), clip_code=%d\n",
-                   verts[0].obj_attributes.position[0],
-                   verts[0].obj_attributes.position[1],
-                   verts[0].obj_attributes.position[2],
-                   verts[0].obj_attributes.position[3],
-                   verts[0].cs_pos[0],
-                   verts[0].cs_pos[1],
-                   verts[0].cs_pos[2],
-                   verts[0].cs_pos[3],
-                   verts[0].clip_code);
-            debugf("screen_pos: (%f, %f), depth=%f, inv_w=%f\n",
-                   verts[0].screen_pos[0],
-                   verts[0].screen_pos[1],
-                   verts[0].depth,
-                   verts[0].inv_w);
-        }
-
-        vec2 screenverts[3];
-		float screenzs[3];
-		for (int i=0;i<3;i++) {
-			screenverts[i].x = verts[i].screen_pos[0]; // FIXME: float2int conversion?
-			screenverts[i].y = verts[i].screen_pos[1];
-			screenzs[i] = verts[i].depth;
-		}
-
-		draw_tri3(
-			screenverts[0], screenverts[1], screenverts[2],
-			screenzs[0], screenzs[1], screenzs[2],
-			zbuffer);
-
-
-	}
+	occ_draw_indexed_mesh(g_culler,
+		zbuffer,
+		&cube_vertices[0],
+		cube_indices, sizeof(cube_indices)/sizeof(cube_indices[0]));
 }
 
 int main(void)
@@ -217,6 +173,7 @@ int main(void)
 	rdpq_init();
 
 	surface_t sw_zbuffer = surface_alloc(FMT_RGBA16, 160, 120);
+	g_culler = occ_culler_alloc(0, 0, sw_zbuffer.width, sw_zbuffer.height);
 
     while (1)
     {
