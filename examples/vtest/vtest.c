@@ -37,7 +37,7 @@
 
 unsigned short gButtons = 0;
 struct controller_data gKeys;
-static int global_frame_num = 0;
+static int g_frame_num = 0;
 
 volatile int gTicks;                    /* incremented every vblank */
 
@@ -132,7 +132,7 @@ void draw_cube(surface_t* zbuffer)
 
 	matrix_t proj = cpu_glFrustum(-near_plane*aspect_ratio, near_plane*aspect_ratio, -near_plane, near_plane, near_plane, far_plane);
 	matrix_t translation = cpu_glTranslatef(0.0f, 0.0f, -3.0f);
-	matrix_t rotation = cpu_glRotatef(45.f + 1.f * global_frame_num, 0.0f, 1.0f, 0.0f);
+	matrix_t rotation = cpu_glRotatef(45.f + 1.f * g_frame_num, 0.0f, 1.0f, 0.0f);
 	matrix_t view;
 	matrix_mult_full(&view, &translation, &rotation);
 	matrix_t mvp = cpu_glLoadIdentity();
@@ -199,11 +199,31 @@ int main(void)
 		color = graphics_make_color(0x00, 0x00, 0x00, 0xFF);
 		graphics_set_color(color, 0);
 
+		vec2 test_pos = { 20 + (g_frame_num) % 100, 50};
+		vec2 test_size = {20, 40};
+		float test_depth = 0.9f;
+
+		bool visible = occ_check_pixel_box_visible(g_culler,
+			&sw_zbuffer, FLOAT_TO_U16(test_depth),
+			test_pos.x, test_pos.y, test_pos.x + test_size.x, test_pos.y + test_size.y);
+		
+		debugf("visible: %s", visible ? "true" : "false");
+		
+
 		rdpq_attach(screen, NULL);
 		// rdpq_set_mode_copy(true);
 		rdpq_set_mode_standard(); // Can't use copy mode if we need a 16-bit -> 32-bit conversion
 		rdpq_tex_blit(&sw_zbuffer, 0, 0, NULL);
 		rdpq_detach();
+
+		//graphics_draw_box_trans(screen, test_pos.x, test_pos.y, test_size.x, test_size.y, graphics_make_color(255,0,0,128));
+
+		if ((g_frame_num/2) % 2 == 0) {
+			rdpq_attach(screen, NULL);
+			rdpq_set_mode_fill(visible ? (color_t){0,255,0,64} : (color_t){255,0,0,64});
+			rdpq_fill_rectangle(test_pos.x, test_pos.y, test_pos.x + test_size.x, test_pos.y + test_size.y);
+			rdpq_detach();
+		}
 
         unlockVideo(screen);
 
@@ -219,7 +239,7 @@ int main(void)
 			}
 		}
 
-		global_frame_num++;
+		g_frame_num++;
         previous = buttons;
     }
 

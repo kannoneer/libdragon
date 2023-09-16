@@ -27,8 +27,11 @@
 #define SUBPIXEL_SCALE (1<<SUBPIXEL_BITS)
 
 #define FLOAT_TO_FIXED32(f) (int32_t)(f * 0xffff)
-#define FLOAT_TO_U16(f) (uint16_t)(f * 0xffff);
+#define FLOAT_TO_U16(f) (uint16_t)(f * 0xffff)
 #define U16_TO_FLOAT(u) ((float)u * 0.0002442002f) // Approximately f/0xffff
+
+#define ZBUFFER_UINT_PTR_AT(zbuffer, x, y) ((u_uint16_t*)(zbuffer->buffer + (zbuffer->stride * y + x * sizeof(uint16_t))))
+//u_uint16_t* buf = (u_uint16_t*)(zbuffer->buffer + (zbuffer->stride * p.y + p.x * sizeof(uint16_t)))
 
 struct occ_culler_s {
     struct {
@@ -275,8 +278,8 @@ void draw_tri3(
 				#endif
 
 				uint16_t depth = Z_fixed32; // TODO don't we want top 16 bits?
-				u_uint16_t* output = (u_uint16_t*)(zbuffer->buffer + (zbuffer->stride * p.y + p.x * sizeof(uint16_t)));
-				*output = depth;
+                u_uint16_t* buf = ZBUFFER_UINT_PTR_AT(zbuffer, p.x, p.y);
+				*buf = min(*buf, depth);
 				//*output = depth;
 				//unsigned int pixelcolor = graphics_make_color(red, green, blue, 255);
 				//graphics_draw_pixel(screen, p.x, p.y, pixelcolor);
@@ -355,4 +358,20 @@ void occ_draw_indexed_mesh(occ_culler_t* occ, surface_t* zbuffer, const vertex_t
 
 
 	}
+}
+
+// [minx, maxx), [miny, maxy), i.e. upper bounds are exclusive.
+bool occ_check_pixel_box_visible(occ_culler_t* occ, surface_t* zbuffer, uint16_t depth, int minx, int miny, int maxx, int maxy)
+{
+    if (minx < 0) minx = 0;
+    if (miny < 0) miny = 0;
+    if (maxx > zbuffer->width - 1) maxx = zbuffer->width - 1;
+    if (maxy > zbuffer->height - 1) maxy = zbuffer->height - 1;
+    for (int y = miny; y < maxy; y++) {
+        for (int x = minx; x < maxx; x++) {
+            u_uint16_t *buf = ZBUFFER_UINT_PTR_AT(zbuffer, x, y);
+            if (*buf >= depth) return true;
+        }
+    }
+    return false; // Every box pixel was behind the Z-buffer
 }
