@@ -233,14 +233,16 @@ static int orient2d(vec2 a, vec2 b, vec2 c)
 	// return cross2d(ab, ac);
 }
 
-//TODO fill check without barycentrics
+//TODO setup with integer Z
+//	TODO scale float Z to integer scale
 //TODO write to 16-bit framebuffer. can use surface_t* and RGBA16 or IA16 format
-//TODO subpixel accuracy
-//		TODO use integer vertices
-//		TODO orient2d made subpixel aware by result >> fractionalbits
 //TODO center the vertex coordinates for more uniform precision?
 //TODO pixel center "instead use the “integer + 0.5” convention used by both OpenGL and Direct3D"
 //	   The + 0.5 part figures into the initial triangle setup (which now sees slightly different coordinates) but the sampling positions are still on a grid with 1-pixel spacing which is all we need to make this work.
+//DONE fill check without barycentrics. we already have wX_row as ints
+//DONE subpixel accuracy
+//		DONE use integer vertices
+//		DONE orient2d made subpixel aware by result >> fractionalbits
 
 bool isTopLeftEdge(vec2 a, vec2 b)
 {
@@ -258,6 +260,8 @@ bool isTopLeftEdge(vec2 a, vec2 b)
 }
 
 #define FLOAT_TO_FIXED32(f) (int32_t)(f * 0xffff)
+#define FLOAT_TO_U16(f) (uint16_t)(f * 0xffff);
+#define U16_TO_FLOAT(u) ((float)u * 0.0002442002f) // Approximately f/0xffff
 
 
 void draw_tri2(
@@ -435,14 +439,13 @@ static int orient2d_subpixel(vec2 a, vec2 b, vec2 c)
 	return ((b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x)) >> SUBPIXEL_BITS;
 }
 
-
 void draw_tri3(
 	vec2 v0_in,
 	vec2 v1_in,
 	vec2 v2_in,
-	float z0,
-	float z1,
-	float z2,
+	float Z0f,
+	float Z1f,
+	float Z2f,
 	surface_t* screen,
 	unsigned int color)
 {
@@ -462,6 +465,7 @@ void draw_tri3(
 	vec2 v2 = vec2_muls(v2_in, SUBPIXEL_SCALE);
 
 	debugf("\n%s\n", __FUNCTION__);
+	debugf("z0f: %f, z1f: %f, z2f: %f\n", Z0f, Z1f, Z2f);
 	debugf("v0: (%d, %d), v1: (%d, %d), v2: (%d, %d)\n",
 		v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
 	debugf("minb: (%d, %d), maxb: (%d, %d)\n", minb.x, minb.y, maxb.x, maxb.y);
@@ -479,6 +483,7 @@ void draw_tri3(
     vec2 p_start = vec2_muls(minb, SUBPIXEL_SCALE);
 
 	int area2x = -orient2d_subpixel(v0, v1, v2);
+	if (area2x <= 0) return;
 
     // Barycentric coordinates at minX/minY corner
 
@@ -498,8 +503,8 @@ void draw_tri3(
 	// See https://tutorial.math.lamar.edu/classes/calciii/eqnsofplanes.aspx
 	// and https://fgiesen.wordpress.com/2011/07/08/a-trip-through-the-graphics-pipeline-2011-part-7/
 
-	vec3f v01 = vec3f_sub((vec3f){v1.x, v1.y, z1}, (vec3f){v0.x, v0.y, z0});
-	vec3f v02 = vec3f_sub((vec3f){v2.x, v2.y, z2}, (vec3f){v0.x, v0.y, z0});
+	vec3f v01 = vec3f_sub((vec3f){v1.x, v1.y, Z1f}, (vec3f){v0.x, v0.y, Z0f});
+	vec3f v02 = vec3f_sub((vec3f){v2.x, v2.y, Z2f}, (vec3f){v0.x, v0.y, Z0f});
 
 	vec3f N = cross3df(v01, v02);
 
@@ -521,9 +526,9 @@ void draw_tri3(
 	// Compute Z at top-left corner of bounding box.
 	// Undo fill rule biases already here because they are a constant offset anyway.
 	float zf_row = 
-		  (w0_row - bias0) * z0
-		+ (w1_row - bias1) * z1
-		+ (w2_row - bias2) * z2;
+		  (w0_row - bias0) * Z0f
+		+ (w1_row - bias1) * Z1f
+		+ (w2_row - bias2) * Z2f;
 	zf_row /= (float)area2x;
 	int32_t Z_row_fixed32 = FLOAT_TO_FIXED32(zf_row);
 
@@ -564,7 +569,7 @@ void draw_tri3(
 				// zf_bary: 	Barycentric interpolated Z
 				// z_fixed32: 	Incrementally computed 16.16 fixed point Z
 				// zfi: 		z_fixed32 normalized to floating point
-				float Zf_bary = lambda0 * z0 + lambda1 * z1 + lambda2 * z2;
+				float Zf_bary = lambda0 * Z0f + lambda1 * Z1f + lambda2 * Z2f;
 				float Zfi = Z_fixed32 / (float)0xffff;
 				float error = (Zf_bary - Zfi);
 				float relerror = error / max(Zf_bary, 1e-6);
@@ -618,7 +623,7 @@ void draw_cube(display_context_t dc)
     const float far_plane = 50.0f;
 
 	matrix_t proj = cpu_glFrustum(-near_plane*aspect_ratio, near_plane*aspect_ratio, -near_plane, near_plane, near_plane, far_plane);
-	matrix_t translation = cpu_glTranslatef(0.0f, 0.0f, -3.0f);
+	matrix_t translation = cpu_glTranslatef(0.0f, 0.0f, -15.0f);
 	matrix_t rotation = cpu_glRotatef(45.f + 1.f * global_frame_num, 0.0f, 1.0f, 0.0f);
 	matrix_t view;
 	matrix_mult_full(&view, &translation, &rotation);
