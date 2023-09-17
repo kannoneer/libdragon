@@ -6,10 +6,12 @@ static sprite_t *brew_sprite;
 static sprite_t *tiles_sprite;
 static sprite_t *baseline_sprite;
 static sprite_t *yuverror_sprite;
+//static sprite_t *yuverror2_sprite;
 static sprite_t *ci4_sprite;
 static sprite_t *rgba16_sprite;
 
 static rspq_block_t *tiles_block;
+static bool g_show_basic = false;
 
 typedef struct {
     int32_t x;
@@ -81,7 +83,7 @@ void render(int cur_frame)
     rdpq_debug_log_msg("tiles");
     rdpq_set_mode_copy(false);
     // rdpq_set_mode_standard();
-    rspq_block_run(tiles_block);
+    //rspq_block_run(tiles_block);
     
     // Draw the brew sprites. Use standard mode because copy mode cannot handle
     // scaled sprites.
@@ -97,45 +99,52 @@ void render(int cur_frame)
     //     });
     // }
 
-    sprite_t* spritelist[] = {ci4_sprite, ci4_sprite, baseline_sprite, yuverror_sprite, ci4_sprite};
-    int spritesizes[][2] = {{32,32}, {64,64}, {64,64}};
+    sprite_t* spritelist[] = {baseline_sprite, yuverror_sprite};
+    int spritesizes[][2] = {{64,64}, {64,64}, {64,64}};
 
-    if (true) {
-        for (int index=0;index<3;index++) {
+    if (g_show_basic) {
+        spritelist[0] = ci4_sprite;
+        spritelist[1] = ci4_sprite;
+    }
 
-            rdpq_sprite_upload(TILE0, spritelist[index], NULL);
-            rdpq_sync_tile();
-            rdpq_trifmt_t fmt= TRIFMT_TEX;
-            // fmt.pos_offset      = 0;
-            // fmt.shade_offset    = -1;
-            // fmt.tex_offset      = 2;
-            // fmt.tex_tile        = TILE0;
-            // fmt.z_offset        = -1;
 
-            const float size = 2.0f;
-            float x = 10 + (size * 66 * (index % 2));
-            float y = 10 + (size * 66 * (index/2));
-            float sscale= spritesizes[index][0];
-            float tscale= spritesizes[index][1];
-            float verts[4][5] = {
-                {x + size * 0.f,  y + size * 0.f,     sscale*0.0f, tscale*1.0f,  1.0f}, // x,y,s,t,w
-                {x + size * 0.0f, y + size * 64.f,    sscale*0.0f, tscale*0.0f, 1.0f},
-                {x + size * 64.f, y + size * 64.f,    sscale*1.0f, tscale*0.0f, 1.0f},
-                {x + size * 64.f, y + size * 0.f,     sscale*1.0f, tscale*1.0f, 1.0f}};
-            
+    for (int index=0;index<2;index++) {
+        if (!spritelist[index]) continue;
 
-            rdpq_triangle(&fmt, &verts[0][0], &verts[1][0], &verts[2][0]);
-            rdpq_sync_tile();
-            rdpq_triangle(&fmt, &verts[2][0], &verts[3][0], &verts[0][0]);
-            rdpq_sync_tile();
-        }
-    } else {
+        rdpq_sprite_upload(TILE0, spritelist[index], NULL);
+        rdpq_sync_tile();
+        rdpq_trifmt_t fmt= TRIFMT_TEX;
+        // fmt.pos_offset      = 0;
+        // fmt.shade_offset    = -1;
+        // fmt.tex_offset      = 2;
+        // fmt.tex_tile        = TILE0;
+        // fmt.z_offset        = -1;
+
+        const float size = 2.0f;
+        float x = 8 + (size * 66 * (index % 2));
+        float y = 8 + (size * 66 * (index/2));
+        float sscale= spritesizes[index][0];
+        float tscale= spritesizes[index][1];
+        float verts[4][5] = {
+            {x + size * 0.f,  y + size * 0.f,     sscale*0.0f, tscale*0.0f,  1.0f}, // x,y,s,t,w
+            {x + size * 0.0f, y + size * 64.f,    sscale*0.0f, tscale*1.0f, 1.0f},
+            {x + size * 64.f, y + size * 64.f,    sscale*1.0f, tscale*1.0f, 1.0f},
+            {x + size * 64.f, y + size * 0.f,     sscale*1.0f, tscale*0.0f, 1.0f}};
+        
+
+        rdpq_triangle(&fmt, &verts[0][0], &verts[1][0], &verts[2][0]);
+        rdpq_sync_tile();
+        rdpq_triangle(&fmt, &verts[2][0], &verts[3][0], &verts[0][0]);
+        rdpq_sync_tile();
+    }
+
+    if (g_show_basic) {
         // lossless baseline
         rdpq_blitparms_t parms = {};
-        //parms.flip_y = true;
+        parms.flip_y = false;
         parms.scale_x = 2.f;
-        parms.scale_y = -2.f;
-        rdpq_sprite_blit(rgba16_sprite, 4, 126, &parms);
+        parms.scale_y = 2.f;
+        rdpq_sprite_blit(rgba16_sprite, 8, 8, &parms);
     }
 
     rdpq_detach_show();
@@ -159,11 +168,13 @@ int main()
     rdpq_init();
     rdpq_debug_start();
 
+    #define IMGNAME "circuit"
+
     brew_sprite = sprite_load("rom:/n64brew.sprite");
-    baseline_sprite = sprite_load("rom:/stone_baseline.sprite");
-    yuverror_sprite = sprite_load("rom:/stone_yuverror.sprite");
-    ci4_sprite = sprite_load("rom:/stone_ci4.sprite");
-    rgba16_sprite = sprite_load("rom:/stone_rgba16.sprite");
+    baseline_sprite = sprite_load("rom:/baseline/"IMGNAME".sprite");
+    yuverror_sprite = sprite_load("rom:/yuverror/"IMGNAME".sprite");
+    rgba16_sprite = sprite_load("rom:/rgba16/"IMGNAME".sprite");
+    ci4_sprite = sprite_load("rom:/ci4/"IMGNAME".sprite");
 
     obj_max_x = display_width - brew_sprite->width;
     obj_max_y = display_height - brew_sprite->height;
@@ -232,6 +243,10 @@ int main()
 
         controller_scan();
         struct controller_data ckeys = get_keys_down();
+
+        if (ckeys.c[0].A) {
+            g_show_basic = !g_show_basic;
+        }
 
         if (ckeys.c[0].C_up && num_objs < NUM_OBJECTS) {
             ++num_objs;
