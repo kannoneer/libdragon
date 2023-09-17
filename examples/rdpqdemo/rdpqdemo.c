@@ -3,6 +3,8 @@
 #include <math.h>
 
 static sprite_t *brew_sprite;
+static sprite_t *before_sprite;
+static sprite_t *after_sprite;
 static sprite_t *tiles_sprite;
 
 static rspq_block_t *tiles_block;
@@ -86,12 +88,17 @@ void render(int cur_frame)
     rdpq_mode_filter(FILTER_BILINEAR);
     rdpq_mode_alphacompare(1);                // colorkey (draw pixel with alpha >= 1)
 
-    for (uint32_t i = 0; i < num_objs; i++)
-    {
-        rdpq_sprite_blit(brew_sprite, objects[i].x, objects[i].y, &(rdpq_blitparms_t){
-            .scale_x = objects[i].scale_factor, .scale_y = objects[i].scale_factor,
-        });
-    }
+    // for (uint32_t i = 0; i < num_objs; i++)
+    // {
+    //     rdpq_sprite_blit(brew_sprite, objects[i].x, objects[i].y, &(rdpq_blitparms_t){
+    //         .scale_x = objects[i].scale_factor, .scale_y = objects[i].scale_factor,
+    //     });
+    // }
+    //rdpq_texparms_t params = {};
+    rdpq_sprite_upload(TILE0, before_sprite, NULL);
+    rdpq_texture_rectangle(TILE0, 0, 0, 64, 64, 0, 0);
+    // rdpq_sprite_blit(before_sprite, 10, 10, NULL);
+    // rdpq_sprite_blit(after_sprite, 76, 10, NULL);
 
     rdpq_detach_show();
 }
@@ -115,6 +122,8 @@ int main()
     rdpq_debug_start();
 
     brew_sprite = sprite_load("rom:/n64brew.sprite");
+    before_sprite = sprite_load("rom:/stone_baseline.sprite");
+    after_sprite = sprite_load("rom:/stone_yuverror.sprite");
 
     obj_max_x = display_width - brew_sprite->width;
     obj_max_y = display_height - brew_sprite->height;
