@@ -65,110 +65,15 @@ static const char *texture_path[4] = {
 
 static sprite_t *sprites[4];
 
-static void computeProjectionMatrix(matrix_t* proj, float fovy, float aspect, float zNear, float zFar)
+void compute_camera_matrix(matrix_t* matrix, const camera_t *camera)
 {
-	float sine, cotangent, deltaZ;
-	float radians = fovy / 2 * (float)M_PI / 180;
-	deltaZ = zFar - zNear;
-	sine = sinf(radians);
-	if ((deltaZ == 0) || (sine == 0) || (aspect == 0))
-	{
-		return;
-	}
-	cotangent = cosf(radians) / sine;
-
-    memset(&proj->m[0][0], 0, sizeof(matrix_t));
-	proj->m[0][0] = cotangent / aspect;
-	proj->m[1][1] = cotangent;
-	proj->m[2][2] = -(zFar + zNear) / deltaZ;
-	proj->m[2][3] = -1;
-	proj->m[3][2] = -2 * zNear * zFar / deltaZ;
-	proj->m[3][3] = 0;
-}
-
-static float cpu_gl_mag2(const GLfloat *v)
-{
-    return v[0]*v[0] + v[1]*v[1] + v[2]*v[2];
-}
-
-static float cpu_gl_mag(const GLfloat *v)
-{
-    return sqrtf(cpu_gl_mag2(v));
-}
-
-static void cpu_gl_normalize(GLfloat *d, const GLfloat *v)
-{
-    float inv_mag = 1.0f / cpu_gl_mag(v);
-
-    d[0] = v[0] * inv_mag;
-    d[1] = v[1] * inv_mag;
-    d[2] = v[2] * inv_mag;
-}
-
-static void cpu_gl_cross(GLfloat* p, const GLfloat* a, const GLfloat* b)
-{
-    p[0] = (a[1] * b[2] - a[2] * b[1]);
-    p[1] = (a[2] * b[0] - a[0] * b[2]);
-    p[2] = (a[0] * b[1] - a[1] * b[0]);
-};
-
-static float cpu_dot_product3(const float *a, const float *b)
-{
-    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
-static void cpu_gluLookAt(matrix_t* m, float eyex, float eyey, float eyez, 
-               float centerx, float centery, float centerz,
-               float upx, float upy, float upz)
-{
-    GLfloat eye[3] = {eyex, eyey, eyez};
-    GLfloat f[3] = {centerx - eyex, centery - eyey, centerz - eyez};
-    GLfloat u[3] = {upx, upy, upz};
-    GLfloat s[3];
-
-    cpu_gl_normalize(f, f);
-
-    cpu_gl_cross(s, f, u);
-    cpu_gl_normalize(s, s);
-
-    cpu_gl_cross(u, s, f);
-
-    //GLfloat m[4][4];
-    
-    m->m[0][0] = s[0];
-    m->m[0][1] = u[0];
-    m->m[0][2] = -f[0];
-    m->m[0][3] = 0;
-
-    m->m[1][0] = s[1];
-    m->m[1][1] = u[1];
-    m->m[1][2] = -f[1];
-    m->m[1][3] = 0;
-
-    m->m[2][0] = s[2];
-    m->m[2][1] = u[2];
-    m->m[2][2] = -f[2];
-    m->m[2][3] = 0;
-
-    m->m[3][0] = -cpu_dot_product3(s, eye);
-    m->m[3][1] = -cpu_dot_product3(u, eye);
-    m->m[3][2] = cpu_dot_product3(f, eye);
-    m->m[3][3] = 1;
-};
-
-void computeCameraMatrix(matrix_t* matrix, const camera_t *camera)
-{
-    // Set the camera transform
-    //glLoadIdentity();
     cpu_gluLookAt(matrix,
         0, -camera->distance, -camera->distance,
         0, 0, 0,
         0, 1, 0);
     matrix_t rotate = cpu_glRotatef(camera->rotation, 0, 1, 0);
     matrix_mult_full(matrix, &rotate, matrix);
-    //glRotatef(camera->rotation, 0, 1, 0);
 }
-
 
 void setup()
 {
@@ -271,7 +176,7 @@ void render()
 
     glMatrixMode(GL_MODELVIEW);
     matrix_t camera_matrix;
-    computeCameraMatrix(&camera_matrix, &camera);
+    compute_camera_matrix(&camera_matrix, &camera);
     glLoadMatrixf(&camera_matrix.m[0][0]);
 
     //camera_transform(&camera);

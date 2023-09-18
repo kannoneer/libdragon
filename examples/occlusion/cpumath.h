@@ -1,3 +1,5 @@
+#ifndef CPUMATH_H_
+#define CPUMATH_H_
 // statement expressions: https://stackoverflow.com/a/58532788
 #define max(a,b)             \
 ({                           \
@@ -88,3 +90,5 @@ vec3f vec3f_sub(vec3f a, vec3f b) {
 	vec3f c = {a.x-b.x, a.y-b.y, a.z-b.z};
 	return c;
 }
+
+#endif
