@@ -65,6 +65,27 @@ static const char *texture_path[4] = {
 
 static sprite_t *sprites[4];
 
+static void computeProjectionMatrix(matrix_t* proj, float fovy, float aspect, float zNear, float zFar)
+{
+	float sine, cotangent, deltaZ;
+	float radians = fovy / 2 * (float)M_PI / 180;
+	deltaZ = zFar - zNear;
+	sine = sinf(radians);
+	if ((deltaZ == 0) || (sine == 0) || (aspect == 0))
+	{
+		return;
+	}
+	cotangent = cosf(radians) / sine;
+
+    memset(&proj->m[0][0], 0, sizeof(matrix_t));
+	proj->m[0][0] = cotangent / aspect;
+	proj->m[1][1] = cotangent;
+	proj->m[2][2] = -(zFar + zNear) / deltaZ;
+	proj->m[2][3] = -1;
+	proj->m[3][2] = -2 * zNear * zFar / deltaZ;
+	proj->m[3][3] = 0;
+}
+
 void setup()
 {
     camera.distance = -10.0f;
@@ -91,7 +112,10 @@ void setup()
 
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    glFrustum(-near_plane*aspect_ratio, near_plane*aspect_ratio, -near_plane, near_plane, near_plane, far_plane);
+
+    matrix_t projection;
+    computeProjectionMatrix(&projection, 90.f, aspect_ratio, near_plane, far_plane);
+    glMultMatrixf(&projection.m[0][0]);
 
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
