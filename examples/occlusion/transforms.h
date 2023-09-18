@@ -1,3 +1,5 @@
+#ifndef TRANSFORMS_H_
+#define TRANSFORMS_H_
 #include <stdint.h>
 #include <math.h>
 
@@ -19,7 +21,7 @@ typedef struct {
     //GLubyte mtx_index[VERTEX_UNIT_COUNT];
 } obj_attributes_t;
 
-typedef obj_attributes_t vertex_t;
+typedef obj_attributes_t cpu_vertex_t;
 
 typedef struct {
     float screen_pos[2];
@@ -32,7 +34,7 @@ typedef struct {
     uint8_t clip_code;
     uint8_t tr_code;
     uint8_t t_l_applied;
-} vtx_t;
+} cpu_vtx_t;
 
 typedef struct {
     // Pipeline state
@@ -170,7 +172,7 @@ void cpu_glDepthRange(double n, double f)
     state.current_viewport.offset[2] = n + (f - n) * 0.5f;
 }
 
-static void vertex_calc_screenspace(vtx_t *v)
+static void vertex_calc_screenspace(cpu_vtx_t *v)
 {
     v->inv_w = v->cs_pos[3] != 0.0f ? 1.0f / v->cs_pos[3] : 0x7FFF;
 
@@ -236,7 +238,7 @@ void matrix_mult_full(matrix_t *d, const matrix_t *l, const matrix_t *r)
     matrix_mult(d->m[3], l, r->m[3]);
 }
 
-static void vertex_pre_tr(vtx_t *v, matrix_t *mvp)
+static void vertex_pre_tr(cpu_vtx_t *v, matrix_t *mvp)
 {
     // gl_vtx_t *v = &state.vertex_cache[cache_index];
     // memcpy(&v->obj_attributes, &state.current_attributes, sizeof(gl_obj_attributes_t));
@@ -327,47 +329,47 @@ matrix_t cpu_glLoadIdentity(void)
 
 // Object vertex data
 
-static const float cube_size = 1.1f;
+static const float occ_cube_size = 1.1f;
 
-static const vertex_t cube_vertices[] = {
+static const cpu_vertex_t occ_cube_vertices[] = {
     // +X
-    { .position = { cube_size, -cube_size, -cube_size, 1.0f}, .texcoord = {0.f, 0.f}, .normal = { 1.f,  0.f,  0.f}, .color = 0xFF0000FF },
-    { .position = { cube_size,  cube_size, -cube_size, 1.0f}, .texcoord = {1.f, 0.f}, .normal = { 1.f,  0.f,  0.f}, .color = 0xFF0000FF },
-    { .position = { cube_size,  cube_size,  cube_size, 1.0f}, .texcoord = {1.f, 1.f}, .normal = { 1.f,  0.f,  0.f}, .color = 0xFF0000FF },
-    { .position = { cube_size, -cube_size,  cube_size, 1.0f}, .texcoord = {0.f, 1.f}, .normal = { 1.f,  0.f,  0.f}, .color = 0xFF0000FF },
+    { .position = { occ_cube_size, -occ_cube_size, -occ_cube_size, 1.0f}, .texcoord = {0.f, 0.f}, .normal = { 1.f,  0.f,  0.f} },
+    { .position = { occ_cube_size,  occ_cube_size, -occ_cube_size, 1.0f}, .texcoord = {1.f, 0.f}, .normal = { 1.f,  0.f,  0.f} },
+    { .position = { occ_cube_size,  occ_cube_size,  occ_cube_size, 1.0f}, .texcoord = {1.f, 1.f}, .normal = { 1.f,  0.f,  0.f} },
+    { .position = { occ_cube_size, -occ_cube_size,  occ_cube_size, 1.0f}, .texcoord = {0.f, 1.f}, .normal = { 1.f,  0.f,  0.f} },
 
     // -X
-    { .position = {-cube_size, -cube_size, -cube_size}, .texcoord = {0.f, 0.f}, .normal = {-1.f,  0.f,  0.f}, .color = 0x00FFFFFF },
-    { .position = {-cube_size, -cube_size,  cube_size}, .texcoord = {0.f, 1.f}, .normal = {-1.f,  0.f,  0.f}, .color = 0x00FFFFFF },
-    { .position = {-cube_size,  cube_size,  cube_size}, .texcoord = {1.f, 1.f}, .normal = {-1.f,  0.f,  0.f}, .color = 0x00FFFFFF },
-    { .position = {-cube_size,  cube_size, -cube_size}, .texcoord = {1.f, 0.f}, .normal = {-1.f,  0.f,  0.f}, .color = 0x00FFFFFF },
+    { .position = {-occ_cube_size, -occ_cube_size, -occ_cube_size}, .texcoord = {0.f, 0.f}, .normal = {-1.f,  0.f,  0.f} },
+    { .position = {-occ_cube_size, -occ_cube_size,  occ_cube_size}, .texcoord = {0.f, 1.f}, .normal = {-1.f,  0.f,  0.f} },
+    { .position = {-occ_cube_size,  occ_cube_size,  occ_cube_size}, .texcoord = {1.f, 1.f}, .normal = {-1.f,  0.f,  0.f} },
+    { .position = {-occ_cube_size,  occ_cube_size, -occ_cube_size}, .texcoord = {1.f, 0.f}, .normal = {-1.f,  0.f,  0.f} },
 
     // +Y
-    { .position = {-cube_size,  cube_size, -cube_size}, .texcoord = {0.f, 0.f}, .normal = { 0.f,  1.f,  0.f}, .color = 0x00FF00FF },
-    { .position = {-cube_size,  cube_size,  cube_size}, .texcoord = {0.f, 1.f}, .normal = { 0.f,  1.f,  0.f}, .color = 0x00FF00FF },
-    { .position = { cube_size,  cube_size,  cube_size}, .texcoord = {1.f, 1.f}, .normal = { 0.f,  1.f,  0.f}, .color = 0x00FF00FF },
-    { .position = { cube_size,  cube_size, -cube_size}, .texcoord = {1.f, 0.f}, .normal = { 0.f,  1.f,  0.f}, .color = 0x00FF00FF },
+    { .position = {-occ_cube_size,  occ_cube_size, -occ_cube_size}, .texcoord = {0.f, 0.f}, .normal = { 0.f,  1.f,  0.f} },
+    { .position = {-occ_cube_size,  occ_cube_size,  occ_cube_size}, .texcoord = {0.f, 1.f}, .normal = { 0.f,  1.f,  0.f} },
+    { .position = { occ_cube_size,  occ_cube_size,  occ_cube_size}, .texcoord = {1.f, 1.f}, .normal = { 0.f,  1.f,  0.f} },
+    { .position = { occ_cube_size,  occ_cube_size, -occ_cube_size}, .texcoord = {1.f, 0.f}, .normal = { 0.f,  1.f,  0.f} },
 
     // -Y
-    { .position = {-cube_size, -cube_size, -cube_size}, .texcoord = {0.f, 0.f}, .normal = { 0.f, -1.f,  0.f}, .color = 0xFF00FFFF },
-    { .position = { cube_size, -cube_size, -cube_size}, .texcoord = {1.f, 0.f}, .normal = { 0.f, -1.f,  0.f}, .color = 0xFF00FFFF },
-    { .position = { cube_size, -cube_size,  cube_size}, .texcoord = {1.f, 1.f}, .normal = { 0.f, -1.f,  0.f}, .color = 0xFF00FFFF },
-    { .position = {-cube_size, -cube_size,  cube_size}, .texcoord = {0.f, 1.f}, .normal = { 0.f, -1.f,  0.f}, .color = 0xFF00FFFF },
+    { .position = {-occ_cube_size, -occ_cube_size, -occ_cube_size}, .texcoord = {0.f, 0.f}, .normal = { 0.f, -1.f,  0.f} },
+    { .position = { occ_cube_size, -occ_cube_size, -occ_cube_size}, .texcoord = {1.f, 0.f}, .normal = { 0.f, -1.f,  0.f} },
+    { .position = { occ_cube_size, -occ_cube_size,  occ_cube_size}, .texcoord = {1.f, 1.f}, .normal = { 0.f, -1.f,  0.f} },
+    { .position = {-occ_cube_size, -occ_cube_size,  occ_cube_size}, .texcoord = {0.f, 1.f}, .normal = { 0.f, -1.f,  0.f} },
 
     // +Z
-    { .position = {-cube_size, -cube_size,  cube_size}, .texcoord = {0.f, 0.f}, .normal = { 0.f,  0.f,  1.f}, .color = 0x0000FFFF },
-    { .position = { cube_size, -cube_size,  cube_size}, .texcoord = {1.f, 0.f}, .normal = { 0.f,  0.f,  1.f}, .color = 0x0000FFFF },
-    { .position = { cube_size,  cube_size,  cube_size}, .texcoord = {1.f, 1.f}, .normal = { 0.f,  0.f,  1.f}, .color = 0x0000FFFF },
-    { .position = {-cube_size,  cube_size,  cube_size}, .texcoord = {0.f, 1.f}, .normal = { 0.f,  0.f,  1.f}, .color = 0x0000FFFF },
+    { .position = {-occ_cube_size, -occ_cube_size,  occ_cube_size}, .texcoord = {0.f, 0.f}, .normal = { 0.f,  0.f,  1.f} },
+    { .position = { occ_cube_size, -occ_cube_size,  occ_cube_size}, .texcoord = {1.f, 0.f}, .normal = { 0.f,  0.f,  1.f} },
+    { .position = { occ_cube_size,  occ_cube_size,  occ_cube_size}, .texcoord = {1.f, 1.f}, .normal = { 0.f,  0.f,  1.f} },
+    { .position = {-occ_cube_size,  occ_cube_size,  occ_cube_size}, .texcoord = {0.f, 1.f}, .normal = { 0.f,  0.f,  1.f} },
 
     // -Z
-    { .position = {-cube_size, -cube_size, -cube_size}, .texcoord = {0.f, 0.f}, .normal = { 0.f,  0.f, -1.f}, .color = 0xFFFF00FF },
-    { .position = {-cube_size,  cube_size, -cube_size}, .texcoord = {0.f, 1.f}, .normal = { 0.f,  0.f, -1.f}, .color = 0xFFFF00FF },
-    { .position = { cube_size,  cube_size, -cube_size}, .texcoord = {1.f, 1.f}, .normal = { 0.f,  0.f, -1.f}, .color = 0xFFFF00FF },
-    { .position = { cube_size, -cube_size, -cube_size}, .texcoord = {1.f, 0.f}, .normal = { 0.f,  0.f, -1.f}, .color = 0xFFFF00FF },
+    { .position = {-occ_cube_size, -occ_cube_size, -occ_cube_size}, .texcoord = {0.f, 0.f}, .normal = { 0.f,  0.f, -1.f} },
+    { .position = {-occ_cube_size,  occ_cube_size, -occ_cube_size}, .texcoord = {0.f, 1.f}, .normal = { 0.f,  0.f, -1.f} },
+    { .position = { occ_cube_size,  occ_cube_size, -occ_cube_size}, .texcoord = {1.f, 1.f}, .normal = { 0.f,  0.f, -1.f} },
+    { .position = { occ_cube_size, -occ_cube_size, -occ_cube_size}, .texcoord = {1.f, 0.f}, .normal = { 0.f,  0.f, -1.f} },
 };
 
-static const uint16_t cube_indices[] = {
+static const uint16_t occ_cube_indices[] = {
      0,  1,  2,  0,  2,  3,
      4,  5,  6,  4,  6,  7,
      8,  9, 10,  8, 10, 11,
@@ -375,3 +377,4 @@ static const uint16_t cube_indices[] = {
     16, 17, 18, 16, 18, 19,
     20, 21, 22, 20, 22, 23,
 };
+#endif

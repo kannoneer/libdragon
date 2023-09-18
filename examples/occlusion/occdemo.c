@@ -14,6 +14,8 @@
 #include "prim_test.h"
 #include "skinned.h"
 
+#include "occlusion.h"
+
 // Set this to 1 to enable rdpq debug output.
 // The demo will only run for a single frame and stop.
 #define DEBUG_RDP 0

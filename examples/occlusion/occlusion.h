@@ -306,11 +306,11 @@ void draw_tri3(
 	debugf("worst_relerror: %f %%, worst_abserror: %f\n", 100 * worst_relerror, worst_abserror);
 }
 
-void occ_draw_indexed_mesh(occ_culler_t* occ, surface_t* zbuffer, const vertex_t* cube_vertices, const uint16_t* cube_indices, uint32_t num_indices)
+void occ_draw_indexed_mesh(occ_culler_t* occ, surface_t* zbuffer, const cpu_vertex_t* cube_vertices, const uint16_t* cube_indices, uint32_t num_indices)
 {
 	for (int is=0; is < num_indices; is+=3) {
 		const uint16_t* inds = &cube_indices[is];
-		vtx_t verts[3] = {0};
+		cpu_vtx_t verts[3] = {0};
 
 		for (int i=0;i<3;i++) {
 			verts[i].obj_attributes = cube_vertices[inds[i]];
