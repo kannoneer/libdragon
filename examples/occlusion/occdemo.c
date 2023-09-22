@@ -277,8 +277,9 @@ int main()
     rdpq_debug_log(true);
 #endif
 
-    glDepthRange(0, 1); // matches culler's convention
-    culler = occ_culler_alloc(0, 0, CULL_W, CULL_H);
+    glDepthRange(0, 1); // This is the default but set here to draw attention it since it's also the culler's convention
+    culler = occ_alloc();
+    occ_set_viewport(culler, 0, 0, CULL_W, CULL_H);
 
     setup();
 

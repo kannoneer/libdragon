@@ -36,7 +36,7 @@
 const bool g_verbose_setup = false;
 const bool g_measure_error = false;
 
-struct occ_culler_s {
+typedef struct occ_culler_s {
     struct {
         int x;
         int y;
@@ -45,22 +45,23 @@ struct occ_culler_s {
     } viewport;
     matrix_t proj;
     matrix_t mvp;
-};
+} occ_culler_t;
 
-typedef struct occ_culler_s occ_culler_t;
-
-occ_culler_t* occ_culler_alloc(int x, int y, int width, int height) {
+occ_culler_t* occ_alloc() {
     occ_culler_t* culler = malloc(sizeof(occ_culler_t));
+	memset(culler, 0, sizeof(occ_culler_t));
+	cpu_glDepthRange(0.0, 1.0);
+    return culler;
+}
+
+void occ_set_viewport(occ_culler_t* culler, int x, int y, int width, int height) {
 	culler->viewport.x = x;
 	culler->viewport.y = y;
 	culler->viewport.width = width;
 	culler->viewport.height = height;
-	cpu_glDepthRange(0.0, 1.0);
-
-    return culler;
 }
 
-void occ_culler_free(occ_culler_t* culler) {
+void occ_free(occ_culler_t* culler) {
     free(culler);
 }
 
