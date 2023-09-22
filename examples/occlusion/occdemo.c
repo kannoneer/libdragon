@@ -33,7 +33,7 @@ static surface_t sw_zbuffer_array[2];
 static surface_t* sw_zbuffer;
 
 static matrix_t g_projection;
-static matrix_t g_plane_xform;
+//static matrix_t g_cube_xform;
 
 static uint64_t g_num_frames = 0;
 
@@ -79,8 +79,8 @@ void compute_camera_matrix(matrix_t* matrix, const camera_t *camera)
 {
     matrix_t lookat;
     cpu_gluLookAt(&lookat,
-        0, -camera->distance * 2.f, -camera->distance,
-        0, 0, 0,
+        0, 0.5f * -camera->distance, -camera->distance,
+        0, 4, 0,
         0, 1, 0);
     matrix_t rotate = cpu_glRotatef(camera->rotation, 0, 1, 0);
     matrix_mult_full(matrix, &lookat, &rotate);
@@ -89,7 +89,7 @@ void compute_camera_matrix(matrix_t* matrix, const camera_t *camera)
 void setup()
 {
     camera.distance = -10.0f;
-    camera.rotation = 0.0f;
+    camera.rotation = 180.0f;
 
     zbuffer = surface_alloc(FMT_RGBA16, display_get_width(), display_get_height());
     sw_zbuffer_array[0] = surface_alloc(FMT_RGBA16, CULL_W, CULL_H);
@@ -198,8 +198,6 @@ void render()
     glLoadMatrixf(&modelview.m[0][0]);
     occ_set_mvp_matrix(culler, &mvp);
 
-    //camera_transform(&camera);
-
     float rotation = animation * 0.5f;
 
     set_light_positions(rotation);
@@ -213,29 +211,61 @@ void render()
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
 
-    // Render occluders
+    // Draw occluders
     
     render_plane();
     occ_draw_indexed_mesh(culler, sw_zbuffer, NULL, plane_vertices, plane_indices, plane_index_count);
 
-    g_plane_xform = cpu_glTranslatef(0.0f, 0.0f + 8.0f * sin(g_num_frames*0.1f), 0.0f);
-    glMultMatrixf(&g_plane_xform.m[0][0]);
+    for (int i=0;i<3;i++) {
+        glPushMatrix();
+        matrix_t scale = cpu_glScalef(1.0f, 1.5f, 0.2f);
+        matrix_t translate = cpu_glTranslatef((-1 + i) * 8.f + 2.0f*sin(i*1.5f + 0.05f*g_num_frames), 5.0f, sin(i*2.f));
+        matrix_t model;
+        matrix_mult_full(&model, &translate, &scale);
+        
+        glMultMatrixf(&model.m[0][0]);
+        render_cube();
+        occ_draw_indexed_mesh(culler, sw_zbuffer, &model, cube_vertices, cube_indices, sizeof(cube_indices)/sizeof(cube_indices[0]));
+        glPopMatrix();
+
+    }
+
+    // We are interested in target cube's visiblity. Compute its model-to-world transform.
+
+    matrix_t cube_rotate = cpu_glRotatef(2.f*g_num_frames, sqrtf(3.f), 0.0f, sqrtf(3.f));
+    matrix_t cube_translate = cpu_glTranslatef(0.0f + 6.0f * sin(g_num_frames*0.04f), 5.0f, 7.0f);
+    matrix_t cube_model;
+    matrix_mult_full(&cube_model, &cube_translate, &cube_rotate);
 
     // Occlusion culling
 
     occ_result_box_t box = {};
-    bool cube_visible = occ_check_mesh_visible(culler, sw_zbuffer, &g_plane_xform, cube_vertices, sizeof(cube_vertices)/sizeof(cube_vertices[0]), &box);
-    debugf("cube_visible: %d at depth: %u\n",cube_visible, box.udepth);
-    occ_draw_indexed_mesh(culler, sw_zbuffer, &g_plane_xform, cube_vertices, cube_indices, sizeof(cube_indices)/sizeof(cube_indices[0]));
+    bool cube_visible = occ_check_mesh_visible(culler, sw_zbuffer, &cube_model, cube_vertices, sizeof(cube_vertices)/sizeof(cube_vertices[0]), &box);
+    // debugf("cube_visible: %d at depth: %u\n",cube_visible, box.udepth);
+    occ_draw_indexed_mesh(culler, sw_zbuffer, &cube_model, cube_vertices, cube_indices, sizeof(cube_indices)/sizeof(cube_indices[0]));
+    bool wireframe = !cube_visible;
 
-    // Continue rendering other objects
+    // Continue drawing other objects
 
-    //render_decal();
+    if (wireframe) {
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_LIGHTING);
+        glDisable(GL_TEXTURE_2D);
+    }
     glPushMatrix();
+    glMultMatrixf(&cube_model.m[0][0]);
     render_cube();
     glPopMatrix();
-    //render_skinned(&camera, animation);
+    if (wireframe) {
+        glEnable(GL_TEXTURE_2D);
+        glEnable(GL_LIGHTING);
+        glEnable(GL_DEPTH_TEST);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    }
 
+    // render_decal();
+    // render_skinned(&camera, animation);
 
     glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
     //render_sphere(rotation);
@@ -270,8 +300,13 @@ void render()
         rdpq_fill_rectangle(box.minX, box.minY, box.maxX, box.maxY);
     }
     if (cube_visible) {
+        // Draw the visible pixel to both the mini-image and the full rendering
         rdpq_set_mode_fill((color_t){0,0,255,255});
-        rdpq_fill_rectangle(box.hitX-1, box.hitY-1, box.hitX+1, box.hitY+1);
+        rdpq_fill_rectangle(box.hitX, box.hitY+1, box.hitX, box.hitY+1);
+        float xscale = disp->width / (float)sw_zbuffer->width;
+        float yscale = disp->height / (float)sw_zbuffer->height;
+        rdpq_set_mode_fill((color_t){255,255,255,255});
+        rdpq_fill_rectangle(xscale*box.hitX-1, yscale*box.hitY-1, xscale*box.hitX+2, yscale*box.hitY+2);
     }
     rdpq_detach_show();
 
