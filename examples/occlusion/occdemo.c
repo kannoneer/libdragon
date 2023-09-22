@@ -212,22 +212,30 @@ void render()
 
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
-    
-    glPushMatrix();
-    g_plane_xform = cpu_glTranslatef(0.0f, 2.0f + 4.0f * sin(g_num_frames*0.1f), 0.0f);
-    glMultMatrixf(&g_plane_xform.m[0][0]);
-    render_plane();
-    glPopMatrix();
-    //render_decal();
-    render_cube();
-    //render_skinned(&camera, animation);
 
-    occ_draw_indexed_mesh(culler, sw_zbuffer, &g_plane_xform, plane_vertices, plane_indices, plane_index_count);
+    // Render occluders
+    
+    render_plane();
+    occ_draw_indexed_mesh(culler, sw_zbuffer, NULL, plane_vertices, plane_indices, plane_index_count);
+
+    g_plane_xform = cpu_glTranslatef(0.0f, 0.0f + 8.0f * sin(g_num_frames*0.1f), 0.0f);
+    glMultMatrixf(&g_plane_xform.m[0][0]);
+
+    // Occlusion culling
 
     occ_result_box_t box = {};
-    bool cube_visible = occ_check_mesh_visible(culler, sw_zbuffer, cube_vertices, sizeof(cube_vertices)/sizeof(cube_vertices[0]), &box);
+    bool cube_visible = occ_check_mesh_visible(culler, sw_zbuffer, &g_plane_xform, cube_vertices, sizeof(cube_vertices)/sizeof(cube_vertices[0]), &box);
     debugf("cube_visible: %d at depth: %u\n",cube_visible, box.udepth);
-    occ_draw_indexed_mesh(culler, sw_zbuffer, NULL, cube_vertices, cube_indices, sizeof(cube_indices)/sizeof(cube_indices[0]));
+    occ_draw_indexed_mesh(culler, sw_zbuffer, &g_plane_xform, cube_vertices, cube_indices, sizeof(cube_indices)/sizeof(cube_indices[0]));
+
+    // Continue rendering other objects
+
+    //render_decal();
+    glPushMatrix();
+    render_cube();
+    glPopMatrix();
+    //render_skinned(&camera, animation);
+
 
     glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
     //render_sphere(rotation);

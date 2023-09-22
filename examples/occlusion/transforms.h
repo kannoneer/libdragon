@@ -1,7 +1,7 @@
 #ifndef TRANSFORMS_H_
 #define TRANSFORMS_H_
-#include <stdint.h>
 #include <math.h>
+#include <stdint.h>
 
 typedef struct {
     float m[4][4];
@@ -12,13 +12,12 @@ typedef struct {
     float offset[3];
 } viewport_t;
 
-
 typedef struct {
     float position[4];
     // float color[4];
     // float texcoord[4];
     // float normal[3];
-    //GLubyte mtx_index[VERTEX_UNIT_COUNT];
+    // GLubyte mtx_index[VERTEX_UNIT_COUNT];
 } obj_attributes_t;
 
 typedef struct {
@@ -39,8 +38,8 @@ typedef struct {
 
     viewport_t current_viewport;
 
-    //GLenum matrix_mode;
-    // GLint current_palette_matrix;
+    // GLenum matrix_mode;
+    //  GLint current_palette_matrix;
 
     // gl_matrix_t *current_matrix;
 
@@ -211,11 +210,11 @@ static uint8_t cpu_get_clip_codes(float *pos, float *ref)
 {
     // This corresponds to vcl + vch on RSP
     uint8_t codes = 0;
-    for (uint32_t i = 0; i < 3; i++)
-    {
-        if (pos[i] < - ref[i]) {
+    for (uint32_t i = 0; i < 3; i++) {
+        if (pos[i] < -ref[i]) {
             codes |= 1 << i;
-        } else if (pos[i] > ref[i]) {
+        }
+        else if (pos[i] > ref[i]) {
             codes |= 1 << (i + 3);
         }
     }
@@ -258,9 +257,8 @@ static void cpu_vertex_pre_tr(cpu_vtx_t *v, matrix_t *mvp)
     float tr_ref[] = {
         v->cs_pos[3],
         v->cs_pos[3],
-        v->cs_pos[3]
-    };
-    
+        v->cs_pos[3]};
+
     v->tr_code = cpu_get_clip_codes(v->cs_pos, tr_ref);
     v->t_l_applied = false;
 }
@@ -274,85 +272,84 @@ matrix_t cpu_glRotatef(float angle, float x, float y, float z)
     float s = sinf(a);
     float ic = 1.f - c;
 
-    float mag = sqrtf(x*x + y*y + z*z);
+    float mag = sqrtf(x * x + y * y + z * z);
     x /= mag;
     y /= mag;
     z /= mag;
 
-    return (matrix_t){ .m={
-        {x*x*ic+c,   y*x*ic+z*s, z*x*ic-y*s, 0.f},
-        {x*y*ic-z*s, y*y*ic+c,   z*y*ic+x*s, 0.f},
-        {x*z*ic+y*s, y*z*ic-x*s, z*z*ic+c,   0.f},
-        {0.f,        0.f,        0.f,        1.f},
-    }};
+    return (matrix_t){.m = {
+                          {x * x * ic + c, y * x * ic + z * s, z * x * ic - y * s, 0.f},
+                          {x * y * ic - z * s, y * y * ic + c, z * y * ic + x * s, 0.f},
+                          {x * z * ic + y * s, y * z * ic - x * s, z * z * ic + c, 0.f},
+                          {0.f, 0.f, 0.f, 1.f},
+                      }};
 }
 
 matrix_t cpu_glTranslatef(float x, float y, float z)
 {
-    return (matrix_t){ .m={
-        {1.f, 0.f, 0.f, 0.f},
-        {0.f, 1.f, 0.f, 0.f},
-        {0.f, 0.f, 1.f, 0.f},
-        {x,   y,   z,   1.f},
-    }};
+    return (matrix_t){.m = {
+                          {1.f, 0.f, 0.f, 0.f},
+                          {0.f, 1.f, 0.f, 0.f},
+                          {0.f, 0.f, 1.f, 0.f},
+                          {x, y, z, 1.f},
+                      }};
 }
 
 matrix_t cpu_glScalef(float x, float y, float z)
 {
-    return (matrix_t){ .m={
-        {x,   0.f, 0.f, 0.f},
-        {0.f, y,   0.f, 0.f},
-        {0.f, 0.f, z,   0.f},
-        {0.f, 0.f, 0.f, 1.f},
-    }};
+    return (matrix_t){.m = {
+                          {x, 0.f, 0.f, 0.f},
+                          {0.f, y, 0.f, 0.f},
+                          {0.f, 0.f, z, 0.f},
+                          {0.f, 0.f, 0.f, 1.f},
+                      }};
 }
 
 matrix_t cpu_glFrustum(double l, double r, double b, double t, double n, double f)
 {
-    return (matrix_t){ .m={
-        {(2*n)/(r-l), 0.f,           0.f,            0.f},
-        {0.f,         (2.f*n)/(t-b), 0.f,            0.f},
-        {(r+l)/(r-l), (t+b)/(t-b),   -(f+n)/(f-n),   -1.f},
-        {0.f,         0.f,           -(2*f*n)/(f-n), 0.f},
-    }};
+    return (matrix_t){.m = {
+                          {(2 * n) / (r - l), 0.f, 0.f, 0.f},
+                          {0.f, (2.f * n) / (t - b), 0.f, 0.f},
+                          {(r + l) / (r - l), (t + b) / (t - b), -(f + n) / (f - n), -1.f},
+                          {0.f, 0.f, -(2 * f * n) / (f - n), 0.f},
+                      }};
 }
 
 matrix_t cpu_glLoadIdentity(void)
 {
-    return (matrix_t){ .m={
-        {1,0,0,0},
-        {0,1,0,0},
-        {0,0,1,0},
-        {0,0,0,1},
-    }};
+    return (matrix_t){.m = {
+                          {1, 0, 0, 0},
+                          {0, 1, 0, 0},
+                          {0, 0, 1, 0},
+                          {0, 0, 0, 1},
+                      }};
 }
 
 // Reimplementations taken from src/GL/lighting.c and src/GL/glu.c
 
-static void computeProjectionMatrix(matrix_t* proj, float fovy, float aspect, float zNear, float zFar)
+static void computeProjectionMatrix(matrix_t *proj, float fovy, float aspect, float zNear, float zFar)
 {
-	float sine, cotangent, deltaZ;
-	float radians = fovy / 2 * (float)M_PI / 180;
-	deltaZ = zFar - zNear;
-	sine = sinf(radians);
-	if ((deltaZ == 0) || (sine == 0) || (aspect == 0))
-	{
-		return;
-	}
-	cotangent = cosf(radians) / sine;
+    float sine, cotangent, deltaZ;
+    float radians = fovy / 2 * (float)M_PI / 180;
+    deltaZ = zFar - zNear;
+    sine = sinf(radians);
+    if ((deltaZ == 0) || (sine == 0) || (aspect == 0)) {
+        return;
+    }
+    cotangent = cosf(radians) / sine;
 
     memset(&proj->m[0][0], 0, sizeof(matrix_t));
-	proj->m[0][0] = cotangent / aspect;
-	proj->m[1][1] = cotangent;
-	proj->m[2][2] = -(zFar + zNear) / deltaZ;
-	proj->m[2][3] = -1;
-	proj->m[3][2] = -2 * zNear * zFar / deltaZ;
-	proj->m[3][3] = 0;
+    proj->m[0][0] = cotangent / aspect;
+    proj->m[1][1] = cotangent;
+    proj->m[2][2] = -(zFar + zNear) / deltaZ;
+    proj->m[2][3] = -1;
+    proj->m[3][2] = -2 * zNear * zFar / deltaZ;
+    proj->m[3][3] = 0;
 }
 
 static float cpu_gl_mag2(const GLfloat *v)
 {
-    return v[0]*v[0] + v[1]*v[1] + v[2]*v[2];
+    return v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
 }
 
 static float cpu_gl_mag(const GLfloat *v)
@@ -369,7 +366,7 @@ static void cpu_gl_normalize(GLfloat *d, const GLfloat *v)
     d[2] = v[2] * inv_mag;
 }
 
-static void cpu_gl_cross(GLfloat* p, const GLfloat* a, const GLfloat* b)
+static void cpu_gl_cross(GLfloat *p, const GLfloat *a, const GLfloat *b)
 {
     p[0] = (a[1] * b[2] - a[2] * b[1]);
     p[1] = (a[2] * b[0] - a[0] * b[2]);
@@ -381,9 +378,9 @@ static float cpu_dot_product3(const float *a, const float *b)
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 
-static void cpu_gluLookAt(matrix_t* m, float eyex, float eyey, float eyez, 
-               float centerx, float centery, float centerz,
-               float upx, float upy, float upz)
+static void cpu_gluLookAt(matrix_t *m, float eyex, float eyey, float eyez,
+                          float centerx, float centery, float centerz,
+                          float upx, float upy, float upz)
 {
     GLfloat eye[3] = {eyex, eyey, eyez};
     GLfloat f[3] = {centerx - eyex, centery - eyey, centerz - eyez};
@@ -418,7 +415,8 @@ static void cpu_gluLookAt(matrix_t* m, float eyex, float eyey, float eyez,
     m->m[3][3] = 1;
 };
 
-void print_matrix(matrix_t* matrix) {
+void print_matrix(matrix_t *matrix)
+{
     for (int row = 0; row < 4; row++) {
         for (int col = 0; col < 4; col++) {
             debugf("%f ", matrix->m[row][col]);
