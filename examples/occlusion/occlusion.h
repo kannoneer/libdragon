@@ -36,9 +36,10 @@
 #define ZBUFFER_UINT_PTR_AT(zbuffer, x, y) ((u_uint16_t *)(zbuffer->buffer + (zbuffer->stride * y + x * sizeof(uint16_t))))
 // u_uint16_t* buf = (u_uint16_t*)(zbuffer->buffer + (zbuffer->stride * p.y + p.x * sizeof(uint16_t)))
 
-const bool g_verbose_setup = false;
+const bool g_verbose_setup = true;
 const bool g_measure_error = false;
 const bool g_verbose_raster = false; // print depth at vertex pixels
+const bool config_discard_based_on_tr_code = false;
 
 typedef struct occ_culler_s {
     struct {
@@ -389,6 +390,22 @@ void occ_draw_indexed_mesh(occ_culler_t *occ, surface_t *zbuffer, const matrix_t
             screenverts[i].y = verts[i].screen_pos[1];
             screenzs[i] = verts[i].depth;
         }
+
+        if (verts[0].cs_pos[2] < -1.0f || verts[1].cs_pos[2] < -1.0f || verts[2].cs_pos[2] < -1.0f) {
+            continue;
+        }
+
+		if (config_discard_based_on_tr_code) {
+			uint8_t tr_codes = 0xFF;
+			tr_codes &= verts[0].tr_code;
+			tr_codes &= verts[1].tr_code;
+			tr_codes &= verts[2].tr_code;
+
+			// Trivial rejection
+			if (tr_codes) {
+				continue;
+			}
+		}
 
         draw_tri3(
             screenverts[0], screenverts[1], screenverts[2],
