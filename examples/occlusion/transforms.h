@@ -3,6 +3,22 @@
 #include <math.h>
 #include <stdint.h>
 
+#define CLIPPING_PLANE_COUNT  6
+#define CLIPPING_CACHE_SIZE   9
+#define CLIPPING_PLANE_SIZE   8
+#define GUARD_BAND_FACTOR (4)
+
+static const float clip_planes[CLIPPING_PLANE_COUNT][4] = {
+    { 1, 0, 0, GUARD_BAND_FACTOR },
+    { 0, 1, 0, GUARD_BAND_FACTOR },
+    { 0, 0, 1, 1 },
+    { 1, 0, 0, -GUARD_BAND_FACTOR },
+    { 0, 1, 0, -GUARD_BAND_FACTOR },
+    { 0, 0, 1, -1 },
+};
+
+
+
 typedef struct {
     float m[4][4];
 } matrix_t;
@@ -32,6 +48,11 @@ typedef struct {
     uint8_t tr_code;
     uint8_t t_l_applied;
 } cpu_vtx_t;
+
+typedef struct {
+    cpu_vtx_t *vertices[CLIPPING_PLANE_COUNT + 3];
+    uint32_t count;
+} cpu_clipping_list_t;
 
 typedef struct {
     // Pipeline state
@@ -206,6 +227,16 @@ static void cpu_vertex_calc_screenspace(cpu_vtx_t *v)
     // debugf("%s v->depth = %f * %f + %f = %f + %f = %f\n", __FUNCTION__, da, db, state.current_viewport.offset[2], dc, state.current_viewport.offset[2], v->depth);
 }
 
+static float cpu_dot_product4(const float *a, const float *b)
+{
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+}
+
+static float cpu_lerp(float a, float b, float t)
+{
+    return a + (b - a) * t;
+}
+
 static uint8_t cpu_get_clip_codes(float *pos, float *ref)
 {
     // This corresponds to vcl + vch on RSP
@@ -261,6 +292,150 @@ static void cpu_vertex_pre_tr(cpu_vtx_t *v, matrix_t *mvp)
 
     v->tr_code = cpu_get_clip_codes(v->cs_pos, tr_ref);
     v->t_l_applied = false;
+}
+
+static void cpu_gl_vertex_calc_clip_code(cpu_vtx_t *v)
+{
+    GLfloat clip_ref[] = { 
+        v->cs_pos[3] * GUARD_BAND_FACTOR,
+        v->cs_pos[3] * GUARD_BAND_FACTOR,
+        v->cs_pos[3]
+    };
+
+    v->clip_code = cpu_get_clip_codes(v->cs_pos, clip_ref);
+}
+
+static void cpu_intersect_line_plane(cpu_vtx_t *intersection, const cpu_vtx_t *p0, const cpu_vtx_t *p1, const float *clip_plane)
+{
+    float d0 = cpu_dot_product4(p0->cs_pos, clip_plane);
+    float d1 = cpu_dot_product4(p1->cs_pos, clip_plane);
+    
+    float a = d0 / (d0 - d1);
+
+    assertf(a >= 0.f && a <= 1.f, "invalid a: %f", a);
+
+    intersection->cs_pos[0] = cpu_lerp(p0->cs_pos[0], p1->cs_pos[0], a);
+    intersection->cs_pos[1] = cpu_lerp(p0->cs_pos[1], p1->cs_pos[1], a);
+    intersection->cs_pos[2] = cpu_lerp(p0->cs_pos[2], p1->cs_pos[2], a);
+    intersection->cs_pos[3] = cpu_lerp(p0->cs_pos[3], p1->cs_pos[3], a);
+
+    // intersection->shade[0] = lerp(p0->shade[0], p1->shade[0], a);
+    // intersection->shade[1] = lerp(p0->shade[1], p1->shade[1], a);
+    // intersection->shade[2] = lerp(p0->shade[2], p1->shade[2], a);
+    // intersection->shade[3] = lerp(p0->shade[3], p1->shade[3], a);
+
+    // intersection->texcoord[0] = lerp(p0->texcoord[0], p1->texcoord[0], a);
+    // intersection->texcoord[1] = lerp(p0->texcoord[1], p1->texcoord[1], a);
+
+    cpu_gl_vertex_calc_clip_code(intersection);
+}
+
+void cpu_gl_clip_triangle(cpu_vtx_t* v0, cpu_vtx_t* v1, cpu_vtx_t* v2, cpu_clipping_list_t* out_list)
+{
+    // gl_vtx_t *v0 = state.primitive_vertices[0];
+    // gl_vtx_t *v1 = state.primitive_vertices[1];
+    // gl_vtx_t *v2 = state.primitive_vertices[2];
+
+    // Flat shading
+    // if (state.shade_model == GL_FLAT) {
+    //     memcpy(state.flat_color, v2->shade, sizeof(state.flat_color));
+    // }
+
+    uint8_t any_clip = v0->clip_code | v1->clip_code | v2->clip_code;
+
+    if (!any_clip) {
+        //gl_cull_triangle(v0, v1, v2);
+        return;
+    }
+
+    // Polygon clipping using the Sutherland-Hodgman algorithm
+    // See https://en.wikipedia.org/wiki/Sutherland%E2%80%93Hodgman_algorithm
+
+    // Intersection points are stored in the clipping cache
+    cpu_vtx_t clipping_cache[CLIPPING_CACHE_SIZE];
+    uint32_t cache_used = 0;
+
+    cpu_clipping_list_t lists[2];
+
+    cpu_clipping_list_t *in_list = &lists[0];
+    //cpu_clipping_list_t *out_list = &lists[1];
+
+    out_list->vertices[0] = v0;
+    out_list->vertices[1] = v1;
+    out_list->vertices[2] = v2;
+    out_list->count = 3;
+    
+    for (uint32_t c = 0; c < CLIPPING_PLANE_COUNT; c++)
+    {
+        // If nothing clips this plane, skip it entirely
+        if ((any_clip & (1<<c)) == 0) {
+            continue;
+        }
+
+        const float *clip_plane = clip_planes[c];
+
+        SWAP(in_list, out_list);
+        out_list->count = 0;
+
+        for (uint32_t i = 0; i < in_list->count; i++)
+        {
+            uint32_t prev_index = (i + in_list->count - 1) % in_list->count;
+
+            cpu_vtx_t *cur_point = in_list->vertices[i];
+            cpu_vtx_t *prev_point = in_list->vertices[prev_index];
+
+            bool cur_inside = (cur_point->clip_code & (1<<c)) == 0;
+            bool prev_inside = (prev_point->clip_code & (1<<c)) == 0;
+
+            if (cur_inside ^ prev_inside) {
+                cpu_vtx_t *intersection = NULL;
+
+                for (uint32_t n = 0; n < CLIPPING_CACHE_SIZE; n++)
+                {
+                    if ((cache_used & (1<<n)) == 0) {
+                        intersection = &clipping_cache[n];
+                        cache_used |= (1<<n);
+                        break;
+                    }
+                }
+
+                assertf(intersection, "clipping cache full!");
+                assertf(intersection != cur_point, "invalid intersection");
+
+                cpu_vtx_t *p0 = cur_point;
+                cpu_vtx_t *p1 = prev_point;
+
+                // For consistent calculation of the intersection point
+                if (prev_inside) {
+                    SWAP(p0, p1);
+                }
+
+                cpu_intersect_line_plane(intersection, p0, p1, clip_plane);
+
+                out_list->vertices[out_list->count] = intersection;
+                out_list->count++;
+            }
+
+            if (cur_inside) {
+                out_list->vertices[out_list->count] = cur_point;
+                out_list->count++;
+            } else {
+                // If the point is in the clipping cache, remember it as unused
+                uint32_t diff = cur_point - clipping_cache;
+                if (diff >= 0 && diff < CLIPPING_CACHE_SIZE) {
+                    cache_used &= ~(1<<diff);
+                }
+            }
+        }
+    }
+
+    for (uint32_t i = 0; i < out_list->count; i++)
+    {
+        cpu_vertex_calc_screenspace(out_list->vertices[i]);
+        if (i > 1) {
+            //gl_cull_triangle(out_list->vertices[0], out_list->vertices[i-1], out_list->vertices[i]);
+        }
+    }
 }
 
 // Matrix ops

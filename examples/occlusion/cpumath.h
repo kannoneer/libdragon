@@ -15,6 +15,8 @@
         _a < _b ? _a : _b;      \
     })
 
+#define SWAP(a, b) ({ typeof(a) t = a; a = b; b = t; })
+
 typedef struct vec2 {
     int x, y;
 } vec2;
