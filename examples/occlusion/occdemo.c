@@ -20,10 +20,18 @@
 // The demo will only run for a single frame and stop.
 #define DEBUG_RDP 0
 
+#define CULL_W (320/4)
+#define CULL_H (240/4)
+
+static occ_culler_t* culler;
+
 static uint32_t animation = 3283;
 static uint32_t texture_index = 0;
 static camera_t camera;
 static surface_t zbuffer;
+static surface_t sw_zbuffer_array[2];
+static surface_t* sw_zbuffer;
+static matrix_t g_projection;
 
 static uint64_t frames = 0;
 
@@ -67,12 +75,13 @@ static sprite_t *sprites[4];
 
 void compute_camera_matrix(matrix_t* matrix, const camera_t *camera)
 {
-    cpu_gluLookAt(matrix,
+    matrix_t lookat;
+    cpu_gluLookAt(&lookat,
         0, -camera->distance, -camera->distance,
         0, 0, 0,
         0, 1, 0);
     matrix_t rotate = cpu_glRotatef(camera->rotation, 0, 1, 0);
-    matrix_mult_full(matrix, &rotate, matrix);
+    matrix_mult_full(matrix, &lookat, &rotate);
 }
 
 void setup()
@@ -81,6 +90,9 @@ void setup()
     camera.rotation = 0.0f;
 
     zbuffer = surface_alloc(FMT_RGBA16, display_get_width(), display_get_height());
+    sw_zbuffer_array[0] = surface_alloc(FMT_RGBA16, CULL_W, CULL_H);
+    sw_zbuffer_array[1] = surface_alloc(FMT_RGBA16, CULL_W, CULL_H);
+    sw_zbuffer = &sw_zbuffer_array[0];
 
     for (uint32_t i = 0; i < 4; i++)
     {
@@ -100,11 +112,11 @@ void setup()
     float far_plane = 50.0f;
 
     glMatrixMode(GL_PROJECTION);
+    computeProjectionMatrix(&g_projection, 80.f, aspect_ratio, near_plane, far_plane);
     glLoadIdentity();
+    glMultMatrixf(&g_projection.m[0][0]);
 
-    matrix_t projection;
-    computeProjectionMatrix(&projection, 90.f, aspect_ratio, near_plane, far_plane);
-    glMultMatrixf(&projection.m[0][0]);
+    occ_set_projection_matrix(culler, &g_projection);
 
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
@@ -173,11 +185,16 @@ void render()
 
     glClearColor(environment_color[0], environment_color[1], environment_color[2], environment_color[3]);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    occ_clear_zbuffer(sw_zbuffer);
 
     glMatrixMode(GL_MODELVIEW);
-    matrix_t camera_matrix;
-    compute_camera_matrix(&camera_matrix, &camera);
-    glLoadMatrixf(&camera_matrix.m[0][0]);
+    matrix_t modelview;
+    compute_camera_matrix(&modelview, &camera);
+    matrix_t mvp;
+    matrix_mult_full(&mvp, &g_projection, &modelview);
+
+    glLoadMatrixf(&modelview.m[0][0]);
+    occ_set_mvp_matrix(culler, &mvp);
 
     //camera_transform(&camera);
 
@@ -195,18 +212,37 @@ void render()
     glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
     
     render_plane();
-    render_decal();
+    //render_decal();
     render_cube();
-    render_skinned(&camera, animation);
+    //render_skinned(&camera, animation);
+
+    occ_draw_indexed_mesh(culler, sw_zbuffer, cube_vertices, cube_indices, sizeof(cube_indices)/sizeof(cube_indices[0]));
 
     glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
-    render_sphere(rotation);
+    //render_sphere(rotation);
 
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
-    render_primitives(rotation);
+    // render_primitives(rotation);
 
     gl_context_end();
+
+    // Show the software zbuffer
+
+    uint16_t minz=0xffff;
+    for (int y=0;y<sw_zbuffer->height;y++) {
+        for (int x=0;x<sw_zbuffer->width;x++) {
+            uint16_t z = ((uint16_t*)(sw_zbuffer->buffer + sw_zbuffer->stride * y))[x];
+            if (z<minz) minz = z;
+        }
+    }
+    debugf("minz: %u\n", minz);
+
+    //rdpq_attach(disp, NULL);
+    rdpq_set_mode_standard(); // Can't use copy mode if we need a 16-bit -> 32-bit conversion
+    rdpq_tex_blit(sw_zbuffer, 0, 0, NULL);
+    //rdpq_detach();
+    rspq_flush();
 
     rdpq_detach_show();
 
@@ -215,6 +251,12 @@ void render()
     if (((frames++) % 60) == 0) {
         rspq_profile_dump();
         rspq_profile_reset();
+    }
+
+    if (sw_zbuffer == &sw_zbuffer_array[0]) {
+        sw_zbuffer = &sw_zbuffer_array[1];
+    } else {
+        sw_zbuffer = &sw_zbuffer_array[0];
     }
 }
 
@@ -235,9 +277,11 @@ int main()
     rdpq_debug_log(true);
 #endif
 
+    glDepthRange(0, 1); // matches culler's convention
+    culler = occ_culler_alloc(0, 0, CULL_W, CULL_H);
+
     setup();
 
-    //controller_init();
     joypad_init();
 
     rspq_profile_start();

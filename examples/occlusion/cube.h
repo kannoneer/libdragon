@@ -81,8 +81,8 @@ void draw_cube()
 void render_cube()
 {
     rdpq_debug_log_msg("Cube");
-    glPushMatrix();
-    glTranslatef(0,-1.f,0);
+    //glPushMatrix();
+    //glTranslatef(0,-1.f,0);
 
     // Apply vertex color as material color.
     // Because the cube has colors set per vertex, we can color each face seperately
@@ -95,7 +95,7 @@ void render_cube()
     
     glDisable(GL_COLOR_MATERIAL);
 
-    glPopMatrix();
+    //glPopMatrix();
 }
 
 #endif

@@ -153,6 +153,7 @@ void cpu_glViewport(int x, int y, int w, int h, int screenw, int screenh)
     state.current_viewport.offset[0] = x + w * 0.5f;
     state.current_viewport.offset[1] = screenh - y - h * 0.5f;
 
+#if 0
     debugf("%s(%d, %d, %d, %d, %d, %d)\n",
         __FUNCTION__,
         x, y, w, h, screenw, screenh);
@@ -164,6 +165,7 @@ void cpu_glViewport(int x, int y, int w, int h, int screenw, int screenh)
         state.current_viewport.offset[0],
         state.current_viewport.offset[1]
     );
+#endif
 }
 
 void cpu_glDepthRange(double n, double f)
@@ -172,14 +174,14 @@ void cpu_glDepthRange(double n, double f)
     state.current_viewport.offset[2] = n + (f - n) * 0.5f;
 }
 
-static void vertex_calc_screenspace(cpu_vtx_t *v)
+static void cpu_vertex_calc_screenspace(cpu_vtx_t *v)
 {
     v->inv_w = v->cs_pos[3] != 0.0f ? 1.0f / v->cs_pos[3] : 0x7FFF;
 
     v->screen_pos[0] = v->cs_pos[0] * v->inv_w * state.current_viewport.scale[0] + state.current_viewport.offset[0];
     v->screen_pos[1] = v->cs_pos[1] * v->inv_w * state.current_viewport.scale[1] + state.current_viewport.offset[1];
 
-    assert(state.current_viewport.scale[2] > 0.0f);
+    assert(state.current_viewport.scale[2] > 0.0f && "depth range not set");
 
     v->depth = v->cs_pos[2] * v->inv_w * state.current_viewport.scale[2] + state.current_viewport.offset[2];
 
@@ -191,23 +193,23 @@ static void vertex_calc_screenspace(cpu_vtx_t *v)
     //     state.current_viewport.offset[1]
     // );
 
-    debugf("%s cs_pos=(%f, %f, %f, %f), inv_w=%f, depth=%f\n",
-    __FUNCTION__,
-    v->cs_pos[0],
-    v->cs_pos[1],
-    v->cs_pos[2],
-    v->cs_pos[3],
-    v->inv_w,
-    v->depth
-    );
+    // debugf("%s cs_pos=(%f, %f, %f, %f), inv_w=%f, depth=%f\n",
+    //     __FUNCTION__,
+    //     v->cs_pos[0],
+    //     v->cs_pos[1],
+    //     v->cs_pos[2],
+    //     v->cs_pos[3],
+    //     v->inv_w,
+    //     v->depth
+    // );
 
-    float da  = v->cs_pos[2] * v->inv_w;
-    float db = state.current_viewport.scale[2];
-    float dc = da * db;
-    debugf("%s v->depth = %f * %f + %f = %f + %f = %f\n", __FUNCTION__, da, db, state.current_viewport.offset[2], dc, state.current_viewport.offset[2], v->depth);
+    // float da  = v->cs_pos[2] * v->inv_w;
+    // float db = state.current_viewport.scale[2];
+    // float dc = da * db;
+    // debugf("%s v->depth = %f * %f + %f = %f + %f = %f\n", __FUNCTION__, da, db, state.current_viewport.offset[2], dc, state.current_viewport.offset[2], v->depth);
 }
 
-static uint8_t get_clip_codes(float *pos, float *ref)
+static uint8_t cpu_get_clip_codes(float *pos, float *ref)
 {
     // This corresponds to vcl + vch on RSP
     uint8_t codes = 0;
@@ -238,7 +240,7 @@ void matrix_mult_full(matrix_t *d, const matrix_t *l, const matrix_t *r)
     matrix_mult(d->m[3], l, r->m[3]);
 }
 
-static void vertex_pre_tr(cpu_vtx_t *v, matrix_t *mvp)
+static void cpu_vertex_pre_tr(cpu_vtx_t *v, matrix_t *mvp)
 {
     // gl_vtx_t *v = &state.vertex_cache[cache_index];
     // memcpy(&v->obj_attributes, &state.current_attributes, sizeof(gl_obj_attributes_t));
@@ -261,7 +263,7 @@ static void vertex_pre_tr(cpu_vtx_t *v, matrix_t *mvp)
         v->cs_pos[3]
     };
     
-    v->tr_code = get_clip_codes(v->cs_pos, tr_ref);
+    v->tr_code = cpu_get_clip_codes(v->cs_pos, tr_ref);
     v->t_l_applied = false;
 }
 
@@ -417,6 +419,15 @@ static void cpu_gluLookAt(matrix_t* m, float eyex, float eyey, float eyez,
     m->m[3][2] = cpu_dot_product3(f, eye);
     m->m[3][3] = 1;
 };
+
+void print_matrix(matrix_t* matrix) {
+    for (int row = 0; row < 4; row++) {
+        for (int col = 0; col < 4; col++) {
+            debugf("%f ", matrix->m[row][col]);
+        }
+        debugf("\n");
+    }
+}
 
 // Object vertex data
 

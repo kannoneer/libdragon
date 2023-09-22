@@ -33,6 +33,9 @@
 #define ZBUFFER_UINT_PTR_AT(zbuffer, x, y) ((u_uint16_t*)(zbuffer->buffer + (zbuffer->stride * y + x * sizeof(uint16_t))))
 //u_uint16_t* buf = (u_uint16_t*)(zbuffer->buffer + (zbuffer->stride * p.y + p.x * sizeof(uint16_t)))
 
+const bool g_verbose_setup = false;
+const bool g_measure_error = false;
+
 struct occ_culler_s {
     struct {
         int x;
@@ -48,6 +51,12 @@ typedef struct occ_culler_s occ_culler_t;
 
 occ_culler_t* occ_culler_alloc(int x, int y, int width, int height) {
     occ_culler_t* culler = malloc(sizeof(occ_culler_t));
+	culler->viewport.x = x;
+	culler->viewport.y = y;
+	culler->viewport.width = width;
+	culler->viewport.height = height;
+	cpu_glDepthRange(0.0, 1.0);
+
     return culler;
 }
 
@@ -55,14 +64,14 @@ void occ_culler_free(occ_culler_t* culler) {
     free(culler);
 }
 
-void occ_set_projection_matrix(occ_culler_t* culler, matrix_t proj)
+void occ_set_projection_matrix(occ_culler_t* culler, matrix_t* proj)
 {
-    culler->proj = proj;
+    culler->proj = *proj;
 }
 
-void occ_set_mvp_matrix(occ_culler_t* culler, matrix_t mvp)
+void occ_set_mvp_matrix(occ_culler_t* culler, matrix_t* mvp)
 {
-    culler->mvp = mvp;
+    culler->mvp = *mvp;
 }
 
 void occ_clear_zbuffer(surface_t* zbuffer) {
@@ -157,11 +166,13 @@ void draw_tri3(
 	v2 = vec2_muls(v2, SUBPIXEL_SCALE);
     p_start = vec2_muls(p_start, SUBPIXEL_SCALE);
 
-	debugf("\n%s\n", __FUNCTION__);
-	debugf("z0f: %f, z1f: %f, z2f: %f\n", Z0f, Z1f, Z2f);
-	debugf("v0: (%d, %d), v1: (%d, %d), v2: (%d, %d)\n",
-		v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
-	debugf("minb: (%d, %d), maxb: (%d, %d)\n", minb.x, minb.y, maxb.x, maxb.y);
+    if (g_verbose_setup) {
+        debugf("\n%s\n", __FUNCTION__);
+        debugf("z0f: %f, z1f: %f, z2f: %f\n", Z0f, Z1f, Z2f);
+        debugf("v0: (%d, %d), v1: (%d, %d), v2: (%d, %d)\n",
+               v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
+        debugf("minb: (%d, %d), maxb: (%d, %d)\n", minb.x, minb.y, maxb.x, maxb.y);
+    }
 
     // Triangle setup
 	// Sign flipped when compared to Fabian Giesen's example code to make it work
@@ -170,10 +181,12 @@ void draw_tri3(
     int A12 = -(v1.y - v2.y), B12 = -(v2.x - v1.x);
     int A20 = -(v2.y - v0.y), B20 = -(v0.x - v2.x);
 
-	debugf("A01: %d\nA12: %d\nA20: %d\n", A01, A12, A20);
-	debugf("B01: %d\nB12: %d\nB20: %d\n", B01, B12, B20);
+    if (g_verbose_setup) {
+        debugf("A01: %d\nA12: %d\nA20: %d\n", A01, A12, A20);
+        debugf("B01: %d\nB12: %d\nB20: %d\n", B01, B12, B20);
+    }
 
-	int area2x = -orient2d_subpixel(v0, v1, v2);
+    int area2x = -orient2d_subpixel(v0, v1, v2);
 	if (area2x <= 0) return;
 
     // Barycentric coordinates at minX/minY corner
@@ -199,16 +212,20 @@ void draw_tri3(
 
 	vec3f N = cross3df(v01, v02);
 
-	debugf("v01: (%f, %f, %f)\n", v01.x, v01.y, v01.z);
-	debugf("v02: (%f, %f, %f)\n", v02.x, v02.y, v02.z);
-	debugf("N: (%f, %f, %f)\n", N.x, N.y, N.z);
+    if (g_verbose_setup) {
+        debugf("v01: (%f, %f, %f)\n", v01.x, v01.y, v01.z);
+        debugf("v02: (%f, %f, %f)\n", v02.x, v02.y, v02.z);
+        debugf("N: (%f, %f, %f)\n", N.x, N.y, N.z);
+    }
 
-	float dZdx = -N.x/N.z;
-	float dZdy = -N.y/N.z;
+    float dZdx = -N.x / N.z;
+    float dZdy = -N.y / N.z;
 
-	debugf("dZdx, dZdy: (%f, %f)\n", dZdx, dZdy);
+    if (g_verbose_setup) {
+        debugf("dZdx, dZdy: (%f, %f)\n", dZdx, dZdy);
+    }
 
-	int32_t dZdx_fixed32 = FLOAT_TO_FIXED32(-N.x/N.z);
+    int32_t dZdx_fixed32 = FLOAT_TO_FIXED32(-N.x/N.z);
 	int32_t dZdy_fixed32 = FLOAT_TO_FIXED32(-N.y/N.z);
 
 	// Q: Is Z now perspective correct?
@@ -223,9 +240,11 @@ void draw_tri3(
 	Zf_row /= (float)area2x;
 	int32_t Z_row_fixed32 = FLOAT_TO_FIXED32(Zf_row);
 
-	debugf("zf_row: %f\n", Zf_row);
-	debugf("w0_row: %d\nw1_row: %d\nw2_row: %d\n", w0_row, w1_row, w2_row);
-	debugf("bias0: %d\nbias1: %d\nbias2: %d\n", bias0, bias1, bias2);
+	if (g_verbose_setup) {
+		debugf("zf_row: %f\n", Zf_row);
+		debugf("w0_row: %d\nw1_row: %d\nw2_row: %d\n", w0_row, w1_row, w2_row);
+		debugf("bias0: %d\nbias1: %d\nbias2: %d\n", bias0, bias1, bias2);
+	}
 
 	float worst_relerror = 0.0f;
 	float worst_abserror = 0.0f;
@@ -303,45 +322,56 @@ void draw_tri3(
 		Z_row_fixed32 += dZdy_fixed32;
     }
 
-	debugf("worst_relerror: %f %%, worst_abserror: %f\n", 100 * worst_relerror, worst_abserror);
+	if (g_measure_error) {
+		debugf("worst_relerror: %f %%, worst_abserror: %f\n", 100 * worst_relerror, worst_abserror);
+	}
 }
 
-void occ_draw_indexed_mesh(occ_culler_t* occ, surface_t* zbuffer, const cpu_vertex_t* cube_vertices, const uint16_t* cube_indices, uint32_t num_indices)
+void occ_draw_indexed_mesh(occ_culler_t* occ, surface_t* zbuffer, const vertex_t* cube_vertices, const uint16_t* cube_indices, uint32_t num_indices)
 {
+	// We render a viewport (x,y,x+w,y+h) in zbuffer's pixel space
+	cpu_glViewport(
+		occ->viewport.x,
+		occ->viewport.y,
+		occ->viewport.width,
+		occ->viewport.height,
+		zbuffer->width,
+		zbuffer->height);
+
 	for (int is=0; is < num_indices; is+=3) {
 		const uint16_t* inds = &cube_indices[is];
 		cpu_vtx_t verts[3] = {0};
 
 		for (int i=0;i<3;i++) {
-			verts[i].obj_attributes = cube_vertices[inds[i]];
-			verts[i].obj_attributes.position[3] = 1.0f; // TODO where does cpu pipeline set this?
-			// TODO miksi w on 1.1 cs_posissa? luulisi ett' se oli z eik' y
-			// 		Vastaus: se on z, mutta z:n etumerkki flipataan projektiomatriisissa
-			debugf("i=%d, pos[3] = %f\n", i, verts[i].obj_attributes.position[3]);
+			verts[i].obj_attributes.position[0] = cube_vertices[inds[i]].position[0];
+			verts[i].obj_attributes.position[1] = cube_vertices[inds[i]].position[1];
+			verts[i].obj_attributes.position[2] = cube_vertices[inds[i]].position[2];
+			verts[i].obj_attributes.position[3] = 1.0f; // Q: where does cpu pipeline set this?
+			//debugf("i=%d, pos[3] = %f\n", i, verts[i].obj_attributes.position[3]);
 		}
 
 		for (int i=0;i<3;i++) {
-			vertex_pre_tr(&verts[i], &occ->mvp);
-			vertex_calc_screenspace(&verts[i]);
+			cpu_vertex_pre_tr(&verts[i], &occ->mvp);
+			cpu_vertex_calc_screenspace(&verts[i]);
 		}
 
-        //if (config.verbose_setup) {
-        //    debugf("pos=(%f, %f, %f, %f), cs_pos=(%f, %f, %f, %f), clip_code=%d\n",
-        //           verts[0].obj_attributes.position[0],
-        //           verts[0].obj_attributes.position[1],
-        //           verts[0].obj_attributes.position[2],
-        //           verts[0].obj_attributes.position[3],
-        //           verts[0].cs_pos[0],
-        //           verts[0].cs_pos[1],
-        //           verts[0].cs_pos[2],
-        //           verts[0].cs_pos[3],
-        //           verts[0].clip_code);
-        //    debugf("screen_pos: (%f, %f), depth=%f, inv_w=%f\n",
-        //           verts[0].screen_pos[0],
-        //           verts[0].screen_pos[1],
-        //           verts[0].depth,
-        //           verts[0].inv_w);
-        //}
+        if (g_verbose_setup) {
+            debugf("pos=(%f, %f, %f, %f), cs_pos=(%f, %f, %f, %f), clip_code=%d\n",
+                   verts[0].obj_attributes.position[0],
+                   verts[0].obj_attributes.position[1],
+                   verts[0].obj_attributes.position[2],
+                   verts[0].obj_attributes.position[3],
+                   verts[0].cs_pos[0],
+                   verts[0].cs_pos[1],
+                   verts[0].cs_pos[2],
+                   verts[0].cs_pos[3],
+                   verts[0].clip_code);
+            debugf("screen_pos: (%f, %f), depth=%f, inv_w=%f\n",
+                   verts[0].screen_pos[0],
+                   verts[0].screen_pos[1],
+                   verts[0].depth,
+                   verts[0].inv_w);
+        }
 
         vec2 screenverts[3];
 		float screenzs[3];
