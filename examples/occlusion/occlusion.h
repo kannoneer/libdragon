@@ -30,11 +30,14 @@
 #define FLOAT_TO_U16(f) (uint16_t)(f * 0xffff)
 #define U16_TO_FLOAT(u) ((float)u * 0.0002442002f) // Approximately f/0xffff
 
+#define OCC_MAX_Z (0xffff)
+
 #define ZBUFFER_UINT_PTR_AT(zbuffer, x, y) ((u_uint16_t*)(zbuffer->buffer + (zbuffer->stride * y + x * sizeof(uint16_t))))
 //u_uint16_t* buf = (u_uint16_t*)(zbuffer->buffer + (zbuffer->stride * p.y + p.x * sizeof(uint16_t)))
 
 const bool g_verbose_setup = false;
 const bool g_measure_error = false;
+const bool g_verbose_raster = false;  // print depth at vertex pixels
 
 typedef struct occ_culler_s {
     struct {
@@ -46,6 +49,16 @@ typedef struct occ_culler_s {
     matrix_t proj;
     matrix_t mvp;
 } occ_culler_t;
+
+typedef struct occ_result_box_s {
+	int minX;
+	int minY;
+	int maxX;
+	int maxY;
+	uint16_t udepth; // depth of the visible pixel
+	int hitX; // visible pixel coordinate, otherwise -1
+	int hitY; // visible pixel coordinate, otherwise -1
+} occ_result_box_t;
 
 occ_culler_t* occ_alloc() {
     occ_culler_t* culler = malloc(sizeof(occ_culler_t));
@@ -263,10 +276,10 @@ void draw_tri3(
 		int32_t Z_fixed32 = Z_row_fixed32;
 
         for (p.x = minb.x; p.x <= maxb.x; p.x++) {
-			if (
-				(p.x == v0.x && p.y == v0.y)
+			if (g_verbose_raster &&
+				((p.x == v0.x && p.y == v0.y)
 				|| (p.x == v1.x && p.y == v1.y)
-				|| (p.x == v2.x && p.y == v2.y)
+				|| (p.x == v2.x && p.y == v2.y))
 				) {
 				debugf("(%d, %d) = %f\n", p.x, p.y, Zf_incr);
 			}
@@ -300,6 +313,7 @@ void draw_tri3(
 				uint16_t depth = Z_fixed32; // TODO don't we want top 16 bits?
                 u_uint16_t* buf = ZBUFFER_UINT_PTR_AT(zbuffer, p.x, p.y);
 				*buf = min(*buf, depth);
+
 				//*output = depth;
 				//unsigned int pixelcolor = graphics_make_color(red, green, blue, 255);
 				//graphics_draw_pixel(screen, p.x, p.y, pixelcolor);
@@ -328,7 +342,7 @@ void draw_tri3(
 	}
 }
 
-void occ_draw_indexed_mesh(occ_culler_t* occ, surface_t* zbuffer, const vertex_t* cube_vertices, const uint16_t* cube_indices, uint32_t num_indices)
+void occ_draw_indexed_mesh(occ_culler_t* occ, surface_t* zbuffer, const matrix_t* model_xform, const vertex_t* vertices, const uint16_t* indices, uint32_t num_indices)
 {
 	// We render a viewport (x,y,x+w,y+h) in zbuffer's pixel space
 	cpu_glViewport(
@@ -339,20 +353,27 @@ void occ_draw_indexed_mesh(occ_culler_t* occ, surface_t* zbuffer, const vertex_t
 		zbuffer->width,
 		zbuffer->height);
 
+	matrix_t mvp;
+	if (model_xform) {
+		matrix_mult_full(&mvp, &occ->mvp, model_xform);
+	} else {
+		mvp = occ->mvp;
+	}
+
 	for (int is=0; is < num_indices; is+=3) {
-		const uint16_t* inds = &cube_indices[is];
+		const uint16_t* inds = &indices[is];
 		cpu_vtx_t verts[3] = {0};
 
 		for (int i=0;i<3;i++) {
-			verts[i].obj_attributes.position[0] = cube_vertices[inds[i]].position[0];
-			verts[i].obj_attributes.position[1] = cube_vertices[inds[i]].position[1];
-			verts[i].obj_attributes.position[2] = cube_vertices[inds[i]].position[2];
+			verts[i].obj_attributes.position[0] = vertices[inds[i]].position[0];
+			verts[i].obj_attributes.position[1] = vertices[inds[i]].position[1];
+			verts[i].obj_attributes.position[2] = vertices[inds[i]].position[2];
 			verts[i].obj_attributes.position[3] = 1.0f; // Q: where does cpu pipeline set this?
 			//debugf("i=%d, pos[3] = %f\n", i, verts[i].obj_attributes.position[3]);
 		}
 
 		for (int i=0;i<3;i++) {
-			cpu_vertex_pre_tr(&verts[i], &occ->mvp);
+			cpu_vertex_pre_tr(&verts[i], &mvp);
 			cpu_vertex_calc_screenspace(&verts[i]);
 		}
 
@@ -391,18 +412,71 @@ void occ_draw_indexed_mesh(occ_culler_t* occ, surface_t* zbuffer, const vertex_t
 	}
 }
 
-// [minx, maxx), [miny, maxy), i.e. upper bounds are exclusive.
-bool occ_check_pixel_box_visible(occ_culler_t* occ, surface_t* zbuffer, uint16_t depth, int minx, int miny, int maxx, int maxy)
+// [minX, maxX), [minY, maxY), i.e. upper bounds are exclusive.
+bool occ_check_pixel_box_visible(occ_culler_t* occ, surface_t* zbuffer, uint16_t depth, int minX, int minY, int maxX, int maxY, occ_result_box_t* out_box)
 {
-    if (minx < 0) minx = 0;
-    if (miny < 0) miny = 0;
-    if (maxx > zbuffer->width - 1) maxx = zbuffer->width - 1;
-    if (maxy > zbuffer->height - 1) maxy = zbuffer->height - 1;
-    for (int y = miny; y < maxy; y++) {
-        for (int x = minx; x < maxx; x++) {
+    if (minX < 0) minX = 0;
+    if (minY < 0) minY = 0;
+    if (maxX > zbuffer->width - 1) maxX = zbuffer->width - 1;
+    if (maxY > zbuffer->height - 1) maxY = zbuffer->height - 1;
+
+	if (out_box) {
+		out_box->minX = minX;
+		out_box->minY = minY;
+		out_box->maxX = maxX;
+		out_box->maxY = maxY;
+		out_box->udepth = OCC_MAX_Z;
+		out_box->hitX = -1;
+		out_box->hitY = -1;
+	}
+
+    for (int y = minY; y < maxY; y++) {
+        for (int x = minX; x < maxX; x++) {
             u_uint16_t *buf = ZBUFFER_UINT_PTR_AT(zbuffer, x, y);
-            if (*buf >= depth) return true;
+            if (depth <= *buf) {
+				if (out_box){
+					out_box->udepth = *buf;
+					out_box->hitX = x;
+					out_box->hitY = y;
+				}
+                return true;
+            }
         }
     }
     return false; // Every box pixel was behind the Z-buffer
+}
+
+bool occ_check_mesh_visible(occ_culler_t* occ, surface_t* zbuffer, const vertex_t* vertices, uint16_t num_vertices, occ_result_box_t* out_box) {
+	// 1. transform and project each point to screen space
+    // 2. compute the XY bounding box
+	// 3. compute min Z
+	// 3. check the bounding box against zbuffer with the given minZ
+
+	float minZ = __FLT_MAX__;
+	float minX = __FLT_MAX__;
+	float maxX = -__FLT_MAX__;
+	float minY = __FLT_MAX__;
+	float maxY = -__FLT_MAX__;
+
+    for (int iv = 0; iv < num_vertices; iv++) {
+        cpu_vtx_t vert = {};
+        vert.obj_attributes.position[0] = vertices[iv].position[0];
+        vert.obj_attributes.position[1] = vertices[iv].position[1];
+        vert.obj_attributes.position[2] = vertices[iv].position[2];
+        vert.obj_attributes.position[3] = 1.0f;
+
+        cpu_vertex_pre_tr(&vert, &occ->mvp);
+        cpu_vertex_calc_screenspace(&vert);
+		if (vert.depth < 0.f) return true; // HACK: any vertex behind camera makes the object visible
+        minZ = min(minZ, vert.depth);
+        minX = min(minX, vert.screen_pos[0]);
+        maxX = max(maxX, vert.screen_pos[0]);
+        minY = min(minY, vert.screen_pos[1]);
+        maxY = max(maxY, vert.screen_pos[1]);
+    }
+
+
+	uint16_t udepth = FLOAT_TO_U16(minZ);
+	debugf("box: (%f, %f, %f, %f), minZ=%f, udepth=%u\n", minX, minY, maxX, maxY, minZ, udepth);
+	return occ_check_pixel_box_visible(occ, zbuffer, udepth, minX, minY, maxX, maxY, out_box);
 }

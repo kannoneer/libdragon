@@ -31,9 +31,11 @@ static camera_t camera;
 static surface_t zbuffer;
 static surface_t sw_zbuffer_array[2];
 static surface_t* sw_zbuffer;
-static matrix_t g_projection;
 
-static uint64_t frames = 0;
+static matrix_t g_projection;
+static matrix_t g_plane_xform;
+
+static uint64_t g_num_frames = 0;
 
 static GLuint textures[4];
 
@@ -77,7 +79,7 @@ void compute_camera_matrix(matrix_t* matrix, const camera_t *camera)
 {
     matrix_t lookat;
     cpu_gluLookAt(&lookat,
-        0, -camera->distance, -camera->distance,
+        0, -camera->distance * 2.f, -camera->distance,
         0, 0, 0,
         0, 1, 0);
     matrix_t rotate = cpu_glRotatef(camera->rotation, 0, 1, 0);
@@ -211,28 +213,21 @@ void render()
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
     
+    glPushMatrix();
+    g_plane_xform = cpu_glTranslatef(0.0f, 2.0f + 4.0f * sin(g_num_frames*0.1f), 0.0f);
+    glMultMatrixf(&g_plane_xform.m[0][0]);
     render_plane();
+    glPopMatrix();
     //render_decal();
     render_cube();
     //render_skinned(&camera, animation);
 
-    // typedef struct {
-    //     GLvoid *data;
-    //     uint32_t size;
-    // } gl_storage_t;
+    occ_draw_indexed_mesh(culler, sw_zbuffer, &g_plane_xform, plane_vertices, plane_indices, plane_index_count);
 
-    // typedef struct {
-    //     GLenum usage;
-    //     GLenum access;
-    //     GLvoid *pointer;
-    //     gl_storage_t storage;
-    //     bool mapped;
-    // } gl_buffer_object_t;
-
-    // gl_buffer_object_t* plane_verts = (gl_buffer_object_t*)plane_buffers[0];
-    // gl_buffer_object_t* plane_inds = (gl_buffer_object_t*)plane_buffers[1];
-    occ_draw_indexed_mesh(culler, sw_zbuffer, plane_vertices, plane_indices, plane_index_count);
-    occ_draw_indexed_mesh(culler, sw_zbuffer, cube_vertices, cube_indices, sizeof(cube_indices)/sizeof(cube_indices[0]));
+    occ_result_box_t box = {};
+    bool cube_visible = occ_check_mesh_visible(culler, sw_zbuffer, cube_vertices, sizeof(cube_vertices)/sizeof(cube_vertices[0]), &box);
+    debugf("cube_visible: %d at depth: %u\n",cube_visible, box.udepth);
+    occ_draw_indexed_mesh(culler, sw_zbuffer, NULL, cube_vertices, cube_indices, sizeof(cube_indices)/sizeof(cube_indices[0]));
 
     glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
     //render_sphere(rotation);
@@ -243,16 +238,18 @@ void render()
 
     gl_context_end();
 
-    // Show the software zbuffer
-
-    uint16_t minz=0xffff;
-    for (int y=0;y<sw_zbuffer->height;y++) {
-        for (int x=0;x<sw_zbuffer->width;x++) {
-            uint16_t z = ((uint16_t*)(sw_zbuffer->buffer + sw_zbuffer->stride * y))[x];
-            if (z<minz) minz = z;
+    if (false) {
+        uint16_t minz=0xffff;
+        for (int y=0;y<sw_zbuffer->height;y++) {
+            for (int x=0;x<sw_zbuffer->width;x++) {
+                uint16_t z = ((uint16_t*)(sw_zbuffer->buffer + sw_zbuffer->stride * y))[x];
+                if (z<minz) minz = z;
+            }
         }
+        debugf("minz: %u\n", minz);
     }
-    debugf("minz: %u\n", minz);
+
+    // Show the software zbuffer
 
     //rdpq_attach(disp, NULL);
     rdpq_set_mode_standard(); // Can't use copy mode if we need a 16-bit -> 32-bit conversion
@@ -260,11 +257,19 @@ void render()
     //rdpq_detach();
     rspq_flush();
 
+    if ((g_num_frames/2) % 2 == 0) {
+        rdpq_set_mode_fill(cube_visible ? (color_t){0,255,0,64} : (color_t){255,0,0,64});
+        rdpq_fill_rectangle(box.minX, box.minY, box.maxX, box.maxY);
+    }
+    if (cube_visible) {
+        rdpq_set_mode_fill((color_t){0,0,255,255});
+        rdpq_fill_rectangle(box.hitX-1, box.hitY-1, box.hitX+1, box.hitY+1);
+    }
     rdpq_detach_show();
 
     rspq_profile_next_frame();
 
-    if (((frames++) % 60) == 0) {
+    if (((g_num_frames) % 60) == 0) {
         rspq_profile_dump();
         rspq_profile_reset();
     }
@@ -377,6 +382,8 @@ int main()
         render();
         if (DEBUG_RDP)
             rspq_wait();
+
+        g_num_frames++;
     }
 
 }
