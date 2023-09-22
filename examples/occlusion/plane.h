@@ -14,6 +14,8 @@ static GLuint plane_buffers[2];
 static GLuint plane_array;
 static uint32_t plane_vertex_count;
 static uint32_t plane_index_count;
+vertex_t *plane_vertices;
+uint16_t *plane_indices;
 
 void setup_plane()
 {
@@ -96,6 +98,12 @@ void make_plane_mesh()
             indices[i + 5] = x + row_start + 1;
         }
     }
+
+    // Copy mesh to an application side buffer for occlusion culling.
+    plane_vertices = malloc(plane_vertex_count * sizeof(vertex_t));
+    plane_indices = malloc(plane_index_count * sizeof(uint16_t));
+    memcpy(plane_vertices, vertices, plane_vertex_count * sizeof(vertex_t));
+    memcpy(plane_indices, indices, plane_index_count * sizeof(uint16_t));
 
     glUnmapBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB);
     glBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB, 0);

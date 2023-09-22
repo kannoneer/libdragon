@@ -15,13 +15,11 @@ typedef struct {
 
 typedef struct {
     float position[4];
-    float color[4];
-    float texcoord[4];
-    float normal[3];
+    // float color[4];
+    // float texcoord[4];
+    // float normal[3];
     //GLubyte mtx_index[VERTEX_UNIT_COUNT];
 } obj_attributes_t;
-
-typedef obj_attributes_t cpu_vertex_t;
 
 typedef struct {
     float screen_pos[2];
@@ -428,55 +426,4 @@ void print_matrix(matrix_t* matrix) {
         debugf("\n");
     }
 }
-
-// Object vertex data
-
-static const float occ_cube_size = 1.1f;
-
-static const cpu_vertex_t occ_cube_vertices[] = {
-    // +X
-    { .position = { occ_cube_size, -occ_cube_size, -occ_cube_size, 1.0f}, .texcoord = {0.f, 0.f}, .normal = { 1.f,  0.f,  0.f} },
-    { .position = { occ_cube_size,  occ_cube_size, -occ_cube_size, 1.0f}, .texcoord = {1.f, 0.f}, .normal = { 1.f,  0.f,  0.f} },
-    { .position = { occ_cube_size,  occ_cube_size,  occ_cube_size, 1.0f}, .texcoord = {1.f, 1.f}, .normal = { 1.f,  0.f,  0.f} },
-    { .position = { occ_cube_size, -occ_cube_size,  occ_cube_size, 1.0f}, .texcoord = {0.f, 1.f}, .normal = { 1.f,  0.f,  0.f} },
-
-    // -X
-    { .position = {-occ_cube_size, -occ_cube_size, -occ_cube_size}, .texcoord = {0.f, 0.f}, .normal = {-1.f,  0.f,  0.f} },
-    { .position = {-occ_cube_size, -occ_cube_size,  occ_cube_size}, .texcoord = {0.f, 1.f}, .normal = {-1.f,  0.f,  0.f} },
-    { .position = {-occ_cube_size,  occ_cube_size,  occ_cube_size}, .texcoord = {1.f, 1.f}, .normal = {-1.f,  0.f,  0.f} },
-    { .position = {-occ_cube_size,  occ_cube_size, -occ_cube_size}, .texcoord = {1.f, 0.f}, .normal = {-1.f,  0.f,  0.f} },
-
-    // +Y
-    { .position = {-occ_cube_size,  occ_cube_size, -occ_cube_size}, .texcoord = {0.f, 0.f}, .normal = { 0.f,  1.f,  0.f} },
-    { .position = {-occ_cube_size,  occ_cube_size,  occ_cube_size}, .texcoord = {0.f, 1.f}, .normal = { 0.f,  1.f,  0.f} },
-    { .position = { occ_cube_size,  occ_cube_size,  occ_cube_size}, .texcoord = {1.f, 1.f}, .normal = { 0.f,  1.f,  0.f} },
-    { .position = { occ_cube_size,  occ_cube_size, -occ_cube_size}, .texcoord = {1.f, 0.f}, .normal = { 0.f,  1.f,  0.f} },
-
-    // -Y
-    { .position = {-occ_cube_size, -occ_cube_size, -occ_cube_size}, .texcoord = {0.f, 0.f}, .normal = { 0.f, -1.f,  0.f} },
-    { .position = { occ_cube_size, -occ_cube_size, -occ_cube_size}, .texcoord = {1.f, 0.f}, .normal = { 0.f, -1.f,  0.f} },
-    { .position = { occ_cube_size, -occ_cube_size,  occ_cube_size}, .texcoord = {1.f, 1.f}, .normal = { 0.f, -1.f,  0.f} },
-    { .position = {-occ_cube_size, -occ_cube_size,  occ_cube_size}, .texcoord = {0.f, 1.f}, .normal = { 0.f, -1.f,  0.f} },
-
-    // +Z
-    { .position = {-occ_cube_size, -occ_cube_size,  occ_cube_size}, .texcoord = {0.f, 0.f}, .normal = { 0.f,  0.f,  1.f} },
-    { .position = { occ_cube_size, -occ_cube_size,  occ_cube_size}, .texcoord = {1.f, 0.f}, .normal = { 0.f,  0.f,  1.f} },
-    { .position = { occ_cube_size,  occ_cube_size,  occ_cube_size}, .texcoord = {1.f, 1.f}, .normal = { 0.f,  0.f,  1.f} },
-    { .position = {-occ_cube_size,  occ_cube_size,  occ_cube_size}, .texcoord = {0.f, 1.f}, .normal = { 0.f,  0.f,  1.f} },
-
-    // -Z
-    { .position = {-occ_cube_size, -occ_cube_size, -occ_cube_size}, .texcoord = {0.f, 0.f}, .normal = { 0.f,  0.f, -1.f} },
-    { .position = {-occ_cube_size,  occ_cube_size, -occ_cube_size}, .texcoord = {0.f, 1.f}, .normal = { 0.f,  0.f, -1.f} },
-    { .position = { occ_cube_size,  occ_cube_size, -occ_cube_size}, .texcoord = {1.f, 1.f}, .normal = { 0.f,  0.f, -1.f} },
-    { .position = { occ_cube_size, -occ_cube_size, -occ_cube_size}, .texcoord = {1.f, 0.f}, .normal = { 0.f,  0.f, -1.f} },
-};
-
-static const uint16_t occ_cube_indices[] = {
-     0,  1,  2,  0,  2,  3,
-     4,  5,  6,  4,  6,  7,
-     8,  9, 10,  8, 10, 11,
-    12, 13, 14, 12, 14, 15,
-    16, 17, 18, 16, 18, 19,
-    20, 21, 22, 20, 22, 23,
-};
 #endif

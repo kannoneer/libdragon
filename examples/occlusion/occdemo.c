@@ -216,6 +216,22 @@ void render()
     render_cube();
     //render_skinned(&camera, animation);
 
+    // typedef struct {
+    //     GLvoid *data;
+    //     uint32_t size;
+    // } gl_storage_t;
+
+    // typedef struct {
+    //     GLenum usage;
+    //     GLenum access;
+    //     GLvoid *pointer;
+    //     gl_storage_t storage;
+    //     bool mapped;
+    // } gl_buffer_object_t;
+
+    // gl_buffer_object_t* plane_verts = (gl_buffer_object_t*)plane_buffers[0];
+    // gl_buffer_object_t* plane_inds = (gl_buffer_object_t*)plane_buffers[1];
+    occ_draw_indexed_mesh(culler, sw_zbuffer, plane_vertices, plane_indices, plane_index_count);
     occ_draw_indexed_mesh(culler, sw_zbuffer, cube_vertices, cube_indices, sizeof(cube_indices)/sizeof(cube_indices[0]));
 
     glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
