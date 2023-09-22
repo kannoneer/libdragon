@@ -36,7 +36,7 @@
 #define ZBUFFER_UINT_PTR_AT(zbuffer, x, y) ((u_uint16_t *)(zbuffer->buffer + (zbuffer->stride * y + x * sizeof(uint16_t))))
 // u_uint16_t* buf = (u_uint16_t*)(zbuffer->buffer + (zbuffer->stride * p.y + p.x * sizeof(uint16_t)))
 
-const bool g_verbose_setup = true;
+const bool g_verbose_setup = false;
 const bool g_measure_error = false;
 const bool g_verbose_raster = false; // print depth at vertex pixels
 const bool config_discard_based_on_tr_code = false;
@@ -327,6 +327,9 @@ void draw_tri3(
     if (g_measure_error) {
         debugf("worst_relerror: %f %%, worst_abserror: %f\n", 100 * worst_relerror, worst_abserror);
     }
+	if (g_verbose_setup) {
+		debugf("\n");
+	}
 }
 
 void occ_draw_indexed_mesh(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform, const vertex_t *vertices, const uint16_t *indices, uint32_t num_indices)
@@ -366,7 +369,7 @@ void occ_draw_indexed_mesh(occ_culler_t *occ, surface_t *zbuffer, const matrix_t
         }
 
         if (g_verbose_setup) {
-            debugf("pos=(%f, %f, %f, %f), cs_pos=(%f, %f, %f, %f), clip_code=%d\n",
+            debugf("pos=(%f, %f, %f, %f), cs_pos=(%f, %f, %f, %f), tr_code=%d\n",
                    verts[0].obj_attributes.position[0],
                    verts[0].obj_attributes.position[1],
                    verts[0].obj_attributes.position[2],
@@ -375,7 +378,7 @@ void occ_draw_indexed_mesh(occ_culler_t *occ, surface_t *zbuffer, const matrix_t
                    verts[0].cs_pos[1],
                    verts[0].cs_pos[2],
                    verts[0].cs_pos[3],
-                   verts[0].clip_code);
+                   verts[0].tr_code);
             debugf("screen_pos: (%f, %f), depth=%f, inv_w=%f\n",
                    verts[0].screen_pos[0],
                    verts[0].screen_pos[1],
@@ -486,6 +489,6 @@ bool occ_check_mesh_visible(occ_culler_t *occ, surface_t *zbuffer, matrix_t *mod
     }
 
     uint16_t udepth = FLOAT_TO_U16(minZ);
-    debugf("box: (%f, %f, %f, %f), minZ=%f, udepth=%u\n", minX, minY, maxX, maxY, minZ, udepth);
+    //debugf("box: (%f, %f, %f, %f), minZ=%f, udepth=%u\n", minX, minY, maxX, maxY, minZ, udepth);
     return occ_check_pixel_box_visible(occ, zbuffer, udepth, minX, minY, maxX, maxY, out_box);
 }

@@ -40,9 +40,10 @@ static uint64_t g_num_frames = 0;
 static GLuint textures[4];
 
 static GLenum shade_model = GL_SMOOTH;
-static bool fog_enabled = false;
 
 static const GLfloat environment_color[] = { 0.1f, 0.03f, 0.2f, 1.f };
+
+static bool config_show_visible_point = false;
 
 static const GLfloat light_pos[8][4] = {
     { 1, 0, 0, 0 },
@@ -64,6 +65,10 @@ static const GLfloat light_diffuse[8][4] = {
     { 0.0f, 1.0f, 1.0f, 1.0f },
     { 1.0f, 1.0f, 1.0f, 1.0f },
     { 1.0f, 1.0f, 1.0f, 1.0f },
+};
+
+enum Fonts {
+    FONT_SCIFI = 1
 };
 
 static const char *texture_path[4] = {
@@ -88,7 +93,7 @@ void compute_camera_matrix(matrix_t* matrix, const camera_t *camera)
 
 void setup()
 {
-    camera.distance = -10.0f;
+    camera.distance = -7.5f;
     camera.rotation = 180.0f;
 
     zbuffer = surface_alloc(FMT_RGBA16, display_get_width(), display_get_height());
@@ -163,6 +168,8 @@ void setup()
 
         glSpriteTextureN64(GL_TEXTURE_2D, sprites[i], &(rdpq_texparms_t){.s.repeats = REPEAT_INFINITE, .t.repeats = REPEAT_INFINITE});
     }
+
+    rdpq_text_register_font(FONT_SCIFI, rdpq_font_load("rom:/FerriteCoreDX.font64"));
 }
 
 void set_light_positions(float rotation)
@@ -299,15 +306,23 @@ void render()
         rdpq_set_mode_fill(cube_visible ? (color_t){0,255,0,64} : (color_t){255,0,0,64});
         rdpq_fill_rectangle(box.minX, box.minY, box.maxX, box.maxY);
     }
+
+    float xscale = disp->width / (float)sw_zbuffer->width;
+    float yscale = disp->height / (float)sw_zbuffer->height;
+    float xvisible = xscale*box.hitX;
+    float yvisible = yscale*box.hitY;
     if (cube_visible) {
         // Draw the visible pixel to both the mini-image and the full rendering
         rdpq_set_mode_fill((color_t){0,0,255,255});
         rdpq_fill_rectangle(box.hitX, box.hitY+1, box.hitX, box.hitY+1);
-        float xscale = disp->width / (float)sw_zbuffer->width;
-        float yscale = disp->height / (float)sw_zbuffer->height;
-        rdpq_set_mode_fill((color_t){255,255,255,255});
-        rdpq_fill_rectangle(xscale*box.hitX-1, yscale*box.hitY-1, xscale*box.hitX+2, yscale*box.hitY+2);
+        if (config_show_visible_point) {
+            rdpq_set_mode_fill((color_t){255,255,255,255});
+            rdpq_fill_rectangle(xvisible-1, yvisible-1, xvisible+2, yvisible+2);
+        }
     }
+
+    //rdpq_text_print(NULL, FONT_SCIFI, xscale*(box.minX+box.maxX)*0.5f, yscale*(box.minY+box.maxY)*0.5f, cube_visible ? "seen" : "hidden");
+    rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 20, cube_visible ? "cube visible" : "cube hidden");
     rdpq_detach_show();
 
     rspq_profile_next_frame();
@@ -377,12 +392,7 @@ int main()
         }
 
         if (pressed.l) {
-            fog_enabled = !fog_enabled;
-            if (fog_enabled) {
-                glEnable(GL_FOG);
-            } else {
-                glDisable(GL_FOG);
-            }
+            config_show_visible_point = !config_show_visible_point;
         }
 
         if (pressed.c_up) {
