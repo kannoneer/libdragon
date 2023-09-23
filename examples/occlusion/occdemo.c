@@ -239,8 +239,6 @@ void render()
     matrix_t cube_model;
 
     matrix_mult_full(&cube_model, &cube_translate, &cube_rotate);
-    // debugf("cube model\n");
-    // print_matrix(&cube_model);
 
     // Occlusion culling
 
@@ -252,8 +250,6 @@ void render()
     box.hitX = raster_query.x;
     box.hitY = raster_query.y;
     box.udepth = raster_query.depth;
-    debugf("raster_query_result: %s, (%d, %d)\n", raster_query.visible ? "visible" : "hidden", raster_query.x, raster_query.y);
-    // debugf("cube_visible: %d at depth: %u\n",cube_visible, box.udepth);
     occ_draw_indexed_mesh(culler, sw_zbuffer, &cube_model, cube_vertices, cube_indices, sizeof(cube_indices) / sizeof(cube_indices[0]));
 
     if (cube_visible || config_show_wireframe) {

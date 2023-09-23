@@ -35,11 +35,11 @@ const float inv_subpixel_scale = 1.0f / SUBPIXEL_SCALE;
 #define OCC_MAX_Z (0xffff)
 
 #define ZBUFFER_UINT_PTR_AT(zbuffer, x, y) ((u_uint16_t *)(zbuffer->buffer + (zbuffer->stride * y + x * sizeof(uint16_t))))
-// u_uint16_t* buf = (u_uint16_t*)(zbuffer->buffer + (zbuffer->stride * p.y + p.x * sizeof(uint16_t)))
 
 bool g_verbose_setup = false;
 bool g_measure_error = false;
 bool g_verbose_raster = false; // print depth at vertex pixels
+bool g_verbose_early_out = false; // print coordinates of pixels that pass the depth test
 bool config_discard_based_on_tr_code = false;
 
 enum {
@@ -346,7 +346,9 @@ void draw_tri3(
                         result->x = p.x;
                         result->y = p.y;
                         result->depth = depth;
-                        debugf("visible at (%d, %d), v0=(%d,%d)\n", p.x, p.y, v0.x>>SUBPIXEL_BITS, v0.y>>SUBPIXEL_BITS);
+                        if (g_verbose_early_out) {
+                            debugf("visible at (%d, %d), v0=(%d,%d)\n", p.x, p.y, v0.x>>SUBPIXEL_BITS, v0.y>>SUBPIXEL_BITS);
+                        }
                         return; // early out was requested
                     } else {
                         *buf = depth;
@@ -558,11 +560,12 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, matrix_
 }
 
 bool occ_check_mesh_visible_precise(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform,
-                           const vertex_t *vertices, const uint16_t *indices, uint32_t num_indices, occ_raster_query_result_t *out_result)
+                                    const vertex_t *vertices, const uint16_t *indices, uint32_t num_indices, occ_raster_query_result_t *out_result)
 {
-    assert(out_result);
-    //occ_raster_query_result_t result;
-	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, vertices, indices, num_indices, OCC_RASTER_FLAGS_QUERY, out_result);
-    //if (out_result) *out_result = result;
-	return out_result->visible;
+    occ_raster_query_result_t result = {};
+    occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, vertices, indices, num_indices, OCC_RASTER_FLAGS_QUERY, &result);
+    if (out_result) {
+        *out_result = result;
+    }
+    return result.visible;
 }
