@@ -26,6 +26,7 @@
 
 #define SUBPIXEL_BITS (2)
 #define SUBPIXEL_SCALE (1 << SUBPIXEL_BITS)
+const float inv_subpixel_scale = 1.0f / SUBPIXEL_SCALE;
 
 #define FLOAT_TO_FIXED32(f) (int32_t)(f * 0xffff)
 #define FLOAT_TO_U16(f) (uint16_t)(f * 0xffff)
@@ -36,10 +37,10 @@
 #define ZBUFFER_UINT_PTR_AT(zbuffer, x, y) ((u_uint16_t *)(zbuffer->buffer + (zbuffer->stride * y + x * sizeof(uint16_t))))
 // u_uint16_t* buf = (u_uint16_t*)(zbuffer->buffer + (zbuffer->stride * p.y + p.x * sizeof(uint16_t)))
 
-const bool g_verbose_setup = false;
-const bool g_measure_error = false;
-const bool g_verbose_raster = false; // print depth at vertex pixels
-const bool config_discard_based_on_tr_code = false;
+bool g_verbose_setup = false;
+bool g_measure_error = false;
+bool g_verbose_raster = false; // print depth at vertex pixels
+bool config_discard_based_on_tr_code = false;
 
 typedef struct occ_culler_s {
     struct {
@@ -149,6 +150,16 @@ static int orient2d_subpixel(vec2 a, vec2 b, vec2 c)
     return ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) >> SUBPIXEL_BITS;
 }
 
+// Assumes .xy are in subpixel scale, Z is in [0,1] range.
+static vec3f cross3df_subpixel(vec3f a, vec3f b)
+{
+    vec3f c;
+    c.x = a.y * b.z - a.z * b.y;
+    c.y = a.z * b.x - a.x * b.z;
+    c.z = (a.x * b.y - a.y * b.x) * inv_subpixel_scale;
+    return c;
+}
+
 void draw_tri3(
     vec2 v0_in,
     vec2 v1_in,
@@ -227,10 +238,11 @@ void draw_tri3(
     // See https://tutorial.math.lamar.edu/classes/calciii/eqnsofplanes.aspx
     // and https://fgiesen.wordpress.com/2011/07/08/a-trip-through-the-graphics-pipeline-2011-part-7/
 
+	// So now v0, v1, v2 are in subpixel coordinates, while Z0f, Z1f, Z2f are linear floats in [0, 1].
     vec3f v01 = vec3f_sub((vec3f){v1.x, v1.y, Z1f}, (vec3f){v0.x, v0.y, Z0f});
     vec3f v02 = vec3f_sub((vec3f){v2.x, v2.y, Z2f}, (vec3f){v0.x, v0.y, Z0f});
 
-    vec3f N = cross3df(v01, v02);
+    vec3f N = cross3df_subpixel(v01, v02);
 
     if (g_verbose_setup) {
         debugf("v01: (%f, %f, %f)\n", v01.x, v01.y, v01.z);
