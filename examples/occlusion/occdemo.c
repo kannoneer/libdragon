@@ -39,11 +39,10 @@ static uint64_t g_num_frames = 0;
 
 static GLuint textures[4];
 
-static GLenum shade_model = GL_SMOOTH;
-
 static const GLfloat environment_color[] = { 0.1f, 0.03f, 0.2f, 1.f };
 
 static bool config_show_visible_point = false;
+static bool config_show_wireframe = true;
 
 static const GLfloat light_pos[8][4] = {
     { 1, 0, 0, 0 },
@@ -250,25 +249,28 @@ void render()
     bool cube_visible = occ_check_mesh_visible(culler, sw_zbuffer, &cube_model, cube_vertices, sizeof(cube_vertices)/sizeof(cube_vertices[0]), &box);
     // debugf("cube_visible: %d at depth: %u\n",cube_visible, box.udepth);
     occ_draw_indexed_mesh(culler, sw_zbuffer, &cube_model, cube_vertices, cube_indices, sizeof(cube_indices)/sizeof(cube_indices[0]));
-    bool wireframe = !cube_visible;
 
-    // Continue drawing other objects
+    if (cube_visible || config_show_wireframe) {
+        bool wireframe = !cube_visible;
 
-    if (wireframe) {
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        glDisable(GL_DEPTH_TEST);
-        glDisable(GL_LIGHTING);
-        glDisable(GL_TEXTURE_2D);
-    }
-    glPushMatrix();
-    glMultMatrixf(&cube_model.m[0][0]);
-    render_cube();
-    glPopMatrix();
-    if (wireframe) {
-        glEnable(GL_TEXTURE_2D);
-        glEnable(GL_LIGHTING);
-        glEnable(GL_DEPTH_TEST);
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        // Continue drawing other objects
+
+        if (wireframe) {
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            glDisable(GL_DEPTH_TEST);
+            glDisable(GL_LIGHTING);
+            glDisable(GL_TEXTURE_2D);
+        }
+        glPushMatrix();
+        glMultMatrixf(&cube_model.m[0][0]);
+        render_cube();
+        glPopMatrix();
+        if (wireframe) {
+            glEnable(GL_TEXTURE_2D);
+            glEnable(GL_LIGHTING);
+            glEnable(GL_DEPTH_TEST);
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        }
     }
 
     // render_decal();
@@ -283,7 +285,7 @@ void render()
 
     gl_context_end();
 
-    if (false) {
+    if (true) {
         uint16_t minz=0xffff;
         for (int y=0;y<sw_zbuffer->height;y++) {
             for (int x=0;x<sw_zbuffer->width;x++) {
@@ -291,7 +293,7 @@ void render()
                 if (z<minz) minz = z;
             }
         }
-        debugf("minz: %u\n", minz);
+        rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 20, "minZ: %u", minz);
     }
 
     // Show the software zbuffer
@@ -322,7 +324,7 @@ void render()
     }
 
     //rdpq_text_print(NULL, FONT_SCIFI, xscale*(box.minX+box.maxX)*0.5f, yscale*(box.minY+box.maxY)*0.5f, cube_visible ? "seen" : "hidden");
-    rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 20, cube_visible ? "cube visible" : "cube hidden");
+    rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 10, cube_visible ? "cube visible" : "cube hidden");
     rdpq_detach_show();
 
     rspq_profile_next_frame();
@@ -387,8 +389,7 @@ int main()
         }
 
         if (pressed.r) {
-            shade_model = shade_model == GL_SMOOTH ? GL_FLAT : GL_SMOOTH;
-            glShadeModel(shade_model);
+            config_show_wireframe = !config_show_wireframe;
         }
 
         if (pressed.l) {
