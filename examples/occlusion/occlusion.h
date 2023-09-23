@@ -42,6 +42,16 @@ bool g_measure_error = false;
 bool g_verbose_raster = false; // print depth at vertex pixels
 bool config_discard_based_on_tr_code = false;
 
+enum {
+    RASTER_FLAG_BACKFACE_CULL = 1,
+    RASTER_FLAG_CHECK_ONLY = 1 << 1
+};
+
+typedef uint32_t occ_raster_flags_t;
+
+#define OCC_RASTER_FLAGS_DRAW (RASTER_FLAG_BACKFACE_CULL)
+#define OCC_RASTER_FLAGS_QUERY (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_CHECK_ONLY)
+
 typedef struct occ_culler_s {
     struct {
         int x;
@@ -62,6 +72,13 @@ typedef struct occ_result_box_s {
     int hitX;        // visible pixel coordinate, otherwise -1
     int hitY;        // visible pixel coordinate, otherwise -1
 } occ_result_box_t;
+
+typedef struct occ_raster_query_result_s {
+    bool visible;
+    int x;
+    int y;
+    uint16_t depth;
+} occ_raster_query_result_t;
 
 occ_culler_t *occ_alloc()
 {
@@ -167,6 +184,8 @@ void draw_tri3(
     float Z0f,
     float Z1f,
     float Z2f,
+    occ_raster_flags_t flags,
+    occ_raster_query_result_t* result,
     surface_t *zbuffer)
 {
     vec2 minb = {min(v0_in.x, min(v1_in.x, v2_in.x)), min(v0_in.y, min(v1_in.y, v2_in.y))};
@@ -218,7 +237,7 @@ void draw_tri3(
     }
 
     int area2x = -orient2d_subpixel(v0, v1, v2);
-    if (area2x <= 0) return;
+    if ((flags & RASTER_FLAG_BACKFACE_CULL) && area2x <= 0) return;
 
     // Barycentric coordinates at minX/minY corner
 
@@ -238,7 +257,7 @@ void draw_tri3(
     // See https://tutorial.math.lamar.edu/classes/calciii/eqnsofplanes.aspx
     // and https://fgiesen.wordpress.com/2011/07/08/a-trip-through-the-graphics-pipeline-2011-part-7/
 
-	// So now v0, v1, v2 are in subpixel coordinates, while Z0f, Z1f, Z2f are linear floats in [0, 1].
+    // So now v0, v1, v2 are in subpixel coordinates, while Z0f, Z1f, Z2f are linear floats in [0, 1].
     vec3f v01 = vec3f_sub((vec3f){v1.x, v1.y, Z1f}, (vec3f){v0.x, v0.y, Z0f});
     vec3f v02 = vec3f_sub((vec3f){v2.x, v2.y, Z2f}, (vec3f){v0.x, v0.y, Z0f});
 
@@ -274,6 +293,11 @@ void draw_tri3(
         debugf("zf_row: %f\n", Zf_row);
         debugf("w0_row: %d\nw1_row: %d\nw2_row: %d\n", w0_row, w1_row, w2_row);
         debugf("bias0: %d\nbias1: %d\nbias2: %d\n", bias0, bias1, bias2);
+    }
+
+    if (flags & RASTER_FLAG_CHECK_ONLY) {
+        assert(result);
+        result->visible = false;
     }
 
     float worst_relerror = 0.0f;
@@ -315,7 +339,19 @@ void draw_tri3(
 
                 uint16_t depth = Z_fixed32; // TODO don't we want top 16 bits?
                 u_uint16_t *buf = ZBUFFER_UINT_PTR_AT(zbuffer, p.x, p.y);
-                *buf = min(*buf, depth);
+                if (depth < *buf) {
+                    if (flags & RASTER_FLAG_CHECK_ONLY) {
+                        assert(result);
+                        result->visible = true;
+                        result->x = p.x;
+                        result->y = p.y;
+                        result->depth = depth;
+                        debugf("visible at (%d, %d), v0=(%d,%d)\n", p.x, p.y, v0.x>>SUBPIXEL_BITS, v0.y>>SUBPIXEL_BITS);
+                        return; // early out was requested
+                    } else {
+                        *buf = depth;
+                    }
+                }
             }
 
             // One step to the right
@@ -339,12 +375,14 @@ void draw_tri3(
     if (g_measure_error) {
         debugf("worst_relerror: %f %%, worst_abserror: %f\n", 100 * worst_relerror, worst_abserror);
     }
-	if (g_verbose_setup) {
-		debugf("\n");
-	}
+    if (g_verbose_setup) {
+        debugf("\n");
+    }
 }
 
-void occ_draw_indexed_mesh(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform, const vertex_t *vertices, const uint16_t *indices, uint32_t num_indices)
+void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform,
+                                 const vertex_t *vertices, const uint16_t *indices, uint32_t num_indices,
+                                 occ_raster_flags_t flags, occ_raster_query_result_t* query_result)
 {
     // We render a viewport (x,y,x+w,y+h) in zbuffer's pixel space
     cpu_glViewport(
@@ -410,27 +448,40 @@ void occ_draw_indexed_mesh(occ_culler_t *occ, surface_t *zbuffer, const matrix_t
             continue;
         }
 
-		if (config_discard_based_on_tr_code) {
-			uint8_t tr_codes = 0xFF;
-			tr_codes &= verts[0].tr_code;
-			tr_codes &= verts[1].tr_code;
-			tr_codes &= verts[2].tr_code;
+        if (config_discard_based_on_tr_code) {
+            uint8_t tr_codes = 0xFF;
+            tr_codes &= verts[0].tr_code;
+            tr_codes &= verts[1].tr_code;
+            tr_codes &= verts[2].tr_code;
 
-			// Trivial rejection
-			if (tr_codes) {
-				continue;
-			}
-		}
+            // Trivial rejection
+            if (tr_codes) {
+                continue;
+            }
+        }
 
         draw_tri3(
             screenverts[0], screenverts[1], screenverts[2],
             screenzs[0], screenzs[1], screenzs[2],
+            flags, query_result,
             zbuffer);
+        
+        if ((flags & RASTER_FLAG_CHECK_ONLY) && query_result && query_result->visible) {
+            return;
+        }
     }
 }
 
+void occ_draw_indexed_mesh(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform,
+                           const vertex_t *vertices, const uint16_t *indices, uint32_t num_indices)
+{
+	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, vertices, indices, num_indices, OCC_RASTER_FLAGS_DRAW, NULL);
+}
+
 // [minX, maxX), [minY, maxY), i.e. upper bounds are exclusive.
-bool occ_check_pixel_box_visible(occ_culler_t *occ, surface_t *zbuffer, uint16_t depth, int minX, int minY, int maxX, int maxY, occ_result_box_t *out_box)
+bool occ_check_pixel_box_visible(occ_culler_t *occ, surface_t *zbuffer,
+                                 uint16_t depth, int minX, int minY, int maxX, int maxY,
+                                 occ_result_box_t *out_box)
 {
     if (minX < 0) minX = 0;
     if (minY < 0) minY = 0;
@@ -463,7 +514,8 @@ bool occ_check_pixel_box_visible(occ_culler_t *occ, surface_t *zbuffer, uint16_t
     return false; // Every box pixel was behind the Z-buffer
 }
 
-bool occ_check_mesh_visible(occ_culler_t *occ, surface_t *zbuffer, matrix_t *model_xform, const vertex_t *vertices, uint16_t num_vertices, occ_result_box_t *out_box)
+bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, matrix_t *model_xform,
+                                  const vertex_t *vertices, uint16_t num_vertices, occ_result_box_t *out_box)
 {
     // 1. transform and project each point to screen space
     // 2. compute the XY bounding box
@@ -501,6 +553,16 @@ bool occ_check_mesh_visible(occ_culler_t *occ, surface_t *zbuffer, matrix_t *mod
     }
 
     uint16_t udepth = FLOAT_TO_U16(minZ);
-    //debugf("box: (%f, %f, %f, %f), minZ=%f, udepth=%u\n", minX, minY, maxX, maxY, minZ, udepth);
+    // debugf("box: (%f, %f, %f, %f), minZ=%f, udepth=%u\n", minX, minY, maxX, maxY, minZ, udepth);
     return occ_check_pixel_box_visible(occ, zbuffer, udepth, minX, minY, maxX, maxY, out_box);
+}
+
+bool occ_check_mesh_visible_precise(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform,
+                           const vertex_t *vertices, const uint16_t *indices, uint32_t num_indices, occ_raster_query_result_t *out_result)
+{
+    assert(out_result);
+    //occ_raster_query_result_t result;
+	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, vertices, indices, num_indices, OCC_RASTER_FLAGS_QUERY, out_result);
+    //if (out_result) *out_result = result;
+	return out_result->visible;
 }

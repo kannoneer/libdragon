@@ -1,18 +1,18 @@
-#include <libdragon.h>
 #include <GL/gl.h>
-#include <GL/glu.h>
 #include <GL/gl_integration.h>
-#include <rspq_profile.h>
+#include <GL/glu.h>
+#include <libdragon.h>
 #include <malloc.h>
 #include <math.h>
+#include <rspq_profile.h>
 
 #include "camera.h"
 #include "cube.h"
 #include "decal.h"
-#include "sphere.h"
 #include "plane.h"
 #include "prim_test.h"
 #include "skinned.h"
+#include "sphere.h"
 
 #include "occlusion.h"
 
@@ -20,50 +20,50 @@
 // The demo will only run for a single frame and stop.
 #define DEBUG_RDP 0
 
-#define CULL_W (320/4)
-#define CULL_H (240/4)
+#define CULL_W (320 / 4)
+#define CULL_H (240 / 4)
 
-static occ_culler_t* culler;
+static occ_culler_t *culler;
 
 static uint32_t animation = 3283;
 static uint32_t texture_index = 0;
 static camera_t camera;
 static surface_t zbuffer;
 static surface_t sw_zbuffer_array[2];
-static surface_t* sw_zbuffer;
+static surface_t *sw_zbuffer;
 
 static matrix_t g_projection;
-//static matrix_t g_cube_xform;
+// static matrix_t g_cube_xform;
 
 static uint64_t g_num_frames = 0;
 
 static GLuint textures[4];
 
-static const GLfloat environment_color[] = { 0.1f, 0.03f, 0.2f, 1.f };
+static const GLfloat environment_color[] = {0.1f, 0.03f, 0.2f, 1.f};
 
 static bool config_show_visible_point = false;
 static bool config_show_wireframe = true;
 
 static const GLfloat light_pos[8][4] = {
-    { 1, 0, 0, 0 },
-    { -1, 0, 0, 0 },
-    { 0, 0, 1, 0 },
-    { 0, 0, -1, 0 },
-    { 8, 3, 0, 1 },
-    { -8, 3, 0, 1 },
-    { 0, 3, 8, 1 },
-    { 0, 3, -8, 1 },
+    {1, 0, 0, 0},
+    {-1, 0, 0, 0},
+    {0, 0, 1, 0},
+    {0, 0, -1, 0},
+    {8, 3, 0, 1},
+    {-8, 3, 0, 1},
+    {0, 3, 8, 1},
+    {0, 3, -8, 1},
 };
 
 static const GLfloat light_diffuse[8][4] = {
-    { 1.0f, 0.0f, 0.0f, 1.0f },
-    { 0.0f, 1.0f, 0.0f, 1.0f },
-    { 0.0f, 0.0f, 1.0f, 1.0f },
-    { 1.0f, 1.0f, 0.0f, 1.0f },
-    { 1.0f, 0.0f, 1.0f, 1.0f },
-    { 0.0f, 1.0f, 1.0f, 1.0f },
-    { 1.0f, 1.0f, 1.0f, 1.0f },
-    { 1.0f, 1.0f, 1.0f, 1.0f },
+    {1.0f, 0.0f, 0.0f, 1.0f},
+    {0.0f, 1.0f, 0.0f, 1.0f},
+    {0.0f, 0.0f, 1.0f, 1.0f},
+    {1.0f, 1.0f, 0.0f, 1.0f},
+    {1.0f, 0.0f, 1.0f, 1.0f},
+    {0.0f, 1.0f, 1.0f, 1.0f},
+    {1.0f, 1.0f, 1.0f, 1.0f},
+    {1.0f, 1.0f, 1.0f, 1.0f},
 };
 
 enum Fonts {
@@ -79,13 +79,13 @@ static const char *texture_path[4] = {
 
 static sprite_t *sprites[4];
 
-void compute_camera_matrix(matrix_t* matrix, const camera_t *camera)
+void compute_camera_matrix(matrix_t *matrix, const camera_t *camera)
 {
     matrix_t lookat;
     cpu_gluLookAt(&lookat,
-        0, 0.5f * -camera->distance, -camera->distance,
-        0, 4, 0,
-        0, 1, 0);
+                  0, 0.5f * -camera->distance, -camera->distance,
+                  0, 4, 0,
+                  0, 1, 0);
     matrix_t rotate = cpu_glRotatef(camera->rotation, 0, 1, 0);
     matrix_mult_full(matrix, &lookat, &rotate);
 }
@@ -100,8 +100,7 @@ void setup()
     sw_zbuffer_array[1] = surface_alloc(FMT_RGBA16, CULL_W, CULL_H);
     sw_zbuffer = &sw_zbuffer_array[0];
 
-    for (uint32_t i = 0; i < 4; i++)
-    {
+    for (uint32_t i = 0; i < 4; i++) {
         sprites[i] = sprite_load(texture_path[i]);
     }
 
@@ -132,15 +131,14 @@ void setup()
 
     float light_radius = 10.0f;
 
-    for (uint32_t i = 0; i < 8; i++)
-    {
+    for (uint32_t i = 0; i < 8; i++) {
         glEnable(GL_LIGHT0 + i);
         glLightfv(GL_LIGHT0 + i, GL_DIFFUSE, light_diffuse[i]);
-        glLightf(GL_LIGHT0 + i, GL_LINEAR_ATTENUATION, 2.0f/light_radius);
-        glLightf(GL_LIGHT0 + i, GL_QUADRATIC_ATTENUATION, 1.0f/(light_radius*light_radius));
+        glLightf(GL_LIGHT0 + i, GL_LINEAR_ATTENUATION, 2.0f / light_radius);
+        glLightf(GL_LIGHT0 + i, GL_QUADRATIC_ATTENUATION, 1.0f / (light_radius * light_radius));
     }
 
-    GLfloat mat_diffuse[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    GLfloat mat_diffuse[] = {1.0f, 1.0f, 1.0f, 1.0f};
     glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, mat_diffuse);
 
     glFogf(GL_FOG_START, 5);
@@ -151,15 +149,13 @@ void setup()
 
     glGenTextures(4, textures);
 
-    #if 0
+#if 0
     GLenum min_filter = GL_LINEAR_MIPMAP_LINEAR;
-    #else
+#else
     GLenum min_filter = GL_LINEAR;
-    #endif
+#endif
 
-
-    for (uint32_t i = 0; i < 4; i++)
-    {
+    for (uint32_t i = 0; i < 4; i++) {
         glBindTexture(GL_TEXTURE_2D, textures[i]);
 
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -174,10 +170,9 @@ void setup()
 void set_light_positions(float rotation)
 {
     glPushMatrix();
-    glRotatef(rotation*5.43f, 0, 1, 0);
+    glRotatef(rotation * 5.43f, 0, 1, 0);
 
-    for (uint32_t i = 0; i < 8; i++)
-    {
+    for (uint32_t i = 0; i < 8; i++) {
         glLightfv(GL_LIGHT0 + i, GL_POSITION, light_pos[i]);
     }
     glPopMatrix();
@@ -218,37 +213,48 @@ void render()
     glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
 
     // Draw occluders
-    
+
     render_plane();
     occ_draw_indexed_mesh(culler, sw_zbuffer, NULL, plane_vertices, plane_indices, plane_index_count);
 
-    for (int i=0;i<3;i++) {
+    long unsigned int anim_timer = g_num_frames;
+
+    for (int i = 0; i < 3; i++) {
         glPushMatrix();
         matrix_t scale = cpu_glScalef(1.0f, 1.5f, 0.2f);
-        matrix_t translate = cpu_glTranslatef((-1 + i) * 8.f + 2.0f*sin(i*1.5f + 0.05f*g_num_frames), 5.0f, sin(i*2.f));
+        matrix_t translate = cpu_glTranslatef((-1 + i) * 8.f + 2.0f * sin(i * 1.5f + 0.05f * anim_timer), 5.0f, sin(i * 2.f));
         matrix_t model;
         matrix_mult_full(&model, &translate, &scale);
-        
+
         glMultMatrixf(&model.m[0][0]);
         render_cube();
-        occ_draw_indexed_mesh(culler, sw_zbuffer, &model, cube_vertices, cube_indices, sizeof(cube_indices)/sizeof(cube_indices[0]));
+        occ_draw_indexed_mesh(culler, sw_zbuffer, &model, cube_vertices, cube_indices, sizeof(cube_indices) / sizeof(cube_indices[0]));
         glPopMatrix();
-
     }
 
     // We are interested in target cube's visiblity. Compute its model-to-world transform.
 
-    matrix_t cube_rotate = cpu_glRotatef(2.f*g_num_frames, sqrtf(3.f), 0.0f, sqrtf(3.f));
-    matrix_t cube_translate = cpu_glTranslatef(0.0f + 6.0f * sin(g_num_frames*0.04f), 5.0f, 7.0f);
+    matrix_t cube_rotate = cpu_glRotatef(2.f * anim_timer, sqrtf(3.f), 0.0f, sqrtf(3.f));
+    matrix_t cube_translate = cpu_glTranslatef(0.0f + 6.0f * sin(anim_timer * 0.04f), 5.0f, 7.0f);
     matrix_t cube_model;
+
     matrix_mult_full(&cube_model, &cube_translate, &cube_rotate);
+    // debugf("cube model\n");
+    // print_matrix(&cube_model);
 
     // Occlusion culling
 
     occ_result_box_t box = {};
-    bool cube_visible = occ_check_mesh_visible(culler, sw_zbuffer, &cube_model, cube_vertices, sizeof(cube_vertices)/sizeof(cube_vertices[0]), &box);
+    occ_raster_query_result_t raster_query = {};
+    bool cube_visible = occ_check_mesh_visible_precise(culler, sw_zbuffer, &cube_model,
+                                                       cube_vertices, cube_indices, sizeof(cube_indices) / sizeof(cube_indices[0]),
+                                                       &raster_query);
+    box.hitX = raster_query.x;
+    box.hitY = raster_query.y;
+    box.udepth = raster_query.depth;
+    debugf("raster_query_result: %s, (%d, %d)\n", raster_query.visible ? "visible" : "hidden", raster_query.x, raster_query.y);
     // debugf("cube_visible: %d at depth: %u\n",cube_visible, box.udepth);
-    occ_draw_indexed_mesh(culler, sw_zbuffer, &cube_model, cube_vertices, cube_indices, sizeof(cube_indices)/sizeof(cube_indices[0]));
+    occ_draw_indexed_mesh(culler, sw_zbuffer, &cube_model, cube_vertices, cube_indices, sizeof(cube_indices) / sizeof(cube_indices[0]));
 
     if (cube_visible || config_show_wireframe) {
         bool wireframe = !cube_visible;
@@ -276,8 +282,8 @@ void render()
     // render_decal();
     // render_skinned(&camera, animation);
 
-    glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
-    //render_sphere(rotation);
+    glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1) % 4]);
+    // render_sphere(rotation);
 
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
@@ -286,11 +292,11 @@ void render()
     gl_context_end();
 
     if (true) {
-        uint16_t minz=0xffff;
-        for (int y=0;y<sw_zbuffer->height;y++) {
-            for (int x=0;x<sw_zbuffer->width;x++) {
-                uint16_t z = ((uint16_t*)(sw_zbuffer->buffer + sw_zbuffer->stride * y))[x];
-                if (z<minz) minz = z;
+        uint16_t minz = 0xffff;
+        for (int y = 0; y < sw_zbuffer->height; y++) {
+            for (int x = 0; x < sw_zbuffer->width; x++) {
+                uint16_t z = ((uint16_t *)(sw_zbuffer->buffer + sw_zbuffer->stride * y))[x];
+                if (z < minz) minz = z;
             }
         }
         rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 20, "minZ: %u", minz);
@@ -298,32 +304,32 @@ void render()
 
     // Show the software zbuffer
 
-    //rdpq_attach(disp, NULL);
+    // rdpq_attach(disp, NULL);
     rdpq_set_mode_standard(); // Can't use copy mode if we need a 16-bit -> 32-bit conversion
     rdpq_tex_blit(sw_zbuffer, 0, 0, NULL);
-    //rdpq_detach();
+    // rdpq_detach();
     rspq_flush();
 
-    if ((g_num_frames/2) % 2 == 0) {
-        rdpq_set_mode_fill(cube_visible ? (color_t){0,255,0,64} : (color_t){255,0,0,64});
+    if ((g_num_frames / 2) % 2 == 0) {
+        rdpq_set_mode_fill(cube_visible ? (color_t){0, 255, 0, 64} : (color_t){255, 0, 0, 64});
         rdpq_fill_rectangle(box.minX, box.minY, box.maxX, box.maxY);
     }
 
     float xscale = disp->width / (float)sw_zbuffer->width;
     float yscale = disp->height / (float)sw_zbuffer->height;
-    float xvisible = xscale*box.hitX;
-    float yvisible = yscale*box.hitY;
+    float xvisible = xscale * box.hitX;
+    float yvisible = yscale * box.hitY;
     if (cube_visible) {
         // Draw the visible pixel to both the mini-image and the full rendering
-        rdpq_set_mode_fill((color_t){0,0,255,255});
-        rdpq_fill_rectangle(box.hitX, box.hitY+1, box.hitX, box.hitY+1);
+        rdpq_set_mode_fill((color_t){0, 0, 255, 255});
+        rdpq_fill_rectangle(box.hitX, box.hitY + 1, box.hitX, box.hitY + 1);
         if (config_show_visible_point) {
-            rdpq_set_mode_fill((color_t){255,255,255,255});
-            rdpq_fill_rectangle(xvisible-1, yvisible-1, xvisible+2, yvisible+2);
+            rdpq_set_mode_fill((color_t){255, 255, 255, 255});
+            rdpq_fill_rectangle(xvisible - 1, yvisible - 1, xvisible + 2, yvisible + 2);
         }
     }
 
-    //rdpq_text_print(NULL, FONT_SCIFI, xscale*(box.minX+box.maxX)*0.5f, yscale*(box.minY+box.maxY)*0.5f, cube_visible ? "seen" : "hidden");
+    // rdpq_text_print(NULL, FONT_SCIFI, xscale*(box.minX+box.maxX)*0.5f, yscale*(box.minY+box.maxY)*0.5f, cube_visible ? "seen" : "hidden");
     rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 10, cube_visible ? "cube visible" : "cube hidden");
     rdpq_detach_show();
 
@@ -336,16 +342,17 @@ void render()
 
     if (sw_zbuffer == &sw_zbuffer_array[0]) {
         sw_zbuffer = &sw_zbuffer_array[1];
-    } else {
+    }
+    else {
         sw_zbuffer = &sw_zbuffer_array[0];
     }
 }
 
 int main()
 {
-	debug_init_isviewer();
-	debug_init_usblog();
-    
+    debug_init_isviewer();
+    debug_init_usblog();
+
     dfs_init(DFS_DEFAULT_LOCATION);
 
     display_init(RESOLUTION_320x240, DEPTH_16_BPP, 3, GAMMA_NONE, FILTERS_RESAMPLE_ANTIALIAS_DEDITHER);
@@ -416,7 +423,7 @@ int main()
             if (sphere_segments > SPHERE_MIN_SEGMENTS) {
                 sphere_segments--;
             }
-            
+
             make_sphere_mesh();
         }
 
@@ -426,7 +433,7 @@ int main()
 
         float y = inputs.stick_y / 128.f;
         float x = inputs.stick_x / 128.f;
-        float mag = x*x + y*y;
+        float mag = x * x + y * y;
 
         if (fabsf(mag) > 0.01f) {
             camera.distance += y * 0.2f;
@@ -439,5 +446,4 @@ int main()
 
         g_num_frames++;
     }
-
 }
