@@ -80,6 +80,13 @@ typedef struct occ_raster_query_result_s {
     uint16_t depth;
 } occ_raster_query_result_t;
 
+typedef struct occ_mesh_s {
+    const vertex_t *vertices;
+    const uint16_t *indices;
+    uint32_t num_vertices;
+    uint32_t num_indices;
+} occ_mesh_t;
+
 occ_culler_t *occ_alloc()
 {
     occ_culler_t *culler = malloc(sizeof(occ_culler_t));
@@ -474,10 +481,16 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
     }
 }
 
-void occ_draw_indexed_mesh(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform,
-                           const vertex_t *vertices, const uint16_t *indices, uint32_t num_indices)
+
+// void occ_draw_indexed_mesh(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform,
+//                            const vertex_t *vertices, const uint16_t *indices, uint32_t num_indices)
+// {
+// 	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, vertices, indices, num_indices, OCC_RASTER_FLAGS_DRAW, NULL);
+// }
+
+void occ_draw_mesh(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t *mesh, const matrix_t *model_xform)
 {
-	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, vertices, indices, num_indices, OCC_RASTER_FLAGS_DRAW, NULL);
+	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, mesh->vertices, mesh->indices, mesh->num_indices, OCC_RASTER_FLAGS_DRAW, NULL);
 }
 
 // [minX, maxX), [minY, maxY), i.e. upper bounds are exclusive.
@@ -516,8 +529,7 @@ bool occ_check_pixel_box_visible(occ_culler_t *occ, surface_t *zbuffer,
     return false; // Every box pixel was behind the Z-buffer
 }
 
-bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, matrix_t *model_xform,
-                                  const vertex_t *vertices, uint16_t num_vertices, occ_result_box_t *out_box)
+bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t* mesh, const matrix_t *model_xform, occ_result_box_t *out_box)
 {
     // 1. transform and project each point to screen space
     // 2. compute the XY bounding box
@@ -537,11 +549,11 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, matrix_
     float maxX = -__FLT_MAX__;
     float minY = __FLT_MAX__;
     float maxY = -__FLT_MAX__;
-    for (int iv = 0; iv < num_vertices; iv++) {
+    for (int iv = 0; iv < mesh->num_vertices; iv++) {
         cpu_vtx_t vert = {};
-        vert.obj_attributes.position[0] = vertices[iv].position[0];
-        vert.obj_attributes.position[1] = vertices[iv].position[1];
-        vert.obj_attributes.position[2] = vertices[iv].position[2];
+        vert.obj_attributes.position[0] = mesh->vertices[iv].position[0];
+        vert.obj_attributes.position[1] = mesh->vertices[iv].position[1];
+        vert.obj_attributes.position[2] = mesh->vertices[iv].position[2];
         vert.obj_attributes.position[3] = 1.0f;
 
         cpu_vertex_pre_tr(&vert, &mvp);
@@ -559,11 +571,11 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, matrix_
     return occ_check_pixel_box_visible(occ, zbuffer, udepth, minX, minY, maxX, maxY, out_box);
 }
 
-bool occ_check_mesh_visible_precise(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform,
-                                    const vertex_t *vertices, const uint16_t *indices, uint32_t num_indices, occ_raster_query_result_t *out_result)
+bool occ_check_mesh_visible_precise(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t* mesh, const matrix_t *model_xform,
+                                    occ_raster_query_result_t *out_result)
 {
     occ_raster_query_result_t result = {};
-    occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, vertices, indices, num_indices, OCC_RASTER_FLAGS_QUERY, &result);
+    occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, mesh->vertices, mesh->indices, mesh->num_indices, OCC_RASTER_FLAGS_QUERY, &result);
     if (out_result) {
         *out_result = result;
     }

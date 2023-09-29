@@ -215,20 +215,37 @@ void render()
     // Draw occluders
 
     render_plane();
-    occ_draw_indexed_mesh(culler, sw_zbuffer, NULL, plane_vertices, plane_indices, plane_index_count);
+
+    occ_mesh_t plane_mesh = {
+        .vertices = plane_vertices,
+        .indices = plane_indices,
+        .num_indices = plane_index_count,
+        .num_vertices = plane_vertex_count
+    };
+
+    occ_draw_mesh(culler, sw_zbuffer, &plane_mesh, NULL);
 
     long unsigned int anim_timer = g_num_frames;
+
+    occ_mesh_t cube_mesh = {
+        .vertices = cube_vertices,
+        .indices = cube_indices,
+        .num_vertices = sizeof(cube_vertices) / sizeof(cube_vertices[0]),
+        .num_indices = sizeof(cube_indices) / sizeof(cube_indices[0]),
+    };
+
+    occ_draw_mesh(culler, sw_zbuffer, &plane_mesh, NULL);
 
     for (int i = 0; i < 3; i++) {
         glPushMatrix();
         matrix_t scale = cpu_glScalef(1.0f, 1.5f, 0.2f);
         matrix_t translate = cpu_glTranslatef((-1 + i) * 8.f + 2.0f * sin(i * 1.5f + 0.05f * anim_timer), 5.0f, sin(i * 2.f));
-        matrix_t model;
-        matrix_mult_full(&model, &translate, &scale);
+        matrix_t xform;
+        matrix_mult_full(&xform, &translate, &scale);
 
-        glMultMatrixf(&model.m[0][0]);
+        glMultMatrixf(&xform.m[0][0]);
         render_cube();
-        occ_draw_indexed_mesh(culler, sw_zbuffer, &model, cube_vertices, cube_indices, sizeof(cube_indices) / sizeof(cube_indices[0]));
+        occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, &xform);
         glPopMatrix();
     }
 
@@ -236,21 +253,19 @@ void render()
 
     matrix_t cube_rotate = cpu_glRotatef(2.f * anim_timer, sqrtf(3.f), 0.0f, sqrtf(3.f));
     matrix_t cube_translate = cpu_glTranslatef(0.0f + 6.0f * sin(anim_timer * 0.04f), 5.0f, 7.0f);
-    matrix_t cube_model;
+    matrix_t cube_xform;
 
-    matrix_mult_full(&cube_model, &cube_translate, &cube_rotate);
+    matrix_mult_full(&cube_xform, &cube_translate, &cube_rotate);
 
     // Occlusion culling
 
     occ_result_box_t box = {};
     occ_raster_query_result_t raster_query = {};
-    bool cube_visible = occ_check_mesh_visible_precise(culler, sw_zbuffer, &cube_model,
-                                                       cube_vertices, cube_indices, sizeof(cube_indices) / sizeof(cube_indices[0]),
-                                                       &raster_query);
+    bool cube_visible = occ_check_mesh_visible_precise(culler, sw_zbuffer, &cube_mesh, &cube_xform, &raster_query);
     box.hitX = raster_query.x;
     box.hitY = raster_query.y;
     box.udepth = raster_query.depth;
-    occ_draw_indexed_mesh(culler, sw_zbuffer, &cube_model, cube_vertices, cube_indices, sizeof(cube_indices) / sizeof(cube_indices[0]));
+    occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, &cube_xform);
 
     if (cube_visible || config_show_wireframe) {
         bool wireframe = !cube_visible;
@@ -264,7 +279,7 @@ void render()
             glDisable(GL_TEXTURE_2D);
         }
         glPushMatrix();
-        glMultMatrixf(&cube_model.m[0][0]);
+        glMultMatrixf(&cube_xform.m[0][0]);
         render_cube();
         glPopMatrix();
         if (wireframe) {
