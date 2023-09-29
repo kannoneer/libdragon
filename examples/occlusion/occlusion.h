@@ -193,7 +193,7 @@ static vec3f cross3df_subpixel(vec3f a, vec3f b)
     return c;
 }
 
-void draw_tri3(
+void draw_tri_ref(
     vec2 v0_in,
     vec2 v1_in,
     vec2 v2_in,
@@ -222,10 +222,12 @@ void draw_tri3(
     vec2 v2 = {v2_in.x + center_ofs.x, v2_in.y + center_ofs.y};
     vec2 p_start = {minb.x + center_ofs.x, minb.y + center_ofs.y};
 
-    v0 = vec2_muls(v0, SUBPIXEL_SCALE);
-    v1 = vec2_muls(v1, SUBPIXEL_SCALE);
-    v2 = vec2_muls(v2, SUBPIXEL_SCALE);
-    p_start = vec2_muls(p_start, SUBPIXEL_SCALE);
+    if (SUBPIXEL_SCALE > 1) {
+        v0 = vec2_muls(v0, SUBPIXEL_SCALE);
+        v1 = vec2_muls(v1, SUBPIXEL_SCALE);
+        v2 = vec2_muls(v2, SUBPIXEL_SCALE);
+        p_start = vec2_muls(p_start, SUBPIXEL_SCALE);
+    }
 
     if (g_verbose_setup) {
         debugf("\n%s\n", __FUNCTION__);
@@ -412,8 +414,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
     if (model_xform) {
         mvp = &mvp_new;
         matrix_mult_full(mvp, &occ->mvp, model_xform);
-    }
-    else {
+    } else {
         mvp = &occ->mvp;
     }
 
@@ -454,62 +455,48 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
                    verts[0].inv_w);
         }
 
-        vec2 screenverts[3];
-        float screenzs[3];
+        uint8_t tr_codes = 0xff;
+        tr_codes &= verts[0].tr_code;
+        tr_codes &= verts[1].tr_code;
+        tr_codes &= verts[2].tr_code;
 
-        for (int i = 0; i < 3; i++) {
-            screenverts[i].x = verts[i].screen_pos[0]; // FIXME: float2int conversion?
-            screenverts[i].y = verts[i].screen_pos[1];
-            screenzs[i] = verts[i].depth;
+        // Trivial rejection
+        if (tr_codes) {
+            continue;
         }
 
-        if (config_discard_based_on_tr_code) {
-            uint8_t tr_codes = 0xFF;
-            tr_codes &= verts[0].tr_code;
-            tr_codes &= verts[1].tr_code;
-            tr_codes &= verts[2].tr_code;
+        const int NEAR_PLANE_INDEX = 2;
+        const bool clips_near = (verts[0].tr_code | verts[1].tr_code | verts[2].tr_code) & (1 << NEAR_PLANE_INDEX);
 
-            // Trivial rejection
-            if (tr_codes) {
+        if (clips_near) {
+            if (config_near_clipping_action == CLIP_ACTION_REJECT) {
                 continue;
-            }
+            } else if (config_near_clipping_action == CLIP_ACTION_DO_IT) {
+                // tr_code   = clip against screen bounds, used for rejection
+                // clip_code = clipped against guard bands, used for actual clipping
+                //
+                // We clip only against the near plane so they are the same.
 
-            const int NEAR_PLANE_INDEX = 2;
-            const bool clips_near = (verts[0].tr_code | verts[1].tr_code | verts[2].tr_code) & (1 << NEAR_PLANE_INDEX);
+                verts[0].clip_code = verts[0].tr_code;
+                verts[1].clip_code = verts[1].tr_code;
+                verts[2].clip_code = verts[2].tr_code;
 
-            if (clips_near) {
-                if (config_near_clipping_action == CLIP_ACTION_REJECT) {
-                    continue;
-                }
-                else if (config_near_clipping_action == CLIP_ACTION_DO_IT) {
-                    // tr_code   = clip against screen bounds, used for rejection
-                    // clip_code = clipped against guard bands, used for actual clipping
-                    //
-                    // We clip only against the near plane so they are the same.
-
-                    verts[0].clip_code = verts[0].tr_code;
-                    verts[1].clip_code = verts[1].tr_code;
-                    verts[2].clip_code = verts[2].tr_code;
-
-                    cpu_gl_clip_triangle(&verts[0], &verts[1], &verts[2], (1 << NEAR_PLANE_INDEX), clipping_cache, &clipping_list);
-                    debugf("after clipping: %lu\n", clipping_list.count);
-                }
-                else {
-                    debugf("Invalid clip action %lu\n", config_near_clipping_action);
-                    assert(false);
-                }
+                cpu_gl_clip_triangle(&verts[0], &verts[1], &verts[2], (1 << NEAR_PLANE_INDEX), clipping_cache, &clipping_list);
+            } else {
+                debugf("Invalid clip action %lu\n", config_near_clipping_action);
+                assert(false);
             }
         }
 
         if (clipping_list.count == 0) {
-            draw_tri3(
-                screenverts[0], screenverts[1], screenverts[2],
-                screenzs[0], screenzs[1], screenzs[2],
+            draw_tri_ref(
+                (vec2){verts[0].screen_pos[0], verts[0].screen_pos[1]},
+                (vec2){verts[1].screen_pos[0], verts[1].screen_pos[1]},
+                (vec2){verts[2].screen_pos[0], verts[2].screen_pos[1]},
+                verts[0].depth, verts[1].depth, verts[2].depth,
                 flags, query_result,
                 zbuffer);
         } else {
-            debugf("drawing %lu verts\n", clipping_list.count);
-
             for (uint32_t i = 1; i < clipping_list.count; i++) {
                 vec2 sv[3];
                 sv[0].x = clipping_list.vertices[0]->screen_pos[0];
@@ -519,15 +506,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
                 sv[2].x = clipping_list.vertices[i]->screen_pos[0];
                 sv[2].y = clipping_list.vertices[i]->screen_pos[1];
 
-                debugf("[%lu] [(%d, %d), (%d, %d), (%d, %d)], depths=[%f, %f, %f]\n", 
-                    i,
-                    sv[0].x, sv[0].y,
-                    sv[1].x, sv[1].y,
-                    sv[2].x, sv[2].y,
-                    clipping_list.vertices[0]->depth, clipping_list.vertices[i - 1]->depth, clipping_list.vertices[i]->depth
-                );
-
-                draw_tri3(
+                draw_tri_ref(
                     sv[0], sv[1], sv[2],
                     clipping_list.vertices[0]->depth, clipping_list.vertices[i - 1]->depth, clipping_list.vertices[i]->depth,
                     flags, query_result,
@@ -535,6 +514,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
             }
         }
 
+        // Early out from all triangles even if only one of them was visible
         if ((flags & RASTER_FLAG_CHECK_ONLY) && query_result && query_result->visible) {
             return;
         }

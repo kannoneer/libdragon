@@ -37,8 +37,8 @@ typedef struct {
 typedef struct {
     float screen_pos[2];
     float depth;
-    float shade[4];
-    float texcoord[2];
+    // float shade[4];
+    // float texcoord[2];
     float inv_w;
     float cs_pos[4];
     obj_attributes_t obj_attributes;
@@ -339,14 +339,12 @@ void cpu_gl_clip_triangle(cpu_vtx_t* v0, cpu_vtx_t* v1, cpu_vtx_t* v2, uint8_t p
     any_clip &= plane_mask;
 
     if (!any_clip) {
-        debugf("rejected\n");
-        //gl_cull_triangle(v0, v1, v2);
         return;
     }
 
+    // Originally by snacchus. Copied from libdragon's cpu_pipeline.c
     // Polygon clipping using the Sutherland-Hodgman algorithm
     // See https://en.wikipedia.org/wiki/Sutherland%E2%80%93Hodgman_algorithm
-
     
     uint32_t cache_used = 0;
 
@@ -360,15 +358,12 @@ void cpu_gl_clip_triangle(cpu_vtx_t* v0, cpu_vtx_t* v1, cpu_vtx_t* v2, uint8_t p
     out_list->vertices[2] = v2;
     out_list->count = 3;
 
-    
     for (uint32_t c = 0; c < CLIPPING_PLANE_COUNT; c++)
     {
         // If nothing clips this plane, skip it entirely
         if ((any_clip & (1<<c)) == 0) {
             continue;
         }
-
-        debugf("clippin plane %lu\n", c);
 
         const float *clip_plane = clip_planes[c];
 
@@ -412,7 +407,6 @@ void cpu_gl_clip_triangle(cpu_vtx_t* v0, cpu_vtx_t* v1, cpu_vtx_t* v2, uint8_t p
 
                 out_list->vertices[out_list->count] = intersection;
                 out_list->count++;
-                debugf("computed intersection for i=%lu, out_list->count=%lu\n", i, out_list->count);
             }
 
             if (cur_inside) {
@@ -427,8 +421,6 @@ void cpu_gl_clip_triangle(cpu_vtx_t* v0, cpu_vtx_t* v1, cpu_vtx_t* v2, uint8_t p
             }
         }
     }
-
-    debugf("final out_list->count=%lu\n", out_list->count);
 
     final_list->count = out_list->count;
 
