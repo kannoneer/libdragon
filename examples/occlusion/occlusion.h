@@ -402,12 +402,15 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         zbuffer->width,
         zbuffer->height);
 
-    matrix_t mvp;
+    matrix_t* mvp = NULL;
+    matrix_t mvp_new;
+
     if (model_xform) {
-        matrix_mult_full(&mvp, &occ->mvp, model_xform);
+        mvp = &mvp_new;
+        matrix_mult_full(mvp, &occ->mvp, model_xform);
     }
     else {
-        mvp = occ->mvp;
+        mvp = &occ->mvp;
     }
 
     for (int is = 0; is < num_indices; is += 3) {
@@ -423,7 +426,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         }
 
         for (int i = 0; i < 3; i++) {
-            cpu_vertex_pre_tr(&verts[i], &mvp);
+            cpu_vertex_pre_tr(&verts[i], mvp);
             cpu_vertex_calc_screenspace(&verts[i]);
         }
 
@@ -536,12 +539,15 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
     // 3. compute min Z
     // 3. check the bounding box against zbuffer with the given minZ
 
-    matrix_t mvp;
+    matrix_t* mvp = NULL;
+    matrix_t mvp_new;
+
     if (model_xform) {
-        matrix_mult_full(&mvp, &occ->mvp, model_xform);
+        mvp = &mvp_new;
+        matrix_mult_full(mvp, &occ->mvp, model_xform);
     }
     else {
-        mvp = occ->mvp;
+        mvp = &occ->mvp;
     }
 
     float minZ = __FLT_MAX__;
@@ -556,7 +562,7 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
         vert.obj_attributes.position[2] = mesh->vertices[iv].position[2];
         vert.obj_attributes.position[3] = 1.0f;
 
-        cpu_vertex_pre_tr(&vert, &mvp);
+        cpu_vertex_pre_tr(&vert, mvp);
         cpu_vertex_calc_screenspace(&vert);
         if (vert.depth < 0.f) return true; // HACK: any vertex behind camera makes the object visible
         minZ = min(minZ, vert.depth);
