@@ -93,7 +93,7 @@ void compute_camera_matrix(matrix_t *matrix, const camera_t *camera)
 void setup()
 {
     camera.distance = -7.5f;
-    camera.rotation = 180.0f;
+    camera.rotation = 90.0f;
 
     zbuffer = surface_alloc(FMT_RGBA16, display_get_width(), display_get_height());
     sw_zbuffer_array[0] = surface_alloc(FMT_RGBA16, CULL_W, CULL_H);

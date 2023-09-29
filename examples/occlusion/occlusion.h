@@ -40,7 +40,7 @@ bool g_verbose_setup = false;
 bool g_measure_error = false;
 bool g_verbose_raster = false; // print depth at vertex pixels
 bool g_verbose_early_out = false; // print coordinates of pixels that pass the depth test
-bool config_discard_based_on_tr_code = false;
+bool config_discard_based_on_tr_code = true;
 
 enum {
     RASTER_FLAG_BACKFACE_CULL = 1,
@@ -48,6 +48,15 @@ enum {
 };
 
 typedef uint32_t occ_raster_flags_t;
+
+enum {
+    CLIP_ACTION_REJECT = 0,
+    CLIP_ACTION_DO_IT = 1
+};
+
+typedef uint32_t occ_clip_action_t;
+
+occ_clip_action_t config_near_clipping_action = CLIP_ACTION_DO_IT;
 
 #define OCC_RASTER_FLAGS_DRAW (RASTER_FLAG_BACKFACE_CULL)
 #define OCC_RASTER_FLAGS_QUERY (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_CHECK_ONLY)
@@ -205,11 +214,6 @@ void draw_tri3(
 
     // Round box X coordinate to an even number
     // minb.x = minb.x & (~1);
-
-    // Discard if any of the vertices cross the near plane
-    if (Z0f <= 0.f || Z1f <= 0.0f || Z2f <= 0.0f) {
-        return;
-    }
 
     // Move origin to center of the screen for more symmetric range.
     vec2 center_ofs = {-(zbuffer->width >> 1), -(zbuffer->height >> 1)};
@@ -416,6 +420,8 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
     for (int is = 0; is < num_indices; is += 3) {
         const uint16_t *inds = &indices[is];
         cpu_vtx_t verts[3] = {0};
+        cpu_vtx_t clipping_cache[CLIPPING_CACHE_SIZE];
+        cpu_clipping_list_t clipping_list = {.count = 0};
 
         for (int i = 0; i < 3; i++) {
             verts[i].obj_attributes.position[0] = vertices[inds[i]].position[0];
@@ -450,14 +456,11 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
 
         vec2 screenverts[3];
         float screenzs[3];
+
         for (int i = 0; i < 3; i++) {
             screenverts[i].x = verts[i].screen_pos[0]; // FIXME: float2int conversion?
             screenverts[i].y = verts[i].screen_pos[1];
             screenzs[i] = verts[i].depth;
-        }
-
-        if (verts[0].cs_pos[2] < -1.0f || verts[1].cs_pos[2] < -1.0f || verts[2].cs_pos[2] < -1.0f) {
-            continue;
         }
 
         if (config_discard_based_on_tr_code) {
@@ -470,26 +473,73 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
             if (tr_codes) {
                 continue;
             }
+
+            const int NEAR_PLANE_INDEX = 2;
+            const bool clips_near = (verts[0].tr_code | verts[1].tr_code | verts[2].tr_code) & (1 << NEAR_PLANE_INDEX);
+
+            if (clips_near) {
+                if (config_near_clipping_action == CLIP_ACTION_REJECT) {
+                    continue;
+                }
+                else if (config_near_clipping_action == CLIP_ACTION_DO_IT) {
+                    // tr_code   = clip against screen bounds, used for rejection
+                    // clip_code = clipped against guard bands, used for actual clipping
+                    //
+                    // We clip only against the near plane so they are the same.
+
+                    verts[0].clip_code = verts[0].tr_code;
+                    verts[1].clip_code = verts[1].tr_code;
+                    verts[2].clip_code = verts[2].tr_code;
+
+                    cpu_gl_clip_triangle(&verts[0], &verts[1], &verts[2], (1 << NEAR_PLANE_INDEX), clipping_cache, &clipping_list);
+                    debugf("after clipping: %lu\n", clipping_list.count);
+                }
+                else {
+                    debugf("Invalid clip action %lu\n", config_near_clipping_action);
+                    assert(false);
+                }
+            }
         }
 
-        draw_tri3(
-            screenverts[0], screenverts[1], screenverts[2],
-            screenzs[0], screenzs[1], screenzs[2],
-            flags, query_result,
-            zbuffer);
-        
+        if (clipping_list.count == 0) {
+            draw_tri3(
+                screenverts[0], screenverts[1], screenverts[2],
+                screenzs[0], screenzs[1], screenzs[2],
+                flags, query_result,
+                zbuffer);
+        } else {
+            debugf("drawing %lu verts\n", clipping_list.count);
+
+            for (uint32_t i = 1; i < clipping_list.count; i++) {
+                vec2 sv[3];
+                sv[0].x = clipping_list.vertices[0]->screen_pos[0];
+                sv[0].y = clipping_list.vertices[0]->screen_pos[1];
+                sv[1].x = clipping_list.vertices[i - 1]->screen_pos[0];
+                sv[1].y = clipping_list.vertices[i - 1]->screen_pos[1];
+                sv[2].x = clipping_list.vertices[i]->screen_pos[0];
+                sv[2].y = clipping_list.vertices[i]->screen_pos[1];
+
+                debugf("[%lu] [(%d, %d), (%d, %d), (%d, %d)], depths=[%f, %f, %f]\n", 
+                    i,
+                    sv[0].x, sv[0].y,
+                    sv[1].x, sv[1].y,
+                    sv[2].x, sv[2].y,
+                    clipping_list.vertices[0]->depth, clipping_list.vertices[i - 1]->depth, clipping_list.vertices[i]->depth
+                );
+
+                draw_tri3(
+                    sv[0], sv[1], sv[2],
+                    clipping_list.vertices[0]->depth, clipping_list.vertices[i - 1]->depth, clipping_list.vertices[i]->depth,
+                    flags, query_result,
+                    zbuffer);
+            }
+        }
+
         if ((flags & RASTER_FLAG_CHECK_ONLY) && query_result && query_result->visible) {
             return;
         }
     }
 }
-
-
-// void occ_draw_indexed_mesh(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform,
-//                            const vertex_t *vertices, const uint16_t *indices, uint32_t num_indices)
-// {
-// 	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, vertices, indices, num_indices, OCC_RASTER_FLAGS_DRAW, NULL);
-// }
 
 void occ_draw_mesh(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t *mesh, const matrix_t *model_xform)
 {

@@ -17,8 +17,6 @@ static const float clip_planes[CLIPPING_PLANE_COUNT][4] = {
     { 0, 0, 1, -1 },
 };
 
-
-
 typedef struct {
     float m[4][4];
 } matrix_t;
@@ -330,20 +328,18 @@ static void cpu_intersect_line_plane(cpu_vtx_t *intersection, const cpu_vtx_t *p
     cpu_gl_vertex_calc_clip_code(intersection);
 }
 
-void cpu_gl_clip_triangle(cpu_vtx_t* v0, cpu_vtx_t* v1, cpu_vtx_t* v2, cpu_clipping_list_t* out_list)
+// v0, v1, v2:      vertices to clip
+// plane_mask:      which planes to try to clip against
+// clipping_cache:  Intersection points are stored in the clipping cache
+// out_list:        the generated polygon
+void cpu_gl_clip_triangle(cpu_vtx_t* v0, cpu_vtx_t* v1, cpu_vtx_t* v2, uint8_t plane_mask, cpu_vtx_t clipping_cache[static CLIPPING_CACHE_SIZE], cpu_clipping_list_t* final_list)
 {
-    // gl_vtx_t *v0 = state.primitive_vertices[0];
-    // gl_vtx_t *v1 = state.primitive_vertices[1];
-    // gl_vtx_t *v2 = state.primitive_vertices[2];
-
-    // Flat shading
-    // if (state.shade_model == GL_FLAT) {
-    //     memcpy(state.flat_color, v2->shade, sizeof(state.flat_color));
-    // }
-
     uint8_t any_clip = v0->clip_code | v1->clip_code | v2->clip_code;
 
+    any_clip &= plane_mask;
+
     if (!any_clip) {
+        debugf("rejected\n");
         //gl_cull_triangle(v0, v1, v2);
         return;
     }
@@ -351,19 +347,19 @@ void cpu_gl_clip_triangle(cpu_vtx_t* v0, cpu_vtx_t* v1, cpu_vtx_t* v2, cpu_clipp
     // Polygon clipping using the Sutherland-Hodgman algorithm
     // See https://en.wikipedia.org/wiki/Sutherland%E2%80%93Hodgman_algorithm
 
-    // Intersection points are stored in the clipping cache
-    cpu_vtx_t clipping_cache[CLIPPING_CACHE_SIZE];
+    
     uint32_t cache_used = 0;
 
     cpu_clipping_list_t lists[2];
 
     cpu_clipping_list_t *in_list = &lists[0];
-    //cpu_clipping_list_t *out_list = &lists[1];
+    cpu_clipping_list_t *out_list = &lists[1];
 
     out_list->vertices[0] = v0;
     out_list->vertices[1] = v1;
     out_list->vertices[2] = v2;
     out_list->count = 3;
+
     
     for (uint32_t c = 0; c < CLIPPING_PLANE_COUNT; c++)
     {
@@ -371,6 +367,8 @@ void cpu_gl_clip_triangle(cpu_vtx_t* v0, cpu_vtx_t* v1, cpu_vtx_t* v2, cpu_clipp
         if ((any_clip & (1<<c)) == 0) {
             continue;
         }
+
+        debugf("clippin plane %lu\n", c);
 
         const float *clip_plane = clip_planes[c];
 
@@ -414,6 +412,7 @@ void cpu_gl_clip_triangle(cpu_vtx_t* v0, cpu_vtx_t* v1, cpu_vtx_t* v2, cpu_clipp
 
                 out_list->vertices[out_list->count] = intersection;
                 out_list->count++;
+                debugf("computed intersection for i=%lu, out_list->count=%lu\n", i, out_list->count);
             }
 
             if (cur_inside) {
@@ -429,12 +428,14 @@ void cpu_gl_clip_triangle(cpu_vtx_t* v0, cpu_vtx_t* v1, cpu_vtx_t* v2, cpu_clipp
         }
     }
 
+    debugf("final out_list->count=%lu\n", out_list->count);
+
+    final_list->count = out_list->count;
+
     for (uint32_t i = 0; i < out_list->count; i++)
     {
-        cpu_vertex_calc_screenspace(out_list->vertices[i]);
-        if (i > 1) {
-            //gl_cull_triangle(out_list->vertices[0], out_list->vertices[i-1], out_list->vertices[i]);
-        }
+        final_list->vertices[i] = out_list->vertices[i];
+        cpu_vertex_calc_screenspace(final_list->vertices[i]);
     }
 }
 
