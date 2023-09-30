@@ -92,8 +92,8 @@ void compute_camera_matrix(matrix_t *matrix, const camera_t *camera)
 
 void setup()
 {
-    camera.distance = -7.5f;
-    camera.rotation = 90.0f;
+    camera.distance = -15.5f;
+    camera.rotation = 50.0f;
 
     zbuffer = surface_alloc(FMT_RGBA16, display_get_width(), display_get_height());
     sw_zbuffer_array[0] = surface_alloc(FMT_RGBA16, CULL_W, CULL_H);
@@ -225,7 +225,7 @@ void render()
 
     occ_draw_mesh(culler, sw_zbuffer, &plane_mesh, NULL);
 
-    long unsigned int anim_timer = g_num_frames;
+    long unsigned int anim_timer = 0; // g_num_frames; // HACK
 
     occ_mesh_t cube_mesh = {
         .vertices = cube_vertices,
@@ -233,8 +233,6 @@ void render()
         .num_vertices = sizeof(cube_vertices) / sizeof(cube_vertices[0]),
         .num_indices = sizeof(cube_indices) / sizeof(cube_indices[0]),
     };
-
-    occ_draw_mesh(culler, sw_zbuffer, &plane_mesh, NULL);
 
     for (int i = 0; i < 3; i++) {
         glPushMatrix();
@@ -245,7 +243,7 @@ void render()
 
         glMultMatrixf(&xform.m[0][0]);
         render_cube();
-        occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, &xform);
+        //occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, &xform);
         glPopMatrix();
     }
 
@@ -265,7 +263,7 @@ void render()
     box.hitX = raster_query.x;
     box.hitY = raster_query.y;
     box.udepth = raster_query.depth;
-    occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, &cube_xform);
+    // occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, &cube_xform);
 
     if (cube_visible || config_show_wireframe) {
         bool wireframe = !cube_visible;

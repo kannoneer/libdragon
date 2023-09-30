@@ -24,7 +24,7 @@
 #include <n64types.h>
 #include <surface.h>
 
-#define SUBPIXEL_BITS (2)
+#define SUBPIXEL_BITS (1)
 #define SUBPIXEL_SCALE (1 << SUBPIXEL_BITS)
 const float inv_subpixel_scale = 1.0f / SUBPIXEL_SCALE;
 
@@ -194,9 +194,9 @@ static vec3f cross3df_subpixel(vec3f a, vec3f b)
 }
 
 void draw_tri_ref(
-    vec2 v0_in,
-    vec2 v1_in,
-    vec2 v2_in,
+    vec2f v0f,
+    vec2f v1f,
+    vec2f v2f,
     float Z0f,
     float Z1f,
     float Z2f,
@@ -204,30 +204,59 @@ void draw_tri_ref(
     occ_raster_query_result_t* result,
     surface_t *zbuffer)
 {
-    vec2 minb = {min(v0_in.x, min(v1_in.x, v2_in.x)), min(v0_in.y, min(v1_in.y, v2_in.y))};
-    vec2 maxb = {max(v0_in.x, max(v1_in.x, v2_in.x)), max(v0_in.y, max(v1_in.y, v2_in.y))};
+    if (false) {
+        //debugf("HACK: rounding input\n");
+        v0f.x = floorf(v0f.x);
+        v0f.y = floorf(v0f.y);
+        v1f.x = floorf(v1f.x);
+        v1f.y = floorf(v1f.y);
+        v2f.x = floorf(v2f.x);
+        v2f.y = floorf(v2f.y);
+    }
+#if 1
+    //vec2 center_ofs = {-(zbuffer->width >> 1), -(zbuffer->height >> 1)};
+    vec2 center_ofs = {0, 0}; // HACK: no centering
+    vec2 v0 = {SUBPIXEL_SCALE * (v0f.x + center_ofs.x) + 0.5f, SUBPIXEL_SCALE * (v0f.y + center_ofs.y) + 0.5f};
+    vec2 v1 = {SUBPIXEL_SCALE * (v1f.x + center_ofs.x) + 0.5f, SUBPIXEL_SCALE * (v1f.y + center_ofs.y) + 0.5f};
+    vec2 v2 = {SUBPIXEL_SCALE * (v2f.x + center_ofs.x) + 0.5f, SUBPIXEL_SCALE * (v2f.y + center_ofs.y) + 0.5f};
+
+    vec2 minb = {
+        min(v0.x, min(v1.x, v2.x)) >> SUBPIXEL_BITS,
+        min(v0.y, min(v1.y, v2.y)) >> SUBPIXEL_BITS
+        };
+    vec2 maxb = {
+        (max(v0.x, max(v1.x, v2.x)) + SUBPIXEL_SCALE-1) >> SUBPIXEL_BITS,
+        (max(v0.y, max(v1.y, v2.y)) + SUBPIXEL_SCALE-1) >> SUBPIXEL_BITS
+        };
 
     if (minb.x < 0) minb.x = 0;
     if (minb.y < 0) minb.y = 0;
     if (maxb.x > zbuffer->width - 1) maxb.x = zbuffer->width - 1;
     if (maxb.y > zbuffer->height - 1) maxb.y = zbuffer->height - 1;
 
-    // Round box X coordinate to an even number
-    // minb.x = minb.x & (~1);
+    vec2 p_start = {
+        (minb.x + center_ofs.x) << SUBPIXEL_BITS,
+        (minb.y + center_ofs.y) << SUBPIXEL_BITS
+        };
 
-    // Move origin to center of the screen for more symmetric range.
-    vec2 center_ofs = {-(zbuffer->width >> 1), -(zbuffer->height >> 1)};
-    vec2 v0 = {v0_in.x + center_ofs.x, v0_in.y + center_ofs.y};
-    vec2 v1 = {v1_in.x + center_ofs.x, v1_in.y + center_ofs.y};
-    vec2 v2 = {v2_in.x + center_ofs.x, v2_in.y + center_ofs.y};
-    vec2 p_start = {minb.x + center_ofs.x, minb.y + center_ofs.y};
+#else
 
-    if (SUBPIXEL_SCALE > 1) {
-        v0 = vec2_muls(v0, SUBPIXEL_SCALE);
-        v1 = vec2_muls(v1, SUBPIXEL_SCALE);
-        v2 = vec2_muls(v2, SUBPIXEL_SCALE);
-        p_start = vec2_muls(p_start, SUBPIXEL_SCALE);
-    }
+    //vec2 center_ofs = {-(zbuffer->width >> 1), -(zbuffer->height >> 1)};
+    vec2 center_ofs = {0, 0}; // HACK: no centering
+    vec2 v0 = {SUBPIXEL_SCALE * (v0f.x + center_ofs.x), SUBPIXEL_SCALE * (v0f.y + center_ofs.y)};
+    vec2 v1 = {SUBPIXEL_SCALE * (v1f.x + center_ofs.x), SUBPIXEL_SCALE * (v1f.y + center_ofs.y)};
+    vec2 v2 = {SUBPIXEL_SCALE * (v2f.x + center_ofs.x), SUBPIXEL_SCALE * (v2f.y + center_ofs.y)};
+
+    vec2 minb = {min(v0.x, min(v1.x, v2.x)) >> SUBPIXEL_BITS, min(v0.y, min(v1.y, v2.y)) >> SUBPIXEL_BITS};
+    vec2 maxb = {max(v0.x, max(v1.x, v2.x)) >> SUBPIXEL_BITS, max(v0.y, max(v1.y, v2.y)) >> SUBPIXEL_BITS};
+
+    if (minb.x < 0) minb.x = 0;
+    if (minb.y < 0) minb.y = 0;
+    if (maxb.x > zbuffer->width - 1) maxb.x = zbuffer->width - 1;
+    if (maxb.y > zbuffer->height - 1) maxb.y = zbuffer->height - 1;
+
+    vec2 p_start = {SUBPIXEL_SCALE * (minb.x + center_ofs.x), SUBPIXEL_SCALE * (minb.y + center_ofs.y)};
+#endif
 
     if (g_verbose_setup) {
         debugf("\n%s\n", __FUNCTION__);
@@ -352,6 +381,33 @@ void draw_tri_ref(
 
                 uint16_t depth = Z_fixed32; // TODO don't we want top 16 bits?
                 u_uint16_t *buf = ZBUFFER_UINT_PTR_AT(zbuffer, p.x, p.y);
+
+                if ((p.x == 30) && p.y == 40) {
+                    debugf("p: (%d, %d)\n", p.x, p.y);
+                    debugf("z0f: %f, z1f: %f, z2f: %f\n", Z0f, Z1f, Z2f);
+                    debugf("v0f: (%f, %f), v1f: (%f, %f), v2f: (%f, %f)\n",
+                           v0f.x, v0f.y, v1f.x, v1f.y, v2f.x, v2f.y);
+                    debugf("v0: (%d, %d), v1: (%d, %d), v2: (%d, %d)\n",
+                           v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
+
+                    debugf("v01: (%f, %f, %f), v02: (%f, %f, %f)\n",
+                        v01.x, v01.y,v01.z,v02.x, v02.y,v02.z);
+                    debugf("N: (%f, %f, %f)\n",
+                        N.x, N.y, N.z);
+                    debugf("dZdx, dZdy: (%f, %f)\n", dZdx, dZdy);
+
+                    debugf("minb: (%d, %d), maxb: (%d, %d)\n", minb.x, minb.y, maxb.x, maxb.y);
+
+                    debugf("A01: %d\nA12: %d\nA20: %d\n", A01, A12, A20);
+                    debugf("B01: %d\nB12: %d\nB20: %d\n", B01, B12, B20);
+                    debugf("zf_row: %f\n", Zf_row);
+                    debugf("w0_row: %d\nw1_row: %d\nw2_row: %d\n", w0_row, w1_row, w2_row);
+                    debugf("bias0: %d\nbias1: %d\nbias2: %d\n", bias0, bias1, bias2);
+                    debugf("\n");
+                } else {
+                //continue;
+                }
+
                 if (depth < *buf) {
                     if (flags & RASTER_FLAG_CHECK_ONLY) {
                         assert(result);
@@ -367,6 +423,7 @@ void draw_tri_ref(
                         *buf = depth;
                     }
                 }
+
             }
 
             // One step to the right
@@ -490,15 +547,15 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
 
         if (clipping_list.count == 0) {
             draw_tri_ref(
-                (vec2){verts[0].screen_pos[0], verts[0].screen_pos[1]},
-                (vec2){verts[1].screen_pos[0], verts[1].screen_pos[1]},
-                (vec2){verts[2].screen_pos[0], verts[2].screen_pos[1]},
+                (vec2f){verts[0].screen_pos[0], verts[0].screen_pos[1]},
+                (vec2f){verts[1].screen_pos[0], verts[1].screen_pos[1]},
+                (vec2f){verts[2].screen_pos[0], verts[2].screen_pos[1]},
                 verts[0].depth, verts[1].depth, verts[2].depth,
                 flags, query_result,
                 zbuffer);
         } else {
             for (uint32_t i = 1; i < clipping_list.count; i++) {
-                vec2 sv[3];
+                vec2f sv[3];
                 sv[0].x = clipping_list.vertices[0]->screen_pos[0];
                 sv[0].y = clipping_list.vertices[0]->screen_pos[1];
                 sv[1].x = clipping_list.vertices[i - 1]->screen_pos[0];

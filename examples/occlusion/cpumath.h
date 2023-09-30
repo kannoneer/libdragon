@@ -17,9 +17,13 @@
 
 #define SWAP(a, b) ({ typeof(a) t = a; a = b; b = t; })
 
-typedef struct vec2 {
+typedef struct vec2_s {
     int x, y;
 } vec2;
+
+typedef struct vec2f_s {
+    float x, y;
+} vec2f;
 
 typedef struct vec3 {
     int x, y, z;
