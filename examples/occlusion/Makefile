@@ -9,6 +9,7 @@ assets_conv = $(addprefix filesystem/,$(notdir $(assets_png:%.png=%.sprite))) \
 			  $(addprefix filesystem/,$(notdir $(assets_ttf:%.ttf=%.font64)))
 
 MKSPRITE_FLAGS ?=
+N64_C_AND_CXX_FLAGS += -Wno-error=unused-function
 
 all: occdemo.z64
 

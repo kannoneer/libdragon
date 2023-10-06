@@ -24,7 +24,14 @@
 #include <n64types.h>
 #include <surface.h>
 
-#define SUBPIXEL_BITS (1)
+#define SUBPIXEL_BITS (2)
+
+#if SUBPIXEL_BITS == 0
+#define SUBPIXEL_ROUND_BIAS (0)
+#else
+#define SUBPIXEL_ROUND_BIAS (1<<(SUBPIXEL_BITS-1))
+#endif
+
 #define SUBPIXEL_SCALE (1 << SUBPIXEL_BITS)
 const float inv_subpixel_scale = 1.0f / SUBPIXEL_SCALE;
 
@@ -180,7 +187,15 @@ static int orient2d_subpixel(vec2 a, vec2 b, vec2 c)
 {
     // We multiply two I.F fixed point numbers resulting in (I-F).2F format,
     // so we shift by F to the right to get the the result in I.F format again.
-    return ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) >> SUBPIXEL_BITS;
+    // Round the result instead of flooring.
+    // See https://sestevenson.wordpress.com/2009/08/19/rounding-in-fixed-point-number-conversions/
+    //int diff = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    //return (diff + SUBPIXEL_ROUND_BIAS) >> SUBPIXEL_BITS;
+    //return (diff + SUBPIXEL_ROUND_BIAS) >> SUBPIXEL_BITS;
+    //return  
+    //    (((b.x - a.x) * (c.y - a.y) + SUBPIXEL_ROUND_BIAS) >> SUBPIXEL_BITS)
+    //    - (((b.y - a.y) * (c.x - a.x) + SUBPIXEL_ROUND_BIAS) >> SUBPIXEL_BITS);
+    return ((b.x - a.x) * (c.y - a.y)  - (b.y - a.y) * (c.x - a.x)) >> SUBPIXEL_BITS;
 }
 
 // Assumes .xy are in subpixel scale, Z is in [0,1] range.
@@ -193,6 +208,11 @@ static vec3f cross3df_subpixel(vec3f a, vec3f b)
     return c;
 }
 
+static int debug_tri_counter;
+
+#define DEBUGTRI 3
+
+#if 0
 void draw_tri_ref(
     vec2f v0f,
     vec2f v1f,
@@ -204,6 +224,13 @@ void draw_tri_ref(
     occ_raster_query_result_t* result,
     surface_t *zbuffer)
 {
+    debug_tri_counter++;
+    if (debug_tri_counter == DEBUGTRI) {
+        g_verbose_setup = true;
+    } else {
+        g_verbose_setup = false;
+    }
+
     if (false) {
         //debugf("HACK: rounding input\n");
         v0f.x = floorf(v0f.x);
@@ -279,8 +306,13 @@ void draw_tri_ref(
     }
 
     int area2x = -orient2d_subpixel(v0, v1, v2);
+    if (debug_tri_counter == DEBUGTRI) {
+        debugf("[%d] area2x: %d\n", debug_tri_counter, area2x);
+    }
+
     if ((flags & RASTER_FLAG_BACKFACE_CULL) && area2x <= 0) return;
 
+    //debugf("%d tri %d\n", debug_tri_counter, area2x);
     // Barycentric coordinates at minX/minY corner
 
     int w0_row = -orient2d_subpixel(v1, v2, p_start);
@@ -298,12 +330,16 @@ void draw_tri_ref(
     // Setup Z interpolation
     // See https://tutorial.math.lamar.edu/classes/calciii/eqnsofplanes.aspx
     // and https://fgiesen.wordpress.com/2011/07/08/a-trip-through-the-graphics-pipeline-2011-part-7/
+    // and https://web.archive.org/web/20120614080408/http://devmaster.net/forums/topic/1145-advanced-rasterization/page__view__findpost__p__11532
 
     // So now v0, v1, v2 are in subpixel coordinates, while Z0f, Z1f, Z2f are linear floats in [0, 1].
-    vec3f v01 = vec3f_sub((vec3f){v1.x, v1.y, Z1f}, (vec3f){v0.x, v0.y, Z0f});
-    vec3f v02 = vec3f_sub((vec3f){v2.x, v2.y, Z2f}, (vec3f){v0.x, v0.y, Z0f});
 
-    vec3f N = cross3df_subpixel(v01, v02);
+    // v01, v02 are in fractional pixel coordinates
+    vec3f v01 = vec3f_sub((vec3f){v1f.x, v1f.y, Z1f}, (vec3f){v0f.x, v0f.y, Z0f});
+    vec3f v02 = vec3f_sub((vec3f){v2f.x, v2f.y, Z2f}, (vec3f){v0f.x, v0f.y, Z0f});
+
+    //vec3f N = cross3df_subpixel(v01, v02);
+    vec3f N = cross3df(v01, v02);
 
     if (g_verbose_setup) {
         debugf("v01: (%f, %f, %f)\n", v01.x, v01.y, v01.z);
@@ -311,26 +347,40 @@ void draw_tri_ref(
         debugf("N: (%f, %f, %f)\n", N.x, N.y, N.z);
     }
 
+    // DIFFERENT SCALE? for X and Z?
     float dZdx = -N.x / N.z;
     float dZdy = -N.y / N.z;
+    // dZdx *= SUBPIXEL_SCALE;
+    // dZdy *= SUBPIXEL_SCALE;
+    // dZdx *= 9999; //HACK
+    // dZdx = 0; // HACK constant Z
+    // dZdy = 0;
 
     if (g_verbose_setup) {
         debugf("dZdx, dZdy: (%f, %f)\n", dZdx, dZdy);
     }
 
-    int32_t dZdx_fixed32 = FLOAT_TO_FIXED32(-N.x / N.z);
-    int32_t dZdy_fixed32 = FLOAT_TO_FIXED32(-N.y / N.z);
+    int32_t dZdx_fixed32 = FLOAT_TO_FIXED32(dZdx);
+    int32_t dZdy_fixed32 = FLOAT_TO_FIXED32(dZdy);
 
     // Q: Is Z now perspective correct?
     // A: Yes, see https://fgiesen.wordpress.com/2013/02/11/depth-buffers-done-quick-part/#comment-3892
 
     // Compute Z at top-left corner of bounding box.
     // Undo fill rule biases already here because they are a constant offset anyway.
+
     float Zf_row =
         (w0_row - bias0) * Z0f + (w1_row - bias1) * Z1f + (w2_row - bias2) * Z2f;
-    Zf_row /= (float)area2x;
-    int32_t Z_row_fixed32 = FLOAT_TO_FIXED32(Zf_row);
 
+    if (g_verbose_setup) {
+        debugf("Zf_row = %f =\t(%d - %d) * %f.4 + (%d - %d) * %f.4 + (%d - %d) * %f.4\n", Zf_row, w0_row, bias0, Z0f ,  w1_row, bias1, Z1f, w2_row,  bias2, Z2f);
+    }
+    // Zf_row is fixedpoint .SUBPIXEL_BITS
+    // area2x is also in .SUBPIXEL_BITS
+    Zf_row /= (float)area2x;
+    if (g_verbose_setup) {
+        debugf("Zf_row /= %d = %f\n", area2x, Zf_row);
+    }
     if (g_verbose_setup) {
         debugf("zf_row: %f\n", Zf_row);
         debugf("w0_row: %d\nw1_row: %d\nw2_row: %d\n", w0_row, w1_row, w2_row);
@@ -355,7 +405,6 @@ void draw_tri_ref(
         int w2 = w2_row;
 
         float Zf_incr = Zf_row;
-        int32_t Z_fixed32 = Z_row_fixed32;
 
         for (p.x = minb.x; p.x <= maxb.x; p.x++) {
             if (g_verbose_raster &&
@@ -379,7 +428,9 @@ void draw_tri_ref(
                 worst_relerror = max(worst_relerror, relerror);
                 worst_abserror = max(worst_abserror, error);
 
-                uint16_t depth = Z_fixed32; // TODO don't we want top 16 bits?
+                //uint16_t depth = Z_fixed32; // TODO don't we want top 16 bits?
+                //uint16_t depth = Zf_bary * 0xffff; // TODO don't we want top 16 bits?
+                uint16_t depth = 0x8000;
                 u_uint16_t *buf = ZBUFFER_UINT_PTR_AT(zbuffer, p.x, p.y);
 
                 if ((p.x == 30) && p.y == 40) {
@@ -451,7 +502,145 @@ void draw_tri_ref(
         debugf("\n");
     }
 }
+#endif
 
+void draw_tri_4(
+    vec2f v0f,
+    vec2f v1f,
+    vec2f v2f,
+    float Z0f,
+    float Z1f,
+    float Z2f,
+    occ_raster_flags_t flags,
+    occ_raster_query_result_t* result,
+    surface_t *zbuffer)
+{
+    //vec2 center_ofs = {-(zbuffer->width >> 1), -(zbuffer->height >> 1)};
+    vec2 center_ofs = {0, 0}; // HACK: no centering
+    vec2 v0 = {SUBPIXEL_SCALE * (v0f.x + center_ofs.x) + 0.5f, SUBPIXEL_SCALE * (v0f.y + center_ofs.y) + 0.5f};
+    vec2 v1 = {SUBPIXEL_SCALE * (v1f.x + center_ofs.x) + 0.5f, SUBPIXEL_SCALE * (v1f.y + center_ofs.y) + 0.5f};
+    vec2 v2 = {SUBPIXEL_SCALE * (v2f.x + center_ofs.x) + 0.5f, SUBPIXEL_SCALE * (v2f.y + center_ofs.y) + 0.5f};
+
+    vec2 minb = {
+        min(v0.x, min(v1.x, v2.x)) >> SUBPIXEL_BITS,
+        min(v0.y, min(v1.y, v2.y)) >> SUBPIXEL_BITS
+        };
+    vec2 maxb = {
+        (max(v0.x, max(v1.x, v2.x)) + SUBPIXEL_SCALE-1) >> SUBPIXEL_BITS,
+        (max(v0.y, max(v1.y, v2.y)) + SUBPIXEL_SCALE-1) >> SUBPIXEL_BITS
+        };
+
+    if (minb.x < 0) minb.x = 0;
+    if (minb.y < 0) minb.y = 0;
+    if (maxb.x > zbuffer->width - 1) maxb.x = zbuffer->width - 1;
+    if (maxb.y > zbuffer->height - 1) maxb.y = zbuffer->height - 1;
+
+    vec2 p_start = {
+        (minb.x + center_ofs.x) << SUBPIXEL_BITS,
+        (minb.y + center_ofs.y) << SUBPIXEL_BITS
+        };
+
+    int A01 = -(v0.y - v1.y), B01 = -(v1.x - v0.x);
+    int A12 = -(v1.y - v2.y), B12 = -(v2.x - v1.x);
+    int A20 = -(v2.y - v0.y), B20 = -(v0.x - v2.x);
+
+    int area2x = -orient2d_subpixel(v0, v1, v2);
+
+    if ((flags & RASTER_FLAG_BACKFACE_CULL) && area2x <= 0) return;
+
+    int w0_row = -orient2d_subpixel(v1, v2, p_start);
+    int w1_row = -orient2d_subpixel(v2, v0, p_start);
+    int w2_row = -orient2d_subpixel(v0, v1, p_start);
+
+    int bias0 = isTopLeftEdge(v1, v2) ? 0 : -1;
+    int bias1 = isTopLeftEdge(v2, v0) ? 0 : -1;
+    int bias2 = isTopLeftEdge(v0, v1) ? 0 : -1;
+
+    w0_row += bias0;
+    w1_row += bias1;
+    w2_row += bias2;
+
+    vec3f v01 = vec3f_sub((vec3f){v1f.x, v1f.y, Z1f}, (vec3f){v0f.x, v0f.y, Z0f});
+    vec3f v02 = vec3f_sub((vec3f){v2f.x, v2f.y, Z2f}, (vec3f){v0f.x, v0f.y, Z0f});
+
+    vec3f N = cross3df(v01, v02);
+
+    float dZdx = -N.x / N.z;
+    float dZdy = -N.y / N.z;
+
+    float Zf_row =
+        (w0_row - bias0) * Z0f + (w1_row - bias1) * Z1f + (w2_row - bias2) * Z2f;
+
+
+    //Q: where is this area2x division in other examples?
+    Zf_row /= (float)area2x;
+
+    if (flags & RASTER_FLAG_CHECK_ONLY) {
+        assert(result);
+        result->visible = false;
+    }
+
+    // Only 'p', 'minb' and 'maxb' are in whole-pixel coordinates here. Others all in sub-pixel scale.
+    vec2 p = {-1, -1};
+
+    for (p.y = minb.y; p.y <= maxb.y; p.y++) {
+        // Barycentric coordinates at start of row
+        int w0 = w0_row;
+        int w1 = w1_row;
+        int w2 = w2_row;
+
+        float Zf_incr = Zf_row;
+
+        for (p.x = minb.x; p.x <= maxb.x; p.x++) {
+            if (g_verbose_raster &&
+                ((p.x == v0.x && p.y == v0.y) || (p.x == v1.x && p.y == v1.y) || (p.x == v2.x && p.y == v2.y))) {
+                debugf("(%d, %d) = %f\n", p.x, p.y, Zf_incr);
+            }
+
+            if ((w0 | w1 | w2) >= 0) {
+                #if 1
+                float lambda0 = (float)(w0 - bias0) / area2x;
+                float lambda1 = (float)(w1 - bias1) / area2x;
+                float lambda2 = (float)(w2 - bias2) / area2x;
+                float Zf_bary = lambda0 * Z0f + lambda1 * Z1f + lambda2 * Z2f;
+                uint16_t depth = Zf_bary * 0xffff; // TODO don't we want top 16 bits?
+                #else
+                uint16_t depth = 0x8000;
+                #endif
+                u_uint16_t *buf = ZBUFFER_UINT_PTR_AT(zbuffer, p.x, p.y);
+
+                if (depth < *buf) {
+                    if (flags & RASTER_FLAG_CHECK_ONLY) {
+                        assert(result);
+                        result->visible = true;
+                        result->x = p.x;
+                        result->y = p.y;
+                        result->depth = depth;
+                        if (g_verbose_early_out) {
+                            debugf("visible at (%d, %d), v0=(%d,%d)\n", p.x, p.y, v0.x>>SUBPIXEL_BITS, v0.y>>SUBPIXEL_BITS);
+                        }
+                        return; // early out was requested
+                    } else {
+                        *buf = depth;
+                    }
+                }
+
+            }
+
+            w0 += A12;
+            w1 += A20;
+            w2 += A01;
+
+            Zf_incr += dZdx;
+        }
+
+        w0_row += B12;
+        w1_row += B20;
+        w2_row += B01;
+
+        Zf_row += dZdy;
+    }
+}
 void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform,
                                  const vertex_t *vertices, const uint16_t *indices, uint32_t num_indices,
                                  occ_raster_flags_t flags, occ_raster_query_result_t* query_result)
@@ -546,7 +735,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         }
 
         if (clipping_list.count == 0) {
-            draw_tri_ref(
+            draw_tri_4(
                 (vec2f){verts[0].screen_pos[0], verts[0].screen_pos[1]},
                 (vec2f){verts[1].screen_pos[0], verts[1].screen_pos[1]},
                 (vec2f){verts[2].screen_pos[0], verts[2].screen_pos[1]},
@@ -563,7 +752,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
                 sv[2].x = clipping_list.vertices[i]->screen_pos[0];
                 sv[2].y = clipping_list.vertices[i]->screen_pos[1];
 
-                draw_tri_ref(
+                draw_tri_4(
                     sv[0], sv[1], sv[2],
                     clipping_list.vertices[0]->depth, clipping_list.vertices[i - 1]->depth, clipping_list.vertices[i]->depth,
                     flags, query_result,

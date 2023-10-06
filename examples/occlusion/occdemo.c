@@ -92,8 +92,11 @@ void compute_camera_matrix(matrix_t *matrix, const camera_t *camera)
 
 void setup()
 {
-    camera.distance = -15.5f;
-    camera.rotation = 50.0f;
+    //camera.distance = -15.5f;
+    //camera.rotation = 50.0f;
+    camera.distance =-37.817123;
+    camera.rotation=45.012470;
+
 
     zbuffer = surface_alloc(FMT_RGBA16, display_get_width(), display_get_height());
     sw_zbuffer_array[0] = surface_alloc(FMT_RGBA16, CULL_W, CULL_H);
@@ -213,17 +216,19 @@ void render()
     glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
 
     // Draw occluders
+    
+    debug_tri_counter =0;
 
     render_plane();
 
-    occ_mesh_t plane_mesh = {
-        .vertices = plane_vertices,
-        .indices = plane_indices,
-        .num_indices = plane_index_count,
-        .num_vertices = plane_vertex_count
-    };
+    // occ_mesh_t plane_mesh = {
+    //      .vertices = plane_vertices,
+    //      .indices = plane_indices,
+    //      .num_indices = plane_index_count,
+    //      .num_vertices = plane_vertex_count
+    //  };
 
-    occ_draw_mesh(culler, sw_zbuffer, &plane_mesh, NULL);
+    // occ_draw_mesh(culler, sw_zbuffer, &plane_mesh, NULL);
 
     long unsigned int anim_timer = 0; // g_num_frames; // HACK
 
@@ -263,7 +268,7 @@ void render()
     box.hitX = raster_query.x;
     box.hitY = raster_query.y;
     box.udepth = raster_query.depth;
-    // occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, &cube_xform);
+    occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, &cube_xform);
 
     if (cube_visible || config_show_wireframe) {
         bool wireframe = !cube_visible;
@@ -454,5 +459,6 @@ int main()
             rspq_wait();
 
         g_num_frames++;
+        //debugf("dist=%f, rot=%f\n", camera.distance, camera.rotation);
     }
 }
