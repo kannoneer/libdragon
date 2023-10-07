@@ -560,10 +560,30 @@ void draw_tri_4(
     w1_row += bias1;
     w2_row += bias2;
 
+    #if 0
     vec3f v01 = vec3f_sub((vec3f){v1f.x, v1f.y, Z1f}, (vec3f){v0f.x, v0f.y, Z0f});
     vec3f v02 = vec3f_sub((vec3f){v2f.x, v2f.y, Z2f}, (vec3f){v0f.x, v0f.y, Z0f});
-
     vec3f N = cross3df(v01, v02);
+    #elif0
+    #define QUANT(x) (roundf(x*SUBPIXEL_SCALE)/SUBPIXEL_SCALE)
+    vec3f v01 = vec3f_sub((vec3f){QUANT(v1f.x), QUANT(v1f.y), Z1f}, (vec3f){QUANT(v0f.x), QUANT(v0f.y), Z0f});
+    vec3f v02 = vec3f_sub((vec3f){QUANT(v2f.x), QUANT(v2f.y), Z2f}, (vec3f){QUANT(v0f.x), QUANT(v0f.y), Z0f});
+    #undef QUANT
+    vec3f N = cross3df(v01, v02);
+    if (fabs(N.z) < 1e-3) {
+        debugf("culled because N.z = %f\n", N.z);
+        return;
+    }
+    #else
+    vec3f v01 = vec3f_sub((vec3f){v1.x, v1.y, Z1f}, (vec3f){v0.x, v0.y, Z0f});
+    vec3f v02 = vec3f_sub((vec3f){v2.x, v2.y, Z2f}, (vec3f){v0.x, v0.y, Z0f});
+    vec3f N = cross3df(v01, v02);
+    N.z /= SUBPIXEL_SCALE;
+    // N is now in subpixel scale, divide again to bring it to per-pixel scale
+    N.x /= SUBPIXEL_SCALE;
+    N.y /= SUBPIXEL_SCALE;
+    N.z /= SUBPIXEL_SCALE;
+    #endif
 
     float dZdx = -N.x / N.z;
     float dZdy = -N.y / N.z;
@@ -573,7 +593,14 @@ void draw_tri_4(
 
 
     //Q: where is this area2x division in other examples?
+    //   Apparently calc_gradients outputs 'cu' that is used. It's computed directly from Z deltas!
     Zf_row /= (float)area2x;
+
+    //float Zf_row2 = 
+    float Zf_row2 = Z0f + ((minb.x*SUBPIXEL_SCALE - v1.x)/SUBPIXEL_SCALE) * dZdx + ((minb.y * SUBPIXEL_SCALE - v1.y)/SUBPIXEL_SCALE) * dZdy;
+
+    // debugf("Zf_row:  %f\n", Zf_row);
+    // debugf("Zf_row2: %f\n", Zf_row2);
 
     if (flags & RASTER_FLAG_CHECK_ONLY) {
         assert(result);
@@ -589,7 +616,7 @@ void draw_tri_4(
         int w1 = w1_row;
         int w2 = w2_row;
 
-        float Zf_incr = Zf_row;
+        float Zf_incr = Zf_row2;
 
         for (p.x = minb.x; p.x <= maxb.x; p.x++) {
             if (g_verbose_raster &&
@@ -598,12 +625,34 @@ void draw_tri_4(
             }
 
             if ((w0 | w1 | w2) >= 0) {
-                #if 1
+                #if 0
                 float lambda0 = (float)(w0 - bias0) / area2x;
                 float lambda1 = (float)(w1 - bias1) / area2x;
                 float lambda2 = (float)(w2 - bias2) / area2x;
                 float Zf_bary = lambda0 * Z0f + lambda1 * Z1f + lambda2 * Z2f;
-                uint16_t depth = Zf_bary * 0xffff; // TODO don't we want top 16 bits?
+                uint16_t depth = Zf_bary * 0xffff;
+                #elif 1
+                uint16_t depth = Zf_incr * 0xffff;
+                if (Zf_incr >= 1.0f) {
+                    debugf("Zf_incr: %f\n", Zf_incr);
+                    debugf("relative: (%d, %d)\n", p.x-minb.x, p.y-minb.y);
+                    debugf("minb: (%d, %d), maxb: (%d, %d)\n", minb.x, minb.y, maxb.x, maxb.y);
+                    debugf("z0f: %f, z1f: %f, z2f: %f\n", Z0f, Z1f, Z2f);
+                    debugf("v0f: (%f, %f), v1f: (%f, %f), v2f: (%f, %f)\n",
+                           v0f.x, v0f.y, v1f.x, v1f.y, v2f.x, v2f.y);
+                    debugf("v0: (%d, %d), v1: (%d, %d), v2: (%d, %d)\n",
+                           v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
+
+                    debugf("v01: (%f, %f, %f), v02: (%f, %f, %f)\n",
+                        v01.x, v01.y,v01.z,v02.x, v02.y,v02.z);
+                    debugf("N: (%f, %f, %f)\n",
+                        N.x, N.y, N.z);
+                    debugf("dZdx, dZdy: (%f, %f)\n", dZdx, dZdy);
+
+                    debugf("zf_row2: %f\n", Zf_row2);
+                    debugf("\n");
+                    assert((Z0f >= 1.f || Z1f >= 1.f || Z2f >= 1.f) && "rasterizer should never extrapolate depth");
+                }
                 #else
                 uint16_t depth = 0x8000;
                 #endif
@@ -638,7 +687,7 @@ void draw_tri_4(
         w1_row += B20;
         w2_row += B01;
 
-        Zf_row += dZdy;
+        Zf_row2 += dZdy;
     }
 }
 void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform,

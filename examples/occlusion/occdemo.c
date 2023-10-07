@@ -221,14 +221,14 @@ void render()
 
     render_plane();
 
-    // occ_mesh_t plane_mesh = {
-    //      .vertices = plane_vertices,
-    //      .indices = plane_indices,
-    //      .num_indices = plane_index_count,
-    //      .num_vertices = plane_vertex_count
-    //  };
+    occ_mesh_t plane_mesh = {
+         .vertices = plane_vertices,
+         .indices = plane_indices,
+         .num_indices = plane_index_count,
+         .num_vertices = plane_vertex_count
+     };
 
-    // occ_draw_mesh(culler, sw_zbuffer, &plane_mesh, NULL);
+    occ_draw_mesh(culler, sw_zbuffer, &plane_mesh, NULL);
 
     long unsigned int anim_timer = 0; // g_num_frames; // HACK
 
