@@ -35,14 +35,19 @@
 #define SUBPIXEL_SCALE (1 << SUBPIXEL_BITS)
 const float inv_subpixel_scale = 1.0f / SUBPIXEL_SCALE;
 
-#define FLOAT_TO_FIXED32(f) (int32_t)(f * 0xffff)
-#define FLOAT_TO_FIXED32_ROUND(f) (int32_t)(f * 0xffff + 0.5f)
-#define FLOAT_TO_U16(f) (uint16_t)(f * 0xffff)
+#define DELTA_BITS (24) // It seems 24 bits give about 1/8 mean per-pixel error of 16 bits deltas.
+#define DELTA_SCALE (1<<DELTA_BITS)
+
+#define FLOAT_TO_FIXED32(f) (int32_t)(f * 0x10000)
+#define FLOAT_TO_FIXED32_ROUND(f) (int32_t)(f * 0x10000 + 0.5f)
+#define FLOAT_TO_U16(f) (uint16_t)(f * 0x10000)
 #define U16_TO_FLOAT(u) ((float)u * 0.0002442002f) // Approximately f/0xffff
 
 #define OCC_MAX_Z (0xffff)
 
 #define ZBUFFER_UINT_PTR_AT(zbuffer, x, y) ((u_uint16_t *)(zbuffer->buffer + (zbuffer->stride * y + x * sizeof(uint16_t))))
+
+#define DUMP_WHEN_Z_OVERFLOWS 0
 
 bool g_verbose_setup = false;
 bool g_measure_error = false;
@@ -552,6 +557,9 @@ void draw_tri_4(
 
     // Prepare Z deltas
     // Prepare inputs to a formula solved via a 3D plane equation with subpixel XY coords and Z.
+    // See https://tutorial.math.lamar.edu/classes/calciii/eqnsofplanes.aspx
+    // and the "Interpolatd values" section at
+    // https://fgiesen.wordpress.com/2011/07/08/a-trip-through-the-graphics-pipeline-2011-part-7/
 
     vec3f v01 = vec3f_sub((vec3f){v1.x, v1.y, Z1f}, (vec3f){v0.x, v0.y, Z0f});
     vec3f v02 = vec3f_sub((vec3f){v2.x, v2.y, Z2f}, (vec3f){v0.x, v0.y, Z0f});
@@ -566,32 +574,27 @@ void draw_tri_4(
     float dZdx = -N.x / N.z;
     float dZdy = -N.y / N.z;
 
-    // Compute Z value at the startin pixel at (minb.x, minb.y). It's computed by extrapolating the Z value at vertex 0.
+    // Compute Z value at the starting pixel at (minb.x, minb.y). It's computed by extrapolating the Z value at vertex 0.
     float Zf_row = Z0f
         + ((minb.x * SUBPIXEL_SCALE - v0.x) / SUBPIXEL_SCALE) * dZdx
         + ((minb.y * SUBPIXEL_SCALE - v0.y) / SUBPIXEL_SCALE) * dZdy;
 
-    // We have S15.16 fixed points but all output values are in [0,1) range. Exclusive top range because 0x0.ffff < 1.0
-    int32_t Z_row_fixed = FLOAT_TO_FIXED32_ROUND(Zf_row); // We could actually bias up
-    int32_t dZdx_fixed = FLOAT_TO_FIXED32(dZdx); // mean error goes up if these are rounded?
-    int32_t dZdy_fixed = FLOAT_TO_FIXED32(dZdy);
+    // Fixed point deltas for the integer-only inner loop. We use DELTA_BITS of precision.
+    int32_t Z_row_fixed = (int32_t)(DELTA_SCALE * Zf_row + 0.5f);
+    int32_t dZdx_fixed = (int32_t)(DELTA_SCALE * dZdx); // mean error goes up if these are rounded?
+    int32_t dZdy_fixed = (int32_t)(DELTA_SCALE * dZdy);
 
-    // debugf("Z_row_fixed: %ld\n", Z_row_fixed);
-    // debugf("dZdx_fixed: %ld\n", dZdx_fixed);
-    // debugf("dZdy_fixed: %ld\n", dZdy_fixed);
-
-    // debugf("Zf_row:  %f\n", Zf_row);
-    // debugf("Zf_row2: %f\n", Zf_row2);
+    bool compute_errors = false;
 
     if (flags & RASTER_FLAG_CHECK_ONLY) {
         assert(result);
         result->visible = false;
     }
 
-    // Only 'p', 'minb' and 'maxb' are in whole-pixel coordinates here. Others all in sub-pixel scale.
+    // Only 'p', 'minb' and 'maxb' are in whole-pixel coordinates here. Others are all in sub-pixel coordinates.
     vec2 p = {-1, -1};
     float mean_error = 0.f;
-    int num_pixels=0;
+    int num_pixels = 0;
 
     for (p.y = minb.y; p.y <= maxb.y; p.y++) {
         // Barycentric coordinates at start of row
@@ -604,8 +607,7 @@ void draw_tri_4(
 
         for (p.x = minb.x; p.x <= maxb.x; p.x++) {
             if ((w0 | w1 | w2) >= 0) {
-                #if 0
-                uint16_t depth = Zf_incr * 0xffff;
+                #if DUMP_WHEN_Z_OVERFLOWS
                 if (Zf_incr >= 1.0f) {
                     debugf("Zf_incr: %f\n", Zf_incr);
                     debugf("relative: (%d, %d)\n", p.x-minb.x, p.y-minb.y);
@@ -626,22 +628,22 @@ void draw_tri_4(
                     debugf("\n");
                     // assert((Z0f >= 1.f || Z1f >= 1.f || Z2f >= 1.f) && "rasterizer should never extrapolate depth");
                 }
-                #elif 1
-                uint16_t depth_f = Zf_incr * 0xffff;
-                uint16_t depth = Z_incr_fixed & 0xffff; // Take the fraction since we know depths are in [0,1) range anyway.
-                //debugf("Z_incr_fixed = %ld = 0x%lx --> depth = %u\n", Z_incr_fixed, (uint32_t)Z_incr_fixed, depth);
-                float error = (depth - depth_f);
-                static float max_rel_error;
-                float rel_error = fabs(error) / max(depth_f,1);
-                mean_error += rel_error;
-                num_pixels++;
-                if (rel_error > max_rel_error) {
-                    max_rel_error = rel_error;
-                    debugf("depth fixed vs float: %d, %d. error: %f, rel_error: %f\n", depth, depth_f, error, rel_error);
-                }
-                #else
-                uint16_t depth = 0x8000;
                 #endif
+
+                uint16_t depth = Z_incr_fixed >> (DELTA_BITS - 16);
+
+                if (compute_errors) {
+                    uint16_t depth_f = Zf_incr * 0xffff;
+                    float error = (depth - depth_f);
+                    static float max_rel_error;
+                    float rel_error = fabs(error) / max(depth_f, 1);
+                    mean_error += rel_error;
+                    num_pixels++;
+                    if (rel_error > max_rel_error) {
+                        max_rel_error = rel_error;
+                        debugf("depth fixed vs float: %d, %d. error: %f, rel_error: %f\n", depth, depth_f, error, rel_error);
+                    }
+                }
                 u_uint16_t *buf = ZBUFFER_UINT_PTR_AT(zbuffer, p.x, p.y);
 
                 if (depth < *buf) {
@@ -678,11 +680,13 @@ void draw_tri_4(
         Z_row_fixed += dZdy_fixed;
     }
 
-    mean_error /= max(num_pixels,1);
-    static float max_mean_error;
-    if (mean_error > max_mean_error) {
-        debugf("mean rel error: %f %%\n", mean_error * 100);
-        max_mean_error = mean_error;
+    if (compute_errors) {
+        mean_error /= max(num_pixels, 1);
+        static float max_mean_error;
+        if (mean_error > max_mean_error) {
+            debugf("mean rel error: %f %%\n", mean_error * 100);
+            max_mean_error = mean_error;
+        }
     }
 }
 
