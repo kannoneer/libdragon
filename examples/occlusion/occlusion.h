@@ -57,7 +57,10 @@ bool config_discard_based_on_tr_code = true;
 
 enum {
     RASTER_FLAG_BACKFACE_CULL = 1,
-    RASTER_FLAG_CHECK_ONLY = 1 << 1
+    RASTER_FLAG_CHECK_ONLY = 1 << 1,
+    RASTER_FLAG_NUDGE_CLOSER = 1 << 2,   // Negative slope bias, minimum per-pixel depth
+    RASTER_FLAG_NUDGE_FARTHER = 1 << 3,  // Positive slope bias, maximum per-pixel depth
+    RASTER_FLAG_ROUND_DEPTH_UP = 1 << 4, // Round depths to the next higher 16-bit integer. Default is rounding down.
 };
 
 typedef uint32_t occ_raster_flags_t;
@@ -71,8 +74,8 @@ typedef uint32_t occ_clip_action_t;
 
 occ_clip_action_t config_near_clipping_action = CLIP_ACTION_DO_IT;
 
-#define OCC_RASTER_FLAGS_DRAW (RASTER_FLAG_BACKFACE_CULL)
-#define OCC_RASTER_FLAGS_QUERY (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_CHECK_ONLY)
+#define OCC_RASTER_FLAGS_DRAW  (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_NUDGE_FARTHER | RASTER_FLAG_ROUND_DEPTH_UP)
+#define OCC_RASTER_FLAGS_QUERY (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_NUDGE_CLOSER | RASTER_FLAG_CHECK_ONLY)
 
 typedef struct occ_culler_s {
     struct {
@@ -278,6 +281,18 @@ void draw_tri(
     int32_t dZdx_fixed = (int32_t)(DELTA_SCALE * dZdx); // mean error goes up if these are rounded?
     int32_t dZdy_fixed = (int32_t)(DELTA_SCALE * dZdy);
 
+    if (flags & RASTER_FLAG_NUDGE_CLOSER) {
+        // We can make sure each interpolated depth value is less or equal to the actual triangle min depth with this bias.
+        // Note: this will produce values one-pixel's worth under the triangle's original depth range.
+        Z_row_fixed -= abs(dZdx_fixed);
+        Z_row_fixed -= abs(dZdy_fixed);
+    } else if (flags & RASTER_FLAG_NUDGE_FARTHER) {
+        Z_row_fixed += abs(dZdx_fixed);
+        Z_row_fixed += abs(dZdy_fixed);
+    }
+
+    assert(!((flags & RASTER_FLAG_NUDGE_CLOSER) && (flags & RASTER_FLAG_NUDGE_FARTHER))); // Mutually exclusive flags
+
     bool compute_errors = false;
 
     if (flags & RASTER_FLAG_CHECK_ONLY) {
@@ -324,7 +339,13 @@ void draw_tri(
                 }
                 #endif
 
-                uint16_t depth = Z_incr_fixed >> (DELTA_BITS - 16);
+                int bias = 0;
+
+                if (flags & RASTER_FLAG_ROUND_DEPTH_UP) {
+                    bias = (1 << DELTA_BITS) - 1;
+                }
+
+                uint16_t depth = (Z_incr_fixed + bias) >> (DELTA_BITS - 16);
 
                 if (compute_errors) {
                     uint16_t depth_f = Zf_incr * 0xffff;

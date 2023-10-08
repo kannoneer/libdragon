@@ -246,7 +246,7 @@ void render()
 
         glMultMatrixf(&xform.m[0][0]);
         render_cube();
-        //occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, &xform);
+        occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, &xform);
         glPopMatrix();
     }
 
