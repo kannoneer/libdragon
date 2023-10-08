@@ -217,8 +217,6 @@ void render()
 
     // Draw occluders
     
-    debug_tri_counter =0;
-
     render_plane();
 
     occ_mesh_t plane_mesh = {
