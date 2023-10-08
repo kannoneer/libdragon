@@ -24,7 +24,7 @@
 #include <n64types.h>
 #include <surface.h>
 
-#define SUBPIXEL_BITS (2)
+#define SUBPIXEL_BITS (0)
 
 #if SUBPIXEL_BITS == 0
 #define SUBPIXEL_ROUND_BIAS (0)
@@ -36,6 +36,7 @@
 const float inv_subpixel_scale = 1.0f / SUBPIXEL_SCALE;
 
 #define FLOAT_TO_FIXED32(f) (int32_t)(f * 0xffff)
+#define FLOAT_TO_FIXED32_ROUND(f) (int32_t)(f * 0xffff + 0.5f)
 #define FLOAT_TO_U16(f) (uint16_t)(f * 0xffff)
 #define U16_TO_FLOAT(u) ((float)u * 0.0002442002f) // Approximately f/0xffff
 
@@ -564,7 +565,9 @@ void draw_tri_4(
     vec3f v01 = vec3f_sub((vec3f){v1f.x, v1f.y, Z1f}, (vec3f){v0f.x, v0f.y, Z0f});
     vec3f v02 = vec3f_sub((vec3f){v2f.x, v2f.y, Z2f}, (vec3f){v0f.x, v0f.y, Z0f});
     vec3f N = cross3df(v01, v02);
-    #elif0
+    float dZdx = -N.x / N.z;
+    float dZdy = -N.y / N.z;
+    #elif 0
     #define QUANT(x) (roundf(x*SUBPIXEL_SCALE)/SUBPIXEL_SCALE)
     vec3f v01 = vec3f_sub((vec3f){QUANT(v1f.x), QUANT(v1f.y), Z1f}, (vec3f){QUANT(v0f.x), QUANT(v0f.y), Z0f});
     vec3f v02 = vec3f_sub((vec3f){QUANT(v2f.x), QUANT(v2f.y), Z2f}, (vec3f){QUANT(v0f.x), QUANT(v0f.y), Z0f});
@@ -574,6 +577,8 @@ void draw_tri_4(
         debugf("culled because N.z = %f\n", N.z);
         return;
     }
+    float dZdx = -N.x / N.z;
+    float dZdy = -N.y / N.z;
     #else
     vec3f v01 = vec3f_sub((vec3f){v1.x, v1.y, Z1f}, (vec3f){v0.x, v0.y, Z0f});
     vec3f v02 = vec3f_sub((vec3f){v2.x, v2.y, Z2f}, (vec3f){v0.x, v0.y, Z0f});
@@ -587,13 +592,24 @@ void draw_tri_4(
     float dZdy = -N.y / N.z;
     #endif
 
-    float Zf_row = (w0_row - bias0) * Z0f + (w1_row - bias1) * Z1f + (w2_row - bias2) * Z2f;
+    float Zf_row_bary = (w0_row - bias0) * Z0f + (w1_row - bias1) * Z1f + (w2_row - bias2) * Z2f;
 
     //Q: where is this area2x division in other examples?
     //   Apparently calc_gradients outputs 'cu' that is used. It's computed directly from Z deltas!
-    Zf_row /= (float)area2x;
+    Zf_row_bary /= (float)area2x;
 
-    float Zf_row2 = Z0f + ((minb.x*SUBPIXEL_SCALE - v0.x)/SUBPIXEL_SCALE) * dZdx + ((minb.y * SUBPIXEL_SCALE - v0.y)/SUBPIXEL_SCALE) * dZdy;
+    float Zf_row = Z0f + ((minb.x*SUBPIXEL_SCALE - v0.x)/SUBPIXEL_SCALE) * dZdx + ((minb.y * SUBPIXEL_SCALE - v0.y)/SUBPIXEL_SCALE) * dZdy;
+
+    // truncates, biases Z to be smaller
+    // We have S15.16 fixed points but all output values are in [0,1) range. Exclusive top range because 0x0.ffff < 1.0
+    //int32_t Z_row_fixed = FLOAT_TO_FIXED32(Zf_row);
+    int32_t Z_row_fixed = FLOAT_TO_FIXED32_ROUND(Zf_row);
+    int32_t dZdx_fixed = FLOAT_TO_FIXED32(dZdx); // mean error goes up if these are rounded?
+    int32_t dZdy_fixed = FLOAT_TO_FIXED32(dZdy);
+
+    // debugf("Z_row_fixed: %ld\n", Z_row_fixed);
+    // debugf("dZdx_fixed: %ld\n", dZdx_fixed);
+    // debugf("dZdy_fixed: %ld\n", dZdy_fixed);
 
     // debugf("Zf_row:  %f\n", Zf_row);
     // debugf("Zf_row2: %f\n", Zf_row2);
@@ -605,6 +621,8 @@ void draw_tri_4(
 
     // Only 'p', 'minb' and 'maxb' are in whole-pixel coordinates here. Others all in sub-pixel scale.
     vec2 p = {-1, -1};
+    float mean_error = 0.f;
+    int num_pixels=0;
 
     for (p.y = minb.y; p.y <= maxb.y; p.y++) {
         // Barycentric coordinates at start of row
@@ -612,7 +630,8 @@ void draw_tri_4(
         int w1 = w1_row;
         int w2 = w2_row;
 
-        float Zf_incr = Zf_row2;
+        float Zf_incr = Zf_row;
+        int32_t Z_incr_fixed = Z_row_fixed;
 
         for (p.x = minb.x; p.x <= maxb.x; p.x++) {
             if (g_verbose_raster &&
@@ -627,7 +646,7 @@ void draw_tri_4(
                 float lambda2 = (float)(w2 - bias2) / area2x;
                 float Zf_bary = lambda0 * Z0f + lambda1 * Z1f + lambda2 * Z2f;
                 uint16_t depth = Zf_bary * 0xffff;
-                #elif 1
+                #elif 0
                 uint16_t depth = Zf_incr * 0xffff;
                 if (Zf_incr >= 1.0f) {
                     debugf("Zf_incr: %f\n", Zf_incr);
@@ -645,9 +664,22 @@ void draw_tri_4(
                         N.x, N.y, N.z);
                     debugf("dZdx, dZdy: (%f, %f)\n", dZdx, dZdy);
 
-                    debugf("zf_row2: %f\n", Zf_row2);
+                    debugf("zf_row2: %f\n", Zf_row);
                     debugf("\n");
-                    assert((Z0f >= 1.f || Z1f >= 1.f || Z2f >= 1.f) && "rasterizer should never extrapolate depth");
+                    // assert((Z0f >= 1.f || Z1f >= 1.f || Z2f >= 1.f) && "rasterizer should never extrapolate depth");
+                }
+                #elif 1
+                uint16_t depth_f = Zf_incr * 0xffff;
+                uint16_t depth = Z_incr_fixed & 0xffff; // Take the fraction since we know depths are in [0,1) range anyway.
+                //debugf("Z_incr_fixed = %ld = 0x%lx --> depth = %u\n", Z_incr_fixed, (uint32_t)Z_incr_fixed, depth);
+                float error = (depth - depth_f);
+                static float max_rel_error;
+                float rel_error = fabs(error) / max(depth_f,1);
+                mean_error += rel_error;
+                num_pixels++;
+                if (rel_error > max_rel_error) {
+                    max_rel_error = rel_error;
+                    debugf("depth fixed vs float: %d, %d. error: %f, rel_error: %f\n", depth, depth_f, error, rel_error);
                 }
                 #else
                 uint16_t depth = 0x8000;
@@ -677,15 +709,25 @@ void draw_tri_4(
             w2 += A01;
 
             Zf_incr += dZdx;
+            Z_incr_fixed += dZdx_fixed;
         }
 
         w0_row += B12;
         w1_row += B20;
         w2_row += B01;
 
-        Zf_row2 += dZdy;
+        Zf_row += dZdy;
+        Z_row_fixed += dZdy_fixed;
+    }
+
+    mean_error /= max(num_pixels,1);
+    static float max_mean_error;
+    if (mean_error > max_mean_error) {
+        debugf("mean rel error: %f %%\n", mean_error * 100);
+        max_mean_error = mean_error;
     }
 }
+
 void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform,
                                  const vertex_t *vertices, const uint16_t *indices, uint32_t num_indices,
                                  occ_raster_flags_t flags, occ_raster_query_result_t* query_result)
