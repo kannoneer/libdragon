@@ -188,14 +188,6 @@ static int orient2d_subpixel(vec2 a, vec2 b, vec2 c)
 {
     // We multiply two I.F fixed point numbers resulting in (I-F).2F format,
     // so we shift by F to the right to get the the result in I.F format again.
-    // Round the result instead of flooring.
-    // See https://sestevenson.wordpress.com/2009/08/19/rounding-in-fixed-point-number-conversions/
-    //int diff = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-    //return (diff + SUBPIXEL_ROUND_BIAS) >> SUBPIXEL_BITS;
-    //return (diff + SUBPIXEL_ROUND_BIAS) >> SUBPIXEL_BITS;
-    //return  
-    //    (((b.x - a.x) * (c.y - a.y) + SUBPIXEL_ROUND_BIAS) >> SUBPIXEL_BITS)
-    //    - (((b.y - a.y) * (c.x - a.x) + SUBPIXEL_ROUND_BIAS) >> SUBPIXEL_BITS);
     return ((b.x - a.x) * (c.y - a.y)  - (b.y - a.y) * (c.x - a.x)) >> SUBPIXEL_BITS;
 }
 
@@ -516,19 +508,18 @@ void draw_tri_4(
     occ_raster_query_result_t* result,
     surface_t *zbuffer)
 {
-    //vec2 center_ofs = {-(zbuffer->width >> 1), -(zbuffer->height >> 1)};
-    vec2 center_ofs = {0, 0}; // HACK: no centering
-    vec2 v0 = {SUBPIXEL_SCALE * (v0f.x + center_ofs.x) + 0.5f, SUBPIXEL_SCALE * (v0f.y + center_ofs.y) + 0.5f};
-    vec2 v1 = {SUBPIXEL_SCALE * (v1f.x + center_ofs.x) + 0.5f, SUBPIXEL_SCALE * (v1f.y + center_ofs.y) + 0.5f};
-    vec2 v2 = {SUBPIXEL_SCALE * (v2f.x + center_ofs.x) + 0.5f, SUBPIXEL_SCALE * (v2f.y + center_ofs.y) + 0.5f};
+    vec2 v0 = {SUBPIXEL_SCALE * v0f.x + 0.5f, SUBPIXEL_SCALE * v0f.y + 0.5f};
+    vec2 v1 = {SUBPIXEL_SCALE * v1f.x + 0.5f, SUBPIXEL_SCALE * v1f.y + 0.5f};
+    vec2 v2 = {SUBPIXEL_SCALE * v2f.x + 0.5f, SUBPIXEL_SCALE * v2f.y + 0.5f};
 
     vec2 minb = {
-        min(v0.x, min(v1.x, v2.x)) >> SUBPIXEL_BITS,
-        min(v0.y, min(v1.y, v2.y)) >> SUBPIXEL_BITS
+        (min(v0.x, min(v1.x, v2.x)) >> SUBPIXEL_BITS),
+        (min(v0.y, min(v1.y, v2.y)) >> SUBPIXEL_BITS)
         };
+
     vec2 maxb = {
-        (max(v0.x, max(v1.x, v2.x)) + SUBPIXEL_SCALE-1) >> SUBPIXEL_BITS,
-        (max(v0.y, max(v1.y, v2.y)) + SUBPIXEL_SCALE-1) >> SUBPIXEL_BITS
+        ((max(v0.x, max(v1.x, v2.x)) + SUBPIXEL_SCALE-1) >> SUBPIXEL_BITS),
+        ((max(v0.y, max(v1.y, v2.y)) + SUBPIXEL_SCALE-1) >> SUBPIXEL_BITS)
         };
 
     if (minb.x < 0) minb.x = 0;
@@ -536,22 +527,20 @@ void draw_tri_4(
     if (maxb.x > zbuffer->width - 1) maxb.x = zbuffer->width - 1;
     if (maxb.y > zbuffer->height - 1) maxb.y = zbuffer->height - 1;
 
-    vec2 p_start = {
-        (minb.x + center_ofs.x) << SUBPIXEL_BITS,
-        (minb.y + center_ofs.y) << SUBPIXEL_BITS
-        };
+    vec2 p_start = { minb.x << SUBPIXEL_BITS, minb.y << SUBPIXEL_BITS };
 
     int A01 = -(v0.y - v1.y), B01 = -(v1.x - v0.x);
     int A12 = -(v1.y - v2.y), B12 = -(v2.x - v1.x);
     int A20 = -(v2.y - v0.y), B20 = -(v0.x - v2.x);
 
-    int area2x = -orient2d_subpixel(v0, v1, v2);
+    // We've flipped the winding of the tries in orient2d calls to take the Y-axis direction to account.
+    int area2x = orient2d_subpixel(v0, v2, v1);
 
     if ((flags & RASTER_FLAG_BACKFACE_CULL) && area2x <= 0) return;
 
-    int w0_row = -orient2d_subpixel(v1, v2, p_start);
-    int w1_row = -orient2d_subpixel(v2, v0, p_start);
-    int w2_row = -orient2d_subpixel(v0, v1, p_start);
+    int w0_row = orient2d_subpixel(v2, v1, p_start);
+    int w1_row = orient2d_subpixel(v0, v2, p_start);
+    int w2_row = orient2d_subpixel(v1, v0, p_start);
 
     int bias0 = isTopLeftEdge(v1, v2) ? 0 : -1;
     int bias1 = isTopLeftEdge(v2, v0) ? 0 : -1;
@@ -561,49 +550,29 @@ void draw_tri_4(
     w1_row += bias1;
     w2_row += bias2;
 
-    #if 0
-    vec3f v01 = vec3f_sub((vec3f){v1f.x, v1f.y, Z1f}, (vec3f){v0f.x, v0f.y, Z0f});
-    vec3f v02 = vec3f_sub((vec3f){v2f.x, v2f.y, Z2f}, (vec3f){v0f.x, v0f.y, Z0f});
-    vec3f N = cross3df(v01, v02);
-    float dZdx = -N.x / N.z;
-    float dZdy = -N.y / N.z;
-    #elif 0
-    #define QUANT(x) (roundf(x*SUBPIXEL_SCALE)/SUBPIXEL_SCALE)
-    vec3f v01 = vec3f_sub((vec3f){QUANT(v1f.x), QUANT(v1f.y), Z1f}, (vec3f){QUANT(v0f.x), QUANT(v0f.y), Z0f});
-    vec3f v02 = vec3f_sub((vec3f){QUANT(v2f.x), QUANT(v2f.y), Z2f}, (vec3f){QUANT(v0f.x), QUANT(v0f.y), Z0f});
-    #undef QUANT
-    vec3f N = cross3df(v01, v02);
-    if (fabs(N.z) < 1e-3) {
-        debugf("culled because N.z = %f\n", N.z);
-        return;
-    }
-    float dZdx = -N.x / N.z;
-    float dZdy = -N.y / N.z;
-    #else
+    // Prepare Z deltas
+    // Prepare inputs to a formula solved via a 3D plane equation with subpixel XY coords and Z.
+
     vec3f v01 = vec3f_sub((vec3f){v1.x, v1.y, Z1f}, (vec3f){v0.x, v0.y, Z0f});
     vec3f v02 = vec3f_sub((vec3f){v2.x, v2.y, Z2f}, (vec3f){v0.x, v0.y, Z0f});
+
     vec3f N = cross3df(v01, v02);
-    N.z /= SUBPIXEL_SCALE;
+    N.z *= inv_subpixel_scale; // Scale back the fixed point scale multiply inside cross3df
+
     // N is now in subpixel scale, divide again to bring it to per-pixel scale
-    N.x /= SUBPIXEL_SCALE;
-    N.y /= SUBPIXEL_SCALE;
-    N.z /= SUBPIXEL_SCALE;
+    N.x *= inv_subpixel_scale;
+    N.y *= inv_subpixel_scale;
+    N.z *= inv_subpixel_scale;
     float dZdx = -N.x / N.z;
     float dZdy = -N.y / N.z;
-    #endif
 
-    float Zf_row_bary = (w0_row - bias0) * Z0f + (w1_row - bias1) * Z1f + (w2_row - bias2) * Z2f;
+    // Compute Z value at the startin pixel at (minb.x, minb.y). It's computed by extrapolating the Z value at vertex 0.
+    float Zf_row = Z0f
+        + ((minb.x * SUBPIXEL_SCALE - v0.x) / SUBPIXEL_SCALE) * dZdx
+        + ((minb.y * SUBPIXEL_SCALE - v0.y) / SUBPIXEL_SCALE) * dZdy;
 
-    //Q: where is this area2x division in other examples?
-    //   Apparently calc_gradients outputs 'cu' that is used. It's computed directly from Z deltas!
-    Zf_row_bary /= (float)area2x;
-
-    float Zf_row = Z0f + ((minb.x*SUBPIXEL_SCALE - v0.x)/SUBPIXEL_SCALE) * dZdx + ((minb.y * SUBPIXEL_SCALE - v0.y)/SUBPIXEL_SCALE) * dZdy;
-
-    // truncates, biases Z to be smaller
     // We have S15.16 fixed points but all output values are in [0,1) range. Exclusive top range because 0x0.ffff < 1.0
-    //int32_t Z_row_fixed = FLOAT_TO_FIXED32(Zf_row);
-    int32_t Z_row_fixed = FLOAT_TO_FIXED32_ROUND(Zf_row);
+    int32_t Z_row_fixed = FLOAT_TO_FIXED32_ROUND(Zf_row); // We could actually bias up
     int32_t dZdx_fixed = FLOAT_TO_FIXED32(dZdx); // mean error goes up if these are rounded?
     int32_t dZdy_fixed = FLOAT_TO_FIXED32(dZdy);
 
@@ -634,19 +603,8 @@ void draw_tri_4(
         int32_t Z_incr_fixed = Z_row_fixed;
 
         for (p.x = minb.x; p.x <= maxb.x; p.x++) {
-            if (g_verbose_raster &&
-                ((p.x == v0.x && p.y == v0.y) || (p.x == v1.x && p.y == v1.y) || (p.x == v2.x && p.y == v2.y))) {
-                debugf("(%d, %d) = %f\n", p.x, p.y, Zf_incr);
-            }
-
             if ((w0 | w1 | w2) >= 0) {
                 #if 0
-                float lambda0 = (float)(w0 - bias0) / area2x;
-                float lambda1 = (float)(w1 - bias1) / area2x;
-                float lambda2 = (float)(w2 - bias2) / area2x;
-                float Zf_bary = lambda0 * Z0f + lambda1 * Z1f + lambda2 * Z2f;
-                uint16_t depth = Zf_bary * 0xffff;
-                #elif 0
                 uint16_t depth = Zf_incr * 0xffff;
                 if (Zf_incr >= 1.0f) {
                     debugf("Zf_incr: %f\n", Zf_incr);
