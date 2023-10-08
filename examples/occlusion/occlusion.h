@@ -583,21 +583,17 @@ void draw_tri_4(
     N.x /= SUBPIXEL_SCALE;
     N.y /= SUBPIXEL_SCALE;
     N.z /= SUBPIXEL_SCALE;
-    #endif
-
     float dZdx = -N.x / N.z;
     float dZdy = -N.y / N.z;
+    #endif
 
-    float Zf_row =
-        (w0_row - bias0) * Z0f + (w1_row - bias1) * Z1f + (w2_row - bias2) * Z2f;
-
+    float Zf_row = (w0_row - bias0) * Z0f + (w1_row - bias1) * Z1f + (w2_row - bias2) * Z2f;
 
     //Q: where is this area2x division in other examples?
     //   Apparently calc_gradients outputs 'cu' that is used. It's computed directly from Z deltas!
     Zf_row /= (float)area2x;
 
-    //float Zf_row2 = 
-    float Zf_row2 = Z0f + ((minb.x*SUBPIXEL_SCALE - v1.x)/SUBPIXEL_SCALE) * dZdx + ((minb.y * SUBPIXEL_SCALE - v1.y)/SUBPIXEL_SCALE) * dZdy;
+    float Zf_row2 = Z0f + ((minb.x*SUBPIXEL_SCALE - v0.x)/SUBPIXEL_SCALE) * dZdx + ((minb.y * SUBPIXEL_SCALE - v0.y)/SUBPIXEL_SCALE) * dZdy;
 
     // debugf("Zf_row:  %f\n", Zf_row);
     // debugf("Zf_row2: %f\n", Zf_row2);
