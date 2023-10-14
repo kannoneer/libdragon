@@ -94,7 +94,8 @@ void setup()
 {
     // camera.distance =-17.817123;
     // camera.rotation=100.012470;
-    camera.distance=-14.149927; camera.rotation=199.996902;
+    // camera.distance=-14.149927; camera.rotation=199.996902;
+    camera.distance=-14.868696; camera.rotation=192.478134;
 
 
     zbuffer = surface_alloc(FMT_RGBA16, display_get_width(), display_get_height());
@@ -262,15 +263,15 @@ void render()
     // Occlusion culling
 
     occ_result_box_t box = {};
-    occ_raster_query_result_t raster_query = {};
-    bool cube_visible = occ_check_mesh_visible_precise(culler, sw_zbuffer, &cube_mesh, &cube_xform, &raster_query);
-    box.hitX = raster_query.x;
-    box.hitY = raster_query.y;
-    box.udepth = raster_query.depth;
+    // occ_raster_query_result_t raster_query = {};
+    //bool cube_visible = occ_check_mesh_visible_precise(culler, sw_zbuffer, &cube_mesh, &cube_xform, &raster_query);
+    //box.hitX = raster_query.x;
+    //box.hitY = raster_query.y;
+    //box.udepth = raster_query.depth;
+    bool cube_visible = occ_check_mesh_visible_rough(culler, sw_zbuffer, &cube_mesh, &cube_xform, &box);
     //occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, &cube_xform);
 
 	occ_draw_indexed_mesh_flags(culler, sw_zbuffer, &cube_xform, cube_mesh.vertices, cube_mesh.indices, cube_mesh.num_indices, OCC_RASTER_FLAGS_QUERY & (~RASTER_FLAG_CHECK_ONLY), NULL);
-
 
     if (cube_visible || config_show_wireframe) {
         bool wireframe = !cube_visible;
@@ -326,10 +327,18 @@ void render()
     // rdpq_detach();
     rspq_flush();
 
-    if ((g_num_frames / 2) % 2 == 0) {
+    if (true || (g_num_frames / 2) % 2 == 0) {
         rdpq_set_mode_fill(cube_visible ? (color_t){0, 255, 0, 64} : (color_t){255, 0, 0, 64});
         rdpq_fill_rectangle(box.minX, box.minY, box.maxX, box.maxY);
     }
+
+    for (int i=0;i<g_num_checked;i++) {
+        vec2 p = g_checked_pixels[i];
+        debugf("[%d] (%d, %d)\n", i, p.x, p.y);
+        graphics_draw_pixel(disp, p.x, p.y, 0x0fff);
+    }
+
+    rspq_flush();
 
     float xscale = disp->width / (float)sw_zbuffer->width;
     float yscale = disp->height / (float)sw_zbuffer->height;

@@ -58,8 +58,8 @@ bool config_discard_based_on_tr_code = true;
 enum {
     RASTER_FLAG_BACKFACE_CULL = 1,
     RASTER_FLAG_CHECK_ONLY = 1 << 1,
-    RASTER_FLAG_NUDGE_CLOSER = 1 << 2,   // Negative slope bias, minimum per-pixel depth
-    RASTER_FLAG_NUDGE_FARTHER = 1 << 3,  // Positive slope bias, maximum per-pixel depth
+    RASTER_FLAG_NEG_SLOPE_BIAS = 1 << 2,   // Negative slope bias, nudge closer, minimum per-pixel depth
+    RASTER_FLAG_POS_SLOPE_BIAS = 1 << 3,  // Positive slope bias, nudge farther, maximum per-pixel depth
     RASTER_FLAG_ROUND_DEPTH_UP = 1 << 4, // Round depths to the next higher 16-bit integer. Default is rounding down.
     RASTER_FLAG_DISCARD_FAR = 1 << 5,    // Discard any triangle that touches the far plane.
 };
@@ -287,17 +287,17 @@ void draw_tri(
     int32_t dZdx_fixed = (int32_t)(DELTA_SCALE * dZdx);
     int32_t dZdy_fixed = (int32_t)(DELTA_SCALE * dZdy);
 
-    // Problem: These nudges aka slope biases make queries super conservative and you can see stuff behind walls!
-    if (flags & RASTER_FLAG_NUDGE_CLOSER) {
+    // Problem: Negative biases make queries super conservative and you can see objects behind walls!
+    if (flags & RASTER_FLAG_NEG_SLOPE_BIAS) {
         // We can make sure each interpolated depth value is less or equal to the actual triangle min depth with this bias.
         // Note: this will produce values one-pixel's worth under the triangle's original depth range.
         // See MaxDepthSlope in https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm#DepthBias
         Z_row_fixed -= max(abs(dZdx_fixed), abs(dZdy_fixed));
-    } else if (flags & RASTER_FLAG_NUDGE_FARTHER) {
+    } else if (flags & RASTER_FLAG_POS_SLOPE_BIAS) {
         Z_row_fixed += max(abs(dZdx_fixed), abs(dZdy_fixed));
     }
 
-    assert(!((flags & RASTER_FLAG_NUDGE_CLOSER) && (flags & RASTER_FLAG_NUDGE_FARTHER))); // Mutually exclusive flags
+    assert(!((flags & RASTER_FLAG_NEG_SLOPE_BIAS) && (flags & RASTER_FLAG_POS_SLOPE_BIAS))); // Mutually exclusive flags
 
     if (flags & RASTER_FLAG_CHECK_ONLY) {
         assert(result);
@@ -543,15 +543,37 @@ void occ_draw_mesh(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t *mesh
 	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, mesh->vertices, mesh->indices, mesh->num_indices, OCC_RASTER_FLAGS_DRAW, NULL);
 }
 
+static vec2f rotate_xy_coords_45deg(float x, float y) {
+    //  [ b.x ] = [ +1 -1 ] [ x ]
+    //  [ b.y ]   [ -1 -1 ] [ y ]
+    return (vec2f){x - y, -x - y};
+}
+
+typedef struct occ_box2df_s {
+    vec2f lo; // inclusive
+    vec2f hi; // exclusive
+} occ_box2df_t;
+
+static bool occ_box2df_inside(occ_box2df_t* box, vec2f* p) {
+    if (p->x < box->lo.x || p->x >= box->hi.x) return false;
+    if (p->y < box->lo.y || p->y >= box->hi.y) return false;
+    return true;
+}
+
+int g_num_checked = 0;
+static vec2 g_checked_pixels[320*240];
+
 // [minX, maxX), [minY, maxY), i.e. upper bounds are exclusive.
 bool occ_check_pixel_box_visible(occ_culler_t *occ, surface_t *zbuffer,
                                  uint16_t depth, int minX, int minY, int maxX, int maxY,
-                                 occ_result_box_t *out_box)
+                                 occ_box2df_t* in_rotated_box, occ_result_box_t *out_box)
 {
     if (minX < 0) minX = 0;
     if (minY < 0) minY = 0;
     if (maxX > zbuffer->width - 1) maxX = zbuffer->width - 1;
     if (maxY > zbuffer->height - 1) maxY = zbuffer->height - 1;
+
+    g_num_checked = 0;
 
     if (out_box) {
         out_box->minX = minX;
@@ -565,6 +587,13 @@ bool occ_check_pixel_box_visible(occ_culler_t *occ, surface_t *zbuffer,
 
     for (int y = minY; y < maxY; y++) {
         for (int x = minX; x < maxX; x++) {
+            if (in_rotated_box) {
+                vec2f r = rotate_xy_coords_45deg(x, y); //TODO rounding?
+                if (!occ_box2df_inside(in_rotated_box, &r)) {
+                    continue;
+                }
+            }
+            g_checked_pixels[g_num_checked++] = (vec2){x,y};
             u_uint16_t *buf = ZBUFFER_UINT_PTR_AT(zbuffer, x, y);
             if (depth <= *buf) {
                 if (out_box) {
@@ -576,6 +605,7 @@ bool occ_check_pixel_box_visible(occ_culler_t *occ, surface_t *zbuffer,
             }
         }
     }
+
     return false; // Every box pixel was behind the Z-buffer
 }
 
@@ -585,6 +615,16 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
     // 2. compute the XY bounding box
     // 3. compute min Z
     // 3. check the bounding box against zbuffer with the given minZ
+
+    // octagon check:
+    // 1. for each vertex, compute unscaled rotated screen coordinates:
+    //  [ xr ] = [ +1 -1 ] [ x ]
+    //  [ yr ]   [ -1 -1 ] [ y ]
+    // 2. keep track of AABB of those
+    // (3. scale coordinates to pixels with xr/=S, sy/=S, where S=sqrt(2)/2)
+    //      - scaling not needed for inside checks!
+    // 4. at query time, for each pixel, compute rotated unscaled rotated screen coordinates
+    // 5. check pixel only if inside the rotated coords
 
     matrix_t* mvp = NULL;
     matrix_t mvp_new;
@@ -602,6 +642,10 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
     float maxX = -__FLT_MAX__;
     float minY = __FLT_MAX__;
     float maxY = -__FLT_MAX__;
+
+    vec2f oct_min = {__FLT_MAX__, __FLT_MAX__};
+    vec2f oct_max = {-__FLT_MAX__, -__FLT_MAX__};
+
     for (int iv = 0; iv < mesh->num_vertices; iv++) {
         cpu_vtx_t vert = {};
         vert.obj_attributes.position[0] = mesh->vertices[iv].position[0];
@@ -617,11 +661,21 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
         maxX = max(maxX, vert.screen_pos[0]);
         minY = min(minY, vert.screen_pos[1]);
         maxY = max(maxY, vert.screen_pos[1]);
+
+        vec2f vr = rotate_xy_coords_45deg(vert.screen_pos[0], vert.screen_pos[1]);
+        debugf("vr: (%f, %f)\n", vr.x, vr.y);
+        oct_min.x = min(oct_min.x, vr.x);
+        oct_min.y = min(oct_min.y, vr.y);
+        oct_max.x = max(oct_max.x, vr.x);
+        oct_max.y = max(oct_max.y, vr.y);
     }
 
+    debugf("octagon: min=(%f, %f), max=(%f, %f)\n", oct_min.x, oct_min.y, oct_max.x, oct_max.y);
+
     uint16_t udepth = FLOAT_TO_U16(minZ);
+    occ_box2df_t rotated_box = {oct_min, oct_max};
     // debugf("box: (%f, %f, %f, %f), minZ=%f, udepth=%u\n", minX, minY, maxX, maxY, minZ, udepth);
-    return occ_check_pixel_box_visible(occ, zbuffer, udepth, minX, minY, maxX, maxY, out_box);
+    return occ_check_pixel_box_visible(occ, zbuffer, udepth, minX, minY, maxX, maxY, &rotated_box, out_box);
 }
 
 bool occ_check_mesh_visible_precise(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t* mesh, const matrix_t *model_xform,
