@@ -75,8 +75,8 @@ typedef uint32_t occ_clip_action_t;
 
 occ_clip_action_t config_near_clipping_action = CLIP_ACTION_DO_IT;
 
-#define OCC_RASTER_FLAGS_DRAW  (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_NUDGE_FARTHER | RASTER_FLAG_ROUND_DEPTH_UP | RASTER_FLAG_DISCARD_FAR)
-#define OCC_RASTER_FLAGS_QUERY (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_NUDGE_CLOSER | RASTER_FLAG_CHECK_ONLY)
+#define OCC_RASTER_FLAGS_DRAW  (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_ROUND_DEPTH_UP | RASTER_FLAG_DISCARD_FAR)
+#define OCC_RASTER_FLAGS_QUERY (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_CHECK_ONLY)
 
 typedef struct occ_culler_s {
     struct {
@@ -200,6 +200,10 @@ static int orient2d_subpixel(vec2 a, vec2 b, vec2 c)
     return ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) >> SUBPIXEL_BITS;
 }
 
+typedef struct tri_setup_s {
+
+} tri_setup_t;
+
 void draw_tri(
     vec2f v0f,
     vec2f v1f,
@@ -292,14 +296,15 @@ void draw_tri(
     int32_t dZdx_fixed = (int32_t)(DELTA_SCALE * dZdx); // mean error goes up if these are rounded?
     int32_t dZdy_fixed = (int32_t)(DELTA_SCALE * dZdy);
 
-    // if (flags & RASTER_FLAG_NUDGE_CLOSER) {
-    //     // We can make sure each interpolated depth value is less or equal to the actual triangle min depth with this bias.
-    //     // Note: this will produce values one-pixel's worth under the triangle's original depth range.
-    //     // See MaxDepthSlope in https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm#DepthBias
-    //     Z_row_fixed -= max(abs(dZdx_fixed), abs(dZdy_fixed));
-    // } else if (flags & RASTER_FLAG_NUDGE_FARTHER) {
-    //     Z_row_fixed += max(abs(dZdx_fixed), abs(dZdy_fixed));
-    // }
+    // Problem: These nudges aka slope biases make queries super conservative and you can see stuff behind walls!
+    if (flags & RASTER_FLAG_NUDGE_CLOSER) {
+        // We can make sure each interpolated depth value is less or equal to the actual triangle min depth with this bias.
+        // Note: this will produce values one-pixel's worth under the triangle's original depth range.
+        // See MaxDepthSlope in https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm#DepthBias
+        Z_row_fixed -= max(abs(dZdx_fixed), abs(dZdy_fixed));
+    } else if (flags & RASTER_FLAG_NUDGE_FARTHER) {
+        Z_row_fixed += max(abs(dZdx_fixed), abs(dZdy_fixed));
+    }
 
     assert(!((flags & RASTER_FLAG_NUDGE_CLOSER) && (flags & RASTER_FLAG_NUDGE_FARTHER))); // Mutually exclusive flags
 
@@ -393,7 +398,7 @@ void draw_tri(
                         if (g_verbose_early_out) {
                             debugf("\nvisible (%d < %d) at (%d, %d), v0=(%d,%d)\n", depth, *buf, p.x, p.y, v0.x>>SUBPIXEL_BITS, v0.y>>SUBPIXEL_BITS);
                         }
-                        if (true) {
+                        if (hard) {
                             debugf("Zf_incr: %f\n", Zf_incr);
                             debugf("Z_incr_fixed: %ld\n", Z_incr_fixed);
                             debugf("relative: (%d, %d)\n", p.x - minb.x, p.y - minb.y);
@@ -429,7 +434,7 @@ void draw_tri(
                             debugf("draw_tri([(%f, %f), (%f, %f), (%f, %f)])\n",
                                    v0f.x, v0f.y, v1f.x, v1f.y, v2f.x, v2f.y);
 
-                            // while (true) {}; // HACK
+                            while (true) {}; // HACK
                         }
                         return; // early out was requested
                     } else {
