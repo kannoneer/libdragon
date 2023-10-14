@@ -24,7 +24,7 @@
 #include <n64types.h>
 #include <surface.h>
 
-#define SUBPIXEL_BITS (0)
+#define SUBPIXEL_BITS (2)
 
 #if SUBPIXEL_BITS == 0
 #define SUBPIXEL_ROUND_BIAS (0)
@@ -47,12 +47,12 @@ const float inv_subpixel_scale = 1.0f / SUBPIXEL_SCALE;
 
 #define ZBUFFER_UINT_PTR_AT(zbuffer, x, y) ((u_uint16_t *)(zbuffer->buffer + (zbuffer->stride * y + x * sizeof(uint16_t))))
 
-#define DUMP_WHEN_Z_OVERFLOWS 0
+#define DUMP_WHEN_Z_OVERFLOWS 1
 
 bool g_verbose_setup = false;
 bool g_measure_error = false;
 bool g_verbose_raster = false; // print depth at vertex pixels
-bool g_verbose_early_out = false; // print coordinates of pixels that pass the depth test
+bool g_verbose_early_out = true; // print coordinates of pixels that pass the depth test
 bool config_discard_based_on_tr_code = true;
 
 enum {
@@ -61,6 +61,7 @@ enum {
     RASTER_FLAG_NUDGE_CLOSER = 1 << 2,   // Negative slope bias, minimum per-pixel depth
     RASTER_FLAG_NUDGE_FARTHER = 1 << 3,  // Positive slope bias, maximum per-pixel depth
     RASTER_FLAG_ROUND_DEPTH_UP = 1 << 4, // Round depths to the next higher 16-bit integer. Default is rounding down.
+    RASTER_FLAG_DISCARD_FAR = 1 << 5,    // Discard any triangle that touches the far plane.
 };
 
 typedef uint32_t occ_raster_flags_t;
@@ -74,7 +75,7 @@ typedef uint32_t occ_clip_action_t;
 
 occ_clip_action_t config_near_clipping_action = CLIP_ACTION_DO_IT;
 
-#define OCC_RASTER_FLAGS_DRAW  (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_NUDGE_FARTHER | RASTER_FLAG_ROUND_DEPTH_UP)
+#define OCC_RASTER_FLAGS_DRAW  (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_NUDGE_FARTHER | RASTER_FLAG_ROUND_DEPTH_UP | RASTER_FLAG_DISCARD_FAR)
 #define OCC_RASTER_FLAGS_QUERY (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_NUDGE_CLOSER | RASTER_FLAG_CHECK_ONLY)
 
 typedef struct occ_culler_s {
@@ -196,7 +197,7 @@ static int orient2d_subpixel(vec2 a, vec2 b, vec2 c)
 {
     // We multiply two I.F fixed point numbers resulting in (I-F).2F format,
     // so we shift by F to the right to get the the result in I.F format again.
-    return ((b.x - a.x) * (c.y - a.y)  - (b.y - a.y) * (c.x - a.x)) >> SUBPIXEL_BITS;
+    return ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) >> SUBPIXEL_BITS;
 }
 
 void draw_tri(
@@ -235,14 +236,19 @@ void draw_tri(
     int A12 = -(v1.y - v2.y), B12 = -(v2.x - v1.x);
     int A20 = -(v2.y - v0.y), B20 = -(v0.x - v2.x);
 
-    // We've flipped the winding of the tries in orient2d calls to take the Y-axis direction to account.
-    int area2x = orient2d_subpixel(v0, v2, v1);
+    int area2x = -orient2d_subpixel(v0, v1, v2);
 
     if ((flags & RASTER_FLAG_BACKFACE_CULL) && area2x <= 0) return;
 
-    int w0_row = orient2d_subpixel(v2, v1, p_start);
-    int w1_row = orient2d_subpixel(v0, v2, p_start);
-    int w2_row = orient2d_subpixel(v1, v0, p_start);
+    // Triangle area must be at least one pixel^2.
+    const int min_triangle_area = SUBPIXEL_SCALE * SUBPIXEL_SCALE * 2;
+    if (abs(area2x) < min_triangle_area) {
+        return;
+    }
+
+    int w0_row = -orient2d_subpixel(v1, v2, p_start);
+    int w1_row = -orient2d_subpixel(v2, v0, p_start);
+    int w2_row = -orient2d_subpixel(v0, v1, p_start);
 
     int bias0 = isTopLeftEdge(v1, v2) ? 0 : -1;
     int bias1 = isTopLeftEdge(v2, v0) ? 0 : -1;
@@ -257,11 +263,16 @@ void draw_tri(
     // See https://tutorial.math.lamar.edu/classes/calciii/eqnsofplanes.aspx
     // and the "Interpolatd values" section at
     // https://fgiesen.wordpress.com/2011/07/08/a-trip-through-the-graphics-pipeline-2011-part-7/
+    const float Zscale = 1.f;
 
     vec3f v01 = vec3f_sub((vec3f){v1.x, v1.y, Z1f}, (vec3f){v0.x, v0.y, Z0f});
     vec3f v02 = vec3f_sub((vec3f){v2.x, v2.y, Z2f}, (vec3f){v0.x, v0.y, Z0f});
+    v01.z *= Zscale;
+    v02.z *= Zscale;
 
     vec3f N = cross3df(v01, v02);
+    N.x /= Zscale;
+    N.y /= Zscale;
     N.z *= inv_subpixel_scale; // Scale back the fixed point scale multiply inside cross3df
 
     // N is now in subpixel scale, divide again to bring it to per-pixel scale
@@ -277,19 +288,18 @@ void draw_tri(
         + ((minb.y * SUBPIXEL_SCALE - v0.y) / SUBPIXEL_SCALE) * dZdy;
 
     // Fixed point deltas for the integer-only inner loop. We use DELTA_BITS of precision.
-    int32_t Z_row_fixed = (int32_t)(DELTA_SCALE * Zf_row + 0.5f);
+    int32_t Z_row_fixed = (int32_t)(DELTA_SCALE * Zf_row);
     int32_t dZdx_fixed = (int32_t)(DELTA_SCALE * dZdx); // mean error goes up if these are rounded?
     int32_t dZdy_fixed = (int32_t)(DELTA_SCALE * dZdy);
 
-    if (flags & RASTER_FLAG_NUDGE_CLOSER) {
-        // We can make sure each interpolated depth value is less or equal to the actual triangle min depth with this bias.
-        // Note: this will produce values one-pixel's worth under the triangle's original depth range.
-        Z_row_fixed -= abs(dZdx_fixed);
-        Z_row_fixed -= abs(dZdy_fixed);
-    } else if (flags & RASTER_FLAG_NUDGE_FARTHER) {
-        Z_row_fixed += abs(dZdx_fixed);
-        Z_row_fixed += abs(dZdy_fixed);
-    }
+    // if (flags & RASTER_FLAG_NUDGE_CLOSER) {
+    //     // We can make sure each interpolated depth value is less or equal to the actual triangle min depth with this bias.
+    //     // Note: this will produce values one-pixel's worth under the triangle's original depth range.
+    //     // See MaxDepthSlope in https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm#DepthBias
+    //     Z_row_fixed -= max(abs(dZdx_fixed), abs(dZdy_fixed));
+    // } else if (flags & RASTER_FLAG_NUDGE_FARTHER) {
+    //     Z_row_fixed += max(abs(dZdx_fixed), abs(dZdy_fixed));
+    // }
 
     assert(!((flags & RASTER_FLAG_NUDGE_CLOSER) && (flags & RASTER_FLAG_NUDGE_FARTHER))); // Mutually exclusive flags
 
@@ -300,21 +310,32 @@ void draw_tri(
         result->visible = false;
     }
 
+    const bool hard = false; //max(dZdx, dZdy) > 0.1f;
+
+    if (hard) {
+        debugf("Z_row = %f, Z_row_fixed = %ld\n", Zf_row, Z_row_fixed);
+    }
+
     // Only 'p', 'minb' and 'maxb' are in whole-pixel coordinates here. Others are all in sub-pixel coordinates.
     vec2 p = {-1, -1};
     float mean_error = 0.f;
     int num_pixels = 0;
 
+    // const int Z_row_fixed_start = Z_row_fixed;
+
     for (p.y = minb.y; p.y <= maxb.y; p.y++) {
         // Barycentric coordinates at start of row
-        int w0 = w0_row;
-        int w1 = w1_row;
-        int w2 = w2_row;
+        int32_t w0 = w0_row;
+        int32_t w1 = w1_row;
+        int32_t w2 = w2_row;
 
         float Zf_incr = Zf_row;
         int32_t Z_incr_fixed = Z_row_fixed;
 
         for (p.x = minb.x; p.x <= maxb.x; p.x++) {
+            if (hard) {
+                debugf("| %s (%-2d, %-2d) %-8f ", (w0 | w1 | w2) >= 0 ? "X" : ".", p.x, p.y, Z_incr_fixed/(float)DELTA_SCALE);
+            }
             if ((w0 | w1 | w2) >= 0) {
                 #if DUMP_WHEN_Z_OVERFLOWS
                 if (Zf_incr >= 1.0f) {
@@ -327,11 +348,11 @@ void draw_tri(
                     debugf("v0: (%d, %d), v1: (%d, %d), v2: (%d, %d)\n",
                            v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
 
-                    debugf("v01: (%f, %f, %f), v02: (%f, %f, %f)\n",
+                    debugf("v01 = [%f, %f, %f]; v02 = [%f, %f, %f]\n",
                         v01.x, v01.y,v01.z,v02.x, v02.y,v02.z);
-                    debugf("N: (%f, %f, %f)\n",
+                    debugf("N = [%f, %f, %f]\n",
                         N.x, N.y, N.z);
-                    debugf("dZdx, dZdy: (%f, %f)\n", dZdx, dZdy);
+                    debugf("dZdx, dZdy = (%f, %f)\n", dZdx, dZdy);
 
                     debugf("zf_row2: %f\n", Zf_row);
                     debugf("\n");
@@ -346,6 +367,7 @@ void draw_tri(
                 }
 
                 uint16_t depth = (Z_incr_fixed + bias) >> (DELTA_BITS - 16);
+                // if (true) { depth = 0x8000;  }
 
                 if (compute_errors) {
                     uint16_t depth_f = Zf_incr * 0xffff;
@@ -369,7 +391,45 @@ void draw_tri(
                         result->y = p.y;
                         result->depth = depth;
                         if (g_verbose_early_out) {
-                            debugf("visible at (%d, %d), v0=(%d,%d)\n", p.x, p.y, v0.x>>SUBPIXEL_BITS, v0.y>>SUBPIXEL_BITS);
+                            debugf("\nvisible (%d < %d) at (%d, %d), v0=(%d,%d)\n", depth, *buf, p.x, p.y, v0.x>>SUBPIXEL_BITS, v0.y>>SUBPIXEL_BITS);
+                        }
+                        if (true) {
+                            debugf("Zf_incr: %f\n", Zf_incr);
+                            debugf("Z_incr_fixed: %ld\n", Z_incr_fixed);
+                            debugf("relative: (%d, %d)\n", p.x - minb.x, p.y - minb.y);
+                            debugf("minb: (%d, %d), maxb: (%d, %d), size: %dx%d\n", minb.x, minb.y, maxb.x, maxb.y, maxb.x-minb.x, maxb.y-minb.y);
+                            debugf("z0f: %f, z1f: %f, z2f: %f\n", Z0f, Z1f, Z2f);
+                            debugf("v0f: (%f, %f), v1f: (%f, %f), v2f: (%f, %f)\n",
+                                   v0f.x, v0f.y, v1f.x, v1f.y, v2f.x, v2f.y);
+                            debugf("v0: (%d, %d), v1: (%d, %d), v2: (%d, %d)\n",
+                                   v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
+
+                            debugf("v01: (%f, %f, %f), v02: (%f, %f, %f)\n",
+                                   v01.x, v01.y, v01.z, v02.x, v02.y, v02.z);
+                            debugf("N: (%f, %f, %f)\n",
+                                   N.x, N.y, N.z);
+                            debugf("dZdx, dZdy: (%f, %f)\n", dZdx, dZdy);
+                            debugf("dZdx_fixed, dZdy_fixed: (%ld, %ld)\n", dZdx_fixed, dZdy_fixed);
+
+                            debugf("zf_row2: %f\n", Zf_row);
+                            float lambda0 = (float)(w0 - bias0) / area2x;
+                            float lambda1 = (float)(w1 - bias1) / area2x;
+                            float lambda2 = (float)(w2 - bias2) / area2x;
+                            float Zf_bary = lambda0 * Z0f + lambda1 * Z1f + lambda2 * Z2f;
+                            debugf("Zf_bary = %f; L0=%f; L1=%f; L2=%f;\n", Zf_bary, lambda0, lambda1, lambda2);
+                            debugf("w0=%ld; w1=%ld; w2=%ld;\n", w0, w1, w2);
+
+                            debugf("A01 = %d; B01 = %d\n", A01, B01);
+                            debugf("A12 = %d; B12 = %d\n", A12, B12);
+                            debugf("A20 = %d; B20 = %d\n", A20, B20);
+                            debugf("area2x: %d\n", area2x);
+                            debugf("\n");
+                            debugf("set_grid(min=(%d, %d), max=(%d, %d))\n", minb.x, minb.y, maxb.x+1, maxb.y+1);
+                            debugf("draw_grid()\n");
+                            debugf("draw_tri([(%f, %f), (%f, %f), (%f, %f)])\n",
+                                   v0f.x, v0f.y, v1f.x, v1f.y, v2f.x, v2f.y);
+
+                            // while (true) {}; // HACK
                         }
                         return; // early out was requested
                     } else {
@@ -393,6 +453,8 @@ void draw_tri(
 
         Zf_row += dZdy;
         Z_row_fixed += dZdy_fixed;
+
+        if (hard) { debugf("\n"); }
     }
 
     if (compute_errors) {
@@ -476,7 +538,9 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         }
 
         const int NEAR_PLANE_INDEX = 2;
+        const int FAR_PLANE_INDEX = 5;
         const bool clips_near = (verts[0].tr_code | verts[1].tr_code | verts[2].tr_code) & (1 << NEAR_PLANE_INDEX);
+        const bool clips_far = (verts[0].tr_code | verts[1].tr_code | verts[2].tr_code) & (1 << FAR_PLANE_INDEX);
 
         if (clips_near) {
             if (config_near_clipping_action == CLIP_ACTION_REJECT) {
@@ -496,6 +560,11 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
                 debugf("Invalid clip action %lu\n", config_near_clipping_action);
                 assert(false);
             }
+        }
+
+        if (clips_far && (flags & RASTER_FLAG_DISCARD_FAR)) {
+            // Reject triangles that touch the far clip plane when rendering occluders. We can't store their farthest depth anyway.
+            continue;
         }
 
         if (clipping_list.count == 0) {

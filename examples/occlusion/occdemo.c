@@ -41,7 +41,7 @@ static GLuint textures[4];
 
 static const GLfloat environment_color[] = {0.1f, 0.03f, 0.2f, 1.f};
 
-static bool config_show_visible_point = false;
+static bool config_show_visible_point = true;
 static bool config_show_wireframe = true;
 
 static const GLfloat light_pos[8][4] = {
@@ -92,10 +92,9 @@ void compute_camera_matrix(matrix_t *matrix, const camera_t *camera)
 
 void setup()
 {
-    //camera.distance = -15.5f;
-    //camera.rotation = 50.0f;
-    camera.distance =-17.817123;
-    camera.rotation=45.012470;
+    // camera.distance =-17.817123;
+    // camera.rotation=100.012470;
+    camera.distance=-14.149927; camera.rotation=199.996902;
 
 
     zbuffer = surface_alloc(FMT_RGBA16, display_get_width(), display_get_height());
@@ -219,16 +218,17 @@ void render()
     
     render_plane();
 
-    occ_mesh_t plane_mesh = {
-         .vertices = plane_vertices,
-         .indices = plane_indices,
-         .num_indices = plane_index_count,
-         .num_vertices = plane_vertex_count
-     };
+    // occ_mesh_t plane_mesh = {
+    //      .vertices = plane_vertices,
+    //      .indices = plane_indices,
+    //      .num_indices = plane_index_count,
+    //      .num_vertices = plane_vertex_count
+    //  };
 
-    occ_draw_mesh(culler, sw_zbuffer, &plane_mesh, NULL);
+    // occ_draw_mesh(culler, sw_zbuffer, &plane_mesh, NULL);
 
-    long unsigned int anim_timer = 0; // g_num_frames; // HACK
+    long unsigned int anim_timer = 26; // HACK g_num_frames;
+    //debugf("g_num_frames: %llu\n", g_num_frames);
 
     occ_mesh_t cube_mesh = {
         .vertices = cube_vertices,
@@ -239,8 +239,8 @@ void render()
 
     for (int i = 0; i < 3; i++) {
         glPushMatrix();
-        matrix_t scale = cpu_glScalef(1.0f, 1.5f, 0.2f);
-        matrix_t translate = cpu_glTranslatef((-1 + i) * 8.f + 2.0f * sin(i * 1.5f + 0.05f * anim_timer), 5.0f, sin(i * 2.f));
+        matrix_t scale = cpu_glScalef(1.0f, 1.75f, 0.2f);
+        matrix_t translate = cpu_glTranslatef((-1 + i) * 8.f + 2.0f * sin(i * 1.5f + 0.05f * anim_timer), 6.0f, sin(i * 2.f));
         matrix_t xform;
         matrix_mult_full(&xform, &translate, &scale);
 
@@ -253,6 +253,7 @@ void render()
     // We are interested in target cube's visiblity. Compute its model-to-world transform.
 
     matrix_t cube_rotate = cpu_glRotatef(2.f * anim_timer, sqrtf(3.f), 0.0f, sqrtf(3.f));
+    //matrix_t cube_rotate = cpu_glRotatef(0.0f, 1.0f, 0.0f, 0.0f);
     matrix_t cube_translate = cpu_glTranslatef(0.0f + 6.0f * sin(anim_timer * 0.04f), 5.0f, 7.0f);
     matrix_t cube_xform;
 
@@ -266,7 +267,10 @@ void render()
     box.hitX = raster_query.x;
     box.hitY = raster_query.y;
     box.udepth = raster_query.depth;
-    occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, &cube_xform);
+    //occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, &cube_xform);
+
+	occ_draw_indexed_mesh_flags(culler, sw_zbuffer, &cube_xform, cube_mesh.vertices, cube_mesh.indices, cube_mesh.num_indices, OCC_RASTER_FLAGS_QUERY & (~RASTER_FLAG_CHECK_ONLY), NULL);
+
 
     if (cube_visible || config_show_wireframe) {
         bool wireframe = !cube_visible;
@@ -457,6 +461,6 @@ int main()
             rspq_wait();
 
         g_num_frames++;
-        //debugf("dist=%f, rot=%f\n", camera.distance, camera.rotation);
+        debugf("camera.distance=%f; camera.rotation=%f;\n", camera.distance, camera.rotation);
     }
 }
