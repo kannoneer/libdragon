@@ -200,10 +200,6 @@ static int orient2d_subpixel(vec2 a, vec2 b, vec2 c)
     return ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) >> SUBPIXEL_BITS;
 }
 
-typedef struct tri_setup_s {
-
-} tri_setup_t;
-
 void draw_tri(
     vec2f v0f,
     vec2f v1f,
@@ -265,18 +261,13 @@ void draw_tri(
     // Prepare Z deltas
     // Prepare inputs to a formula solved via a 3D plane equation with subpixel XY coords and Z.
     // See https://tutorial.math.lamar.edu/classes/calciii/eqnsofplanes.aspx
-    // and the "Interpolatd values" section at
+    // and the "Interpolated values" section at
     // https://fgiesen.wordpress.com/2011/07/08/a-trip-through-the-graphics-pipeline-2011-part-7/
-    const float Zscale = 1.f;
 
     vec3f v01 = vec3f_sub((vec3f){v1.x, v1.y, Z1f}, (vec3f){v0.x, v0.y, Z0f});
     vec3f v02 = vec3f_sub((vec3f){v2.x, v2.y, Z2f}, (vec3f){v0.x, v0.y, Z0f});
-    v01.z *= Zscale;
-    v02.z *= Zscale;
 
     vec3f N = cross3df(v01, v02);
-    N.x /= Zscale;
-    N.y /= Zscale;
     N.z *= inv_subpixel_scale; // Scale back the fixed point scale multiply inside cross3df
 
     // N is now in subpixel scale, divide again to bring it to per-pixel scale
@@ -293,7 +284,7 @@ void draw_tri(
 
     // Fixed point deltas for the integer-only inner loop. We use DELTA_BITS of precision.
     int32_t Z_row_fixed = (int32_t)(DELTA_SCALE * Zf_row);
-    int32_t dZdx_fixed = (int32_t)(DELTA_SCALE * dZdx); // mean error goes up if these are rounded?
+    int32_t dZdx_fixed = (int32_t)(DELTA_SCALE * dZdx);
     int32_t dZdy_fixed = (int32_t)(DELTA_SCALE * dZdy);
 
     // Problem: These nudges aka slope biases make queries super conservative and you can see stuff behind walls!
@@ -315,9 +306,9 @@ void draw_tri(
         result->visible = false;
     }
 
-    const bool hard = false; //max(dZdx, dZdy) > 0.1f;
+    const bool super_verbose = false;
 
-    if (hard) {
+    if (super_verbose) {
         debugf("Z_row = %f, Z_row_fixed = %ld\n", Zf_row, Z_row_fixed);
     }
 
@@ -338,7 +329,7 @@ void draw_tri(
         int32_t Z_incr_fixed = Z_row_fixed;
 
         for (p.x = minb.x; p.x <= maxb.x; p.x++) {
-            if (hard) {
+            if (super_verbose) {
                 debugf("| %s (%-2d, %-2d) %-8f ", (w0 | w1 | w2) >= 0 ? "X" : ".", p.x, p.y, Z_incr_fixed/(float)DELTA_SCALE);
             }
             if ((w0 | w1 | w2) >= 0) {
@@ -398,7 +389,7 @@ void draw_tri(
                         if (g_verbose_early_out) {
                             debugf("\nvisible (%d < %d) at (%d, %d), v0=(%d,%d)\n", depth, *buf, p.x, p.y, v0.x>>SUBPIXEL_BITS, v0.y>>SUBPIXEL_BITS);
                         }
-                        if (hard) {
+                        if (super_verbose) {
                             debugf("Zf_incr: %f\n", Zf_incr);
                             debugf("Z_incr_fixed: %ld\n", Z_incr_fixed);
                             debugf("relative: (%d, %d)\n", p.x - minb.x, p.y - minb.y);
@@ -459,7 +450,7 @@ void draw_tri(
         Zf_row += dZdy;
         Z_row_fixed += dZdy_fixed;
 
-        if (hard) { debugf("\n"); }
+        if (super_verbose) { debugf("\n"); }
     }
 
     if (compute_errors) {
