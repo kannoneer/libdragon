@@ -299,8 +299,6 @@ void draw_tri(
 
     assert(!((flags & RASTER_FLAG_NUDGE_CLOSER) && (flags & RASTER_FLAG_NUDGE_FARTHER))); // Mutually exclusive flags
 
-    bool compute_errors = false;
-
     if (flags & RASTER_FLAG_CHECK_ONLY) {
         assert(result);
         result->visible = false;
@@ -314,18 +312,11 @@ void draw_tri(
 
     // Only 'p', 'minb' and 'maxb' are in whole-pixel coordinates here. Others are all in sub-pixel coordinates.
     vec2 p = {-1, -1};
-    float mean_error = 0.f;
-    int num_pixels = 0;
-
-    // const int Z_row_fixed_start = Z_row_fixed;
 
     for (p.y = minb.y; p.y <= maxb.y; p.y++) {
-        // Barycentric coordinates at start of row
         int32_t w0 = w0_row;
         int32_t w1 = w1_row;
         int32_t w2 = w2_row;
-
-        float Zf_incr = Zf_row;
         int32_t Z_incr_fixed = Z_row_fixed;
 
         for (p.x = minb.x; p.x <= maxb.x; p.x++) {
@@ -333,29 +324,6 @@ void draw_tri(
                 debugf("| %s (%-2d, %-2d) %-8f ", (w0 | w1 | w2) >= 0 ? "X" : ".", p.x, p.y, Z_incr_fixed/(float)DELTA_SCALE);
             }
             if ((w0 | w1 | w2) >= 0) {
-                #if DUMP_WHEN_Z_OVERFLOWS
-                if (Zf_incr >= 1.0f) {
-                    debugf("Zf_incr: %f\n", Zf_incr);
-                    debugf("relative: (%d, %d)\n", p.x-minb.x, p.y-minb.y);
-                    debugf("minb: (%d, %d), maxb: (%d, %d)\n", minb.x, minb.y, maxb.x, maxb.y);
-                    debugf("z0f: %f, z1f: %f, z2f: %f\n", Z0f, Z1f, Z2f);
-                    debugf("v0f: (%f, %f), v1f: (%f, %f), v2f: (%f, %f)\n",
-                           v0f.x, v0f.y, v1f.x, v1f.y, v2f.x, v2f.y);
-                    debugf("v0: (%d, %d), v1: (%d, %d), v2: (%d, %d)\n",
-                           v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
-
-                    debugf("v01 = [%f, %f, %f]; v02 = [%f, %f, %f]\n",
-                        v01.x, v01.y,v01.z,v02.x, v02.y,v02.z);
-                    debugf("N = [%f, %f, %f]\n",
-                        N.x, N.y, N.z);
-                    debugf("dZdx, dZdy = (%f, %f)\n", dZdx, dZdy);
-
-                    debugf("zf_row2: %f\n", Zf_row);
-                    debugf("\n");
-                    // assert((Z0f >= 1.f || Z1f >= 1.f || Z2f >= 1.f) && "rasterizer should never extrapolate depth");
-                }
-                #endif
-
                 int bias = 0;
 
                 if (flags & RASTER_FLAG_ROUND_DEPTH_UP) {
@@ -365,18 +333,6 @@ void draw_tri(
                 uint16_t depth = (Z_incr_fixed + bias) >> (DELTA_BITS - 16);
                 // if (true) { depth = 0x8000;  }
 
-                if (compute_errors) {
-                    uint16_t depth_f = Zf_incr * 0xffff;
-                    float error = (depth - depth_f);
-                    static float max_rel_error;
-                    float rel_error = fabs(error) / max(depth_f, 1);
-                    mean_error += rel_error;
-                    num_pixels++;
-                    if (rel_error > max_rel_error) {
-                        max_rel_error = rel_error;
-                        debugf("depth fixed vs float: %d, %d. error: %f, rel_error: %f\n", depth, depth_f, error, rel_error);
-                    }
-                }
                 u_uint16_t *buf = ZBUFFER_UINT_PTR_AT(zbuffer, p.x, p.y);
 
                 if (depth < *buf) {
@@ -390,7 +346,6 @@ void draw_tri(
                             debugf("\nvisible (%d < %d) at (%d, %d), v0=(%d,%d)\n", depth, *buf, p.x, p.y, v0.x>>SUBPIXEL_BITS, v0.y>>SUBPIXEL_BITS);
                         }
                         if (super_verbose) {
-                            debugf("Zf_incr: %f\n", Zf_incr);
                             debugf("Z_incr_fixed: %ld\n", Z_incr_fixed);
                             debugf("relative: (%d, %d)\n", p.x - minb.x, p.y - minb.y);
                             debugf("minb: (%d, %d), maxb: (%d, %d), size: %dx%d\n", minb.x, minb.y, maxb.x, maxb.y, maxb.x-minb.x, maxb.y-minb.y);
@@ -438,28 +393,15 @@ void draw_tri(
             w0 += A12;
             w1 += A20;
             w2 += A01;
-
-            Zf_incr += dZdx;
             Z_incr_fixed += dZdx_fixed;
         }
 
         w0_row += B12;
         w1_row += B20;
         w2_row += B01;
-
-        Zf_row += dZdy;
         Z_row_fixed += dZdy_fixed;
 
         if (super_verbose) { debugf("\n"); }
-    }
-
-    if (compute_errors) {
-        mean_error /= max(num_pixels, 1);
-        static float max_mean_error;
-        if (mean_error > max_mean_error) {
-            debugf("mean rel error: %f %%\n", mean_error * 100);
-            max_mean_error = mean_error;
-        }
     }
 }
 
