@@ -73,6 +73,7 @@ typedef struct occ_culler_s {
     } viewport;
     matrix_t proj;
     matrix_t mvp;
+    uint32_t frame;
 } occ_culler_t;
 
 typedef struct occ_result_box_s {
@@ -101,7 +102,8 @@ typedef struct occ_mesh_s {
 } occ_mesh_t;
 
 typedef struct occ_occluder_s {
-    uint16_t last_visible_tri;
+    uint16_t last_visible_idx;      // last visible index buffer offset
+    uint32_t last_visible_frame;    // index of the frame the object was visible
 } occ_target_t;
 
 occ_culler_t *occ_alloc()
@@ -133,6 +135,11 @@ void occ_set_projection_matrix(occ_culler_t *culler, matrix_t *proj)
 void occ_set_mvp_matrix(occ_culler_t *culler, matrix_t *mvp)
 {
     culler->mvp = *mvp;
+}
+
+void occ_next_frame(occ_culler_t *culler)
+{
+    culler->frame++;
 }
 
 void occ_clear_zbuffer(surface_t *zbuffer)
@@ -423,9 +430,9 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
     int num_tris_drawn = 0;
     int ofs = 0;
     if (target) {
-        ofs = target->last_visible_tri; // start from where we last found a visible pixel
-        debugf("ofs = %d = %d * 3\n", ofs, target->last_visible_tri);
-        target->last_visible_tri = 0;
+        ofs = target->last_visible_idx; // start from where we last found a visible pixel
+        debugf("ofs = %d = %d * 3\n", ofs, target->last_visible_idx);
+        target->last_visible_idx = 0;
     }
 
     for (int is = 0; is < num_indices; is += 3) {
@@ -541,7 +548,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
 
         // Early out from all triangles even if only one of them was visible
         if ((flags & RASTER_FLAG_EARLY_OUT) && query_result && query_result->visible) {
-            target->last_visible_tri = wrapped_is;
+            target->last_visible_idx = wrapped_is;
             if (target) {
             debugf("was visible at wrapped_is = %d = (%d+%d) %% %lu\n", wrapped_is, is, ofs, num_indices);
             }
@@ -700,19 +707,29 @@ bool occ_check_target_visible(occ_culler_t *occ, surface_t *zbuffer, const occ_m
 occ_target_t* target, occ_raster_query_result_t *out_result)
 {
     occ_result_box_t box = {};
-    bool pass = occ_check_mesh_visible_rough(occ, zbuffer, mesh, model_xform, &box);
+    bool pass = true;
 
-    if (!pass) {
-        out_result->visible = false;
-        out_result->x = box.hitX;
-        out_result->y = box.hitY;
-        out_result->depth = box.udepth;
-        debugf("coarse fail\n");
-        return false;
+    debugf("%lu != %lu\n", target->last_visible_frame , occ->frame - 1);
+    // Do a rough check only if target was not visible last time.
+    if (target->last_visible_frame != occ->frame - 1) {
+        pass = occ_check_mesh_visible_rough(occ, zbuffer, mesh, model_xform, &box);
+
+        if (!pass) {
+            out_result->visible = false;
+            out_result->x = box.hitX;
+            out_result->y = box.hitY;
+            out_result->depth = box.udepth;
+            debugf("coarse fail\n");
+            return false;
+        }
     }
+
     pass = occ_check_mesh_visible_precise(occ, zbuffer, mesh, model_xform, target, out_result);
-    debugf("tris drawn: %d, last_visible = %d\n", out_result->num_tris_drawn, target->last_visible_tri);
-    if (!pass) {
+    debugf("tris drawn: %d, last_visible = %d\n", out_result->num_tris_drawn, target->last_visible_idx);
+
+    if (pass) {
+        target->last_visible_frame = occ->frame;
+    } else {
         debugf("precise fail\n");
     }
 

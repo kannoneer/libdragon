@@ -193,6 +193,7 @@ void render()
 
     glClearColor(environment_color[0], environment_color[1], environment_color[2], environment_color[3]);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    occ_next_frame(culler);
     occ_clear_zbuffer(sw_zbuffer);
 
     glMatrixMode(GL_MODELVIEW);

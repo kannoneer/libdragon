@@ -476,10 +476,10 @@ matrix_t cpu_glScalef(float x, float y, float z)
 matrix_t cpu_glFrustum(double l, double r, double b, double t, double n, double f)
 {
     return (matrix_t){.m = {
-                          {(2 * n) / (r - l), 0.f, 0.f, 0.f},
-                          {0.f, (2.f * n) / (t - b), 0.f, 0.f},
-                          {(r + l) / (r - l), (t + b) / (t - b), -(f + n) / (f - n), -1.f},
-                          {0.f, 0.f, -(2 * f * n) / (f - n), 0.f},
+                          {(2 * n) / (r - l),   0.f,                 0.f,                    0.f},
+                          {0.f,                 (2.f * n) / (t - b), 0.f,                    0.f},
+                          {(r + l) / (r - l),   (t + b) / (t - b),   -(f + n) / (f - n),     -1.f},
+                          {0.f,                 0.f,                 -(2 * f * n) / (f - n), 0.f},
                       }};
 }
 
