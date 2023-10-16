@@ -1,21 +1,6 @@
 // occult
 // Z-Buffer Renderer and Occlusion Tester Library
 //
-// TODO queries smaller than a pixel
-// TODO setup with integer Z
-//	TODO scale float Z to integer scale
-// TODO write to 16-bit framebuffer. can use surface_t* and RGBA16 or IA16 format
-// TODO compute output buffer incrementally and not via multiplication
-// TODO pixel center "instead use the “integer + 0.5” convention used by both OpenGL and Direct3D"
-//	   The + 0.5 part figures into the initial triangle setup (which now sees slightly different coordinates) but the sampling positions are still on a grid with 1-pixel spacing which is all we need to make this work.
-//		Q: N64 follows D3D9 convention with top left corner being (0,0)?
-// TODO flip orient2d winding instead of negating returned signed area
-// TODO support other depth range than (0,1)
-// DONE center the vertex coordinates for more uniform precision?
-// DONE fill check without barycentrics. we already have wX_row as ints
-// DONE subpixel accuracy
-//		DONE use integer vertices
-//		DONE orient2d made subpixel aware by result >> fractionalbits
 
 #include "cpumath.h"
 #include "transforms.h" // for vertex_t
@@ -57,11 +42,12 @@ bool config_discard_based_on_tr_code = true;
 
 enum {
     RASTER_FLAG_BACKFACE_CULL = 1,
-    RASTER_FLAG_CHECK_ONLY = 1 << 1,
+    RASTER_FLAG_EARLY_OUT = 1 << 1,
     RASTER_FLAG_NEG_SLOPE_BIAS = 1 << 2,   // Negative slope bias, nudge closer, minimum per-pixel depth
     RASTER_FLAG_POS_SLOPE_BIAS = 1 << 3,  // Positive slope bias, nudge farther, maximum per-pixel depth
     RASTER_FLAG_ROUND_DEPTH_UP = 1 << 4, // Round depths to the next higher 16-bit integer. Default is rounding down.
     RASTER_FLAG_DISCARD_FAR = 1 << 5,    // Discard any triangle that touches the far plane.
+    RASTER_FLAG_WRITE_DEPTH = 1 << 6,    // Actually write to depth buffer
 };
 
 typedef uint32_t occ_raster_flags_t;
@@ -75,8 +61,8 @@ typedef uint32_t occ_clip_action_t;
 
 occ_clip_action_t config_near_clipping_action = CLIP_ACTION_DO_IT;
 
-#define OCC_RASTER_FLAGS_DRAW  (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_ROUND_DEPTH_UP | RASTER_FLAG_DISCARD_FAR)
-#define OCC_RASTER_FLAGS_QUERY (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_CHECK_ONLY)
+#define OCC_RASTER_FLAGS_DRAW  (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_WRITE_DEPTH |RASTER_FLAG_ROUND_DEPTH_UP | RASTER_FLAG_DISCARD_FAR)
+#define OCC_RASTER_FLAGS_QUERY (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_EARLY_OUT | RASTER_FLAG_WRITE_DEPTH)
 
 typedef struct occ_culler_s {
     struct {
@@ -104,6 +90,7 @@ typedef struct occ_raster_query_result_s {
     int x;
     int y;
     uint16_t depth;
+    int num_tris_drawn;
 } occ_raster_query_result_t;
 
 typedef struct occ_mesh_s {
@@ -112,6 +99,10 @@ typedef struct occ_mesh_s {
     uint32_t num_vertices;
     uint32_t num_indices;
 } occ_mesh_t;
+
+typedef struct occ_occluder_s {
+    uint16_t last_visible_tri;
+} occ_target_t;
 
 occ_culler_t *occ_alloc()
 {
@@ -299,7 +290,7 @@ void draw_tri(
 
     assert(!((flags & RASTER_FLAG_NEG_SLOPE_BIAS) && (flags & RASTER_FLAG_POS_SLOPE_BIAS))); // Mutually exclusive flags
 
-    if (flags & RASTER_FLAG_CHECK_ONLY) {
+    if (flags & RASTER_FLAG_EARLY_OUT) {
         assert(result);
         result->visible = false;
     }
@@ -336,7 +327,10 @@ void draw_tri(
                 u_uint16_t *buf = ZBUFFER_UINT_PTR_AT(zbuffer, p.x, p.y);
 
                 if (depth < *buf) {
-                    if (flags & RASTER_FLAG_CHECK_ONLY) {
+                    if (flags & RASTER_FLAG_WRITE_DEPTH) {
+                        *buf = depth;
+                    }
+                    if (flags & RASTER_FLAG_EARLY_OUT) {
                         assert(result);
                         result->visible = true;
                         result->x = p.x;
@@ -383,8 +377,6 @@ void draw_tri(
                             while (true) {}; // HACK
                         }
                         return; // early out was requested
-                    } else {
-                        *buf = depth;
                     }
                 }
 
@@ -407,7 +399,7 @@ void draw_tri(
 
 void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform,
                                  const vertex_t *vertices, const uint16_t *indices, uint32_t num_indices,
-                                 occ_raster_flags_t flags, occ_raster_query_result_t* query_result)
+                                 occ_target_t* target, occ_raster_flags_t flags, occ_raster_query_result_t* query_result)
 {
     // We render a viewport (x,y,x+w,y+h) in zbuffer's pixel space
     cpu_glViewport(
@@ -428,8 +420,20 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         mvp = &occ->mvp;
     }
 
+    int num_tris_drawn = 0;
+    int ofs = 0;
+    if (target) {
+        ofs = target->last_visible_tri; // start from where we last found a visible pixel
+        debugf("ofs = %d = %d * 3\n", ofs, target->last_visible_tri);
+        target->last_visible_tri = 0;
+    }
+
     for (int is = 0; is < num_indices; is += 3) {
-        const uint16_t *inds = &indices[is];
+        int wrapped_is = (is + ofs) % num_indices; // start from 'ofs' but render the whole mesh
+        if (target) {
+            debugf("wrapped_is = %d = (%d+%d) %% %lu\n", wrapped_is, is, ofs, num_indices);
+        }
+        const uint16_t *inds = &indices[wrapped_is];
         cpu_vtx_t verts[3] = {0};
         cpu_vtx_t clipping_cache[CLIPPING_CACHE_SIZE];
         cpu_clipping_list_t clipping_list = {.count = 0};
@@ -513,6 +517,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
                 verts[0].depth, verts[1].depth, verts[2].depth,
                 flags, query_result,
                 zbuffer);
+            num_tris_drawn++;
         } else {
             for (uint32_t i = 1; i < clipping_list.count; i++) {
                 vec2f sv[3];
@@ -528,11 +533,18 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
                     clipping_list.vertices[0]->depth, clipping_list.vertices[i - 1]->depth, clipping_list.vertices[i]->depth,
                     flags, query_result,
                     zbuffer);
+                num_tris_drawn++;
             }
         }
 
+        if (query_result) { query_result->num_tris_drawn = num_tris_drawn; }
+
         // Early out from all triangles even if only one of them was visible
-        if ((flags & RASTER_FLAG_CHECK_ONLY) && query_result && query_result->visible) {
+        if ((flags & RASTER_FLAG_EARLY_OUT) && query_result && query_result->visible) {
+            target->last_visible_tri = wrapped_is;
+            if (target) {
+            debugf("was visible at wrapped_is = %d = (%d+%d) %% %lu\n", wrapped_is, is, ofs, num_indices);
+            }
             return;
         }
     }
@@ -540,7 +552,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
 
 void occ_draw_mesh(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t *mesh, const matrix_t *model_xform)
 {
-	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, mesh->vertices, mesh->indices, mesh->num_indices, OCC_RASTER_FLAGS_DRAW, NULL);
+	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, mesh->vertices, mesh->indices, mesh->num_indices, NULL, OCC_RASTER_FLAGS_DRAW, NULL);
 }
 
 static vec2f rotate_xy_coords_45deg(float x, float y) {
@@ -621,10 +633,8 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
     //  [ xr ] = [ +1 -1 ] [ x ]
     //  [ yr ]   [ -1 -1 ] [ y ]
     // 2. keep track of AABB of those
-    // (3. scale coordinates to pixels with xr/=S, sy/=S, where S=sqrt(2)/2)
-    //      - scaling not needed for inside checks!
-    // 4. at query time, for each pixel, compute rotated unscaled rotated screen coordinates
-    // 5. check pixel only if inside the rotated coords
+    // 3. at query time, for each pixel, compute rotated unscaled rotated screen coordinates
+    // 4. check pixel only if inside the rotated coords
 
     matrix_t* mvp = NULL;
     matrix_t mvp_new;
@@ -643,8 +653,7 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
     float minY = __FLT_MAX__;
     float maxY = -__FLT_MAX__;
 
-    vec2f oct_min = {__FLT_MAX__, __FLT_MAX__};
-    vec2f oct_max = {-__FLT_MAX__, -__FLT_MAX__};
+    occ_box2df_t oct_box = {{__FLT_MAX__, __FLT_MAX__}, {-__FLT_MAX__, -__FLT_MAX__}};
 
     for (int iv = 0; iv < mesh->num_vertices; iv++) {
         cpu_vtx_t vert = {};
@@ -662,29 +671,50 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
         minY = min(minY, vert.screen_pos[1]);
         maxY = max(maxY, vert.screen_pos[1]);
 
-        vec2f vr = rotate_xy_coords_45deg(vert.screen_pos[0], vert.screen_pos[1]);
-        debugf("vr: (%f, %f)\n", vr.x, vr.y);
-        oct_min.x = min(oct_min.x, vr.x);
-        oct_min.y = min(oct_min.y, vr.y);
-        oct_max.x = max(oct_max.x, vr.x);
-        oct_max.y = max(oct_max.y, vr.y);
+        vec2f pr = rotate_xy_coords_45deg(vert.screen_pos[0], vert.screen_pos[1]);
+        oct_box.lo.x = min(oct_box.lo.x, pr.x);
+        oct_box.lo.y = min(oct_box.lo.y, pr.y);
+        oct_box.hi.x = max(oct_box.hi.x, pr.x);
+        oct_box.hi.y = max(oct_box.hi.y, pr.y);
     }
 
-    debugf("octagon: min=(%f, %f), max=(%f, %f)\n", oct_min.x, oct_min.y, oct_max.x, oct_max.y);
+    // debugf("octagon: min=(%f, %f), max=(%f, %f)\n", oct_box.lo.x, oct_box.lo.y, oct_box.hi.x, oct_box.hi.y);
 
     uint16_t udepth = FLOAT_TO_U16(minZ);
-    occ_box2df_t rotated_box = {oct_min, oct_max};
     // debugf("box: (%f, %f, %f, %f), minZ=%f, udepth=%u\n", minX, minY, maxX, maxY, minZ, udepth);
-    return occ_check_pixel_box_visible(occ, zbuffer, udepth, minX, minY, maxX, maxY, &rotated_box, out_box);
+    return occ_check_pixel_box_visible(occ, zbuffer, udepth, minX, minY, maxX, maxY, &oct_box, out_box);
 }
 
-bool occ_check_mesh_visible_precise(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t* mesh, const matrix_t *model_xform,
-                                    occ_raster_query_result_t *out_result)
+bool occ_check_mesh_visible_precise(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t *mesh, const matrix_t *model_xform,
+                                    occ_target_t *target, occ_raster_query_result_t *out_result)
 {
     occ_raster_query_result_t result = {};
-    occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, mesh->vertices, mesh->indices, mesh->num_indices, OCC_RASTER_FLAGS_QUERY, &result);
+    occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, mesh->vertices, mesh->indices, mesh->num_indices, target, OCC_RASTER_FLAGS_QUERY, &result);
     if (out_result) {
         *out_result = result;
     }
     return result.visible;
+}
+
+bool occ_check_target_visible(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t* mesh, const matrix_t *model_xform,
+occ_target_t* target, occ_raster_query_result_t *out_result)
+{
+    occ_result_box_t box = {};
+    bool pass = occ_check_mesh_visible_rough(occ, zbuffer, mesh, model_xform, &box);
+
+    if (!pass) {
+        out_result->visible = false;
+        out_result->x = box.hitX;
+        out_result->y = box.hitY;
+        out_result->depth = box.udepth;
+        debugf("coarse fail\n");
+        return false;
+    }
+    pass = occ_check_mesh_visible_precise(occ, zbuffer, mesh, model_xform, target, out_result);
+    debugf("tris drawn: %d, last_visible = %d\n", out_result->num_tris_drawn, target->last_visible_tri);
+    if (!pass) {
+        debugf("precise fail\n");
+    }
+
+    return pass;
 }

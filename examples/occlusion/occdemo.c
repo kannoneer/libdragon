@@ -95,8 +95,8 @@ void setup()
     // camera.distance =-17.817123;
     // camera.rotation=100.012470;
     // camera.distance=-14.149927; camera.rotation=199.996902;
-    camera.distance=-14.868696; camera.rotation=192.478134;
-
+    // camera.distance=-14.868696; camera.rotation=192.478134;
+    camera.distance=-14.868696; camera.rotation=217.978134;
 
     zbuffer = surface_alloc(FMT_RGBA16, display_get_width(), display_get_height());
     sw_zbuffer_array[0] = surface_alloc(FMT_RGBA16, CULL_W, CULL_H);
@@ -181,6 +181,8 @@ void set_light_positions(float rotation)
     glPopMatrix();
 }
 
+static occ_target_t cube_target = {};
+
 void render()
 {
     surface_t *disp = display_get();
@@ -263,15 +265,15 @@ void render()
     // Occlusion culling
 
     occ_result_box_t box = {};
-    // occ_raster_query_result_t raster_query = {};
-    //bool cube_visible = occ_check_mesh_visible_precise(culler, sw_zbuffer, &cube_mesh, &cube_xform, &raster_query);
-    //box.hitX = raster_query.x;
-    //box.hitY = raster_query.y;
-    //box.udepth = raster_query.depth;
-    bool cube_visible = occ_check_mesh_visible_rough(culler, sw_zbuffer, &cube_mesh, &cube_xform, &box);
+    occ_raster_query_result_t raster_query = {};
+    bool cube_visible = occ_check_target_visible(culler, sw_zbuffer, &cube_mesh, &cube_xform, &cube_target, &raster_query);
+    box.hitX = raster_query.x;
+    box.hitY = raster_query.y;
+    box.udepth = raster_query.depth;
+    // bool cube_visible = occ_check_mesh_visible_rough(culler, sw_zbuffer, &cube_mesh, &cube_xform, &box);
     //occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, &cube_xform);
 
-	occ_draw_indexed_mesh_flags(culler, sw_zbuffer, &cube_xform, cube_mesh.vertices, cube_mesh.indices, cube_mesh.num_indices, OCC_RASTER_FLAGS_QUERY & (~RASTER_FLAG_CHECK_ONLY), NULL);
+	// occ_draw_indexed_mesh_flags(culler, sw_zbuffer, &cube_xform, cube_mesh.vertices, cube_mesh.indices, cube_mesh.num_indices, NULL, (OCC_RASTER_FLAGS_QUERY & (~RASTER_FLAG_EARLY_OUT)) | RASTER_FLAG_WRITE_DEPTH, NULL);
 
     if (cube_visible || config_show_wireframe) {
         bool wireframe = !cube_visible;
@@ -332,9 +334,9 @@ void render()
         rdpq_fill_rectangle(box.minX, box.minY, box.maxX, box.maxY);
     }
 
+    // debugf("octagon ratio: %f \n", g_num_checked / ((float)(box.maxX - box.minX) * (float)(box.maxY - box.minY)));
     for (int i=0;i<g_num_checked;i++) {
         vec2 p = g_checked_pixels[i];
-        debugf("[%d] (%d, %d)\n", i, p.x, p.y);
         graphics_draw_pixel(disp, p.x, p.y, 0x0fff);
     }
 
@@ -344,6 +346,7 @@ void render()
     float yscale = disp->height / (float)sw_zbuffer->height;
     float xvisible = xscale * box.hitX;
     float yvisible = yscale * box.hitY;
+
     if (cube_visible) {
         // Draw the visible pixel to both the mini-image and the full rendering
         rdpq_set_mode_fill((color_t){0, 0, 255, 255});
@@ -470,6 +473,6 @@ int main()
             rspq_wait();
 
         g_num_frames++;
-        debugf("camera.distance=%f; camera.rotation=%f;\n", camera.distance, camera.rotation);
+        // debugf("camera.distance=%f; camera.rotation=%f;\n", camera.distance, camera.rotation);
     }
 }
