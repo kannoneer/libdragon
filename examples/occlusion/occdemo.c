@@ -28,6 +28,7 @@ static occ_culler_t *culler;
 static uint32_t animation = 0;
 static uint32_t texture_index = 0;
 static camera_t camera;
+matrix_t g_view;
 static surface_t zbuffer;
 static surface_t sw_zbuffer_array[2];
 static surface_t *sw_zbuffer;
@@ -43,6 +44,7 @@ static const GLfloat environment_color[] = {0.1f, 0.03f, 0.2f, 1.f};
 
 static bool config_show_visible_point = true;
 static bool config_show_wireframe = true;
+static bool config_enable_culling = true;
 
 static const GLfloat light_pos[8][4] = {
     {1, 0, 0, 0},
@@ -289,11 +291,14 @@ void render_door_scene(surface_t* disp)
     // render_primitives(rotation);
 }
 
-#define BIG_SCENE_NUM_CUBES (20)
+#define BIG_SCENE_NUM_CUBES (40)
 
 struct
 {
     occ_target_t targets[BIG_SCENE_NUM_CUBES];
+    struct {
+        int num_drawn;
+    } stats;
 } big_scene = {};
 
 void setup_big_scene()
@@ -324,42 +329,106 @@ void render_big_scene(surface_t* disp)
 
     const int num_cubes = BIG_SCENE_NUM_CUBES;
     matrix_t cube_xforms[num_cubes];
+    float cube_z_dists[num_cubes];
+    int cube_order[num_cubes];
+
     const float height = 5.0f;
     for (int i = 0; i < num_cubes; i++) {
         float theta = i*2.83f;
         // float phi = i*3.1f;
         const float r = 15.0f; //10.0f * (0.5f + .5f*sin(i));
-        matrix_t translate = cpu_glTranslatef(
+        vec3f pos = (vec3f){
             r * cos(theta),
             height + (i / (float)num_cubes - 0.5f) * 1.5f * r,
-            r * sin(theta));
-        // matrix_t scale = cpu_glScalef(1.0f, 1.75f, 0.2f);
+            r * sin(theta)};
+
+        // compute viewspace z for front-to-back drawing
+        float world[4] = {pos.x, pos.y, pos.z, 1.0f};
+        float view[4] = {};
+
+        matrix_mult(&view[0], &g_view, &world[0]);
+        cube_z_dists[i] = -view[2];
+
+        matrix_t translate = cpu_glTranslatef(pos.x, pos.y, pos.z);
         matrix_t rotate = cpu_glRotatef(i*45.f+wave, sqrtf(2)/2.f, 0.0f, sqrtf(2)/2.f);
         matrix_mult_full(&cube_xforms[i], &translate, &rotate);
     }
 
-    if (g_num_frames == 0) {
-    assert(big_scene.targets[0].last_visible_frame == 0);
-    }
+    if (config_enable_culling) {
+        // sort cubes by viewspace z
 
-    int num_visible = 0;
-    for (int i = 0; i < num_cubes; i++) {
-        // query for visibility
-        // debugf("i=%d\n", i);
-        matrix_t *xform = &cube_xforms[i];
-        bool visible = occ_check_target_visible(culler, sw_zbuffer, &cube_mesh, xform, &big_scene.targets[i], NULL);
-        if (visible) {
-            // if visible, draw to screen
+        int compare(const void *a, const void *b)
+        {
+            float fa = cube_z_dists[*(int *)a];
+            float fb = cube_z_dists[*(int *)b];
+            // debugf("%f < %f\n", fa, fb);
+            if (fa < fb) {
+                return -1;
+            }
+            else if (fa > fb) {
+                return 1;
+            }
+            else {
+                return 0;
+            }
+        }
+
+        for (int i = 0; i < num_cubes; i++) {
+            cube_order[i] = i;
+        }
+
+        qsort(cube_order, num_cubes, sizeof(cube_order[0]), compare);
+
+        // draw from front to back
+
+        big_scene.stats.num_drawn = 0;
+        for (int order_i = 0; order_i < num_cubes; order_i++) {
+            int idx = cube_order[order_i];
+            // debugf("order_i =%d, idx= %d, dist = %f\n", order_i, idx, cube_z_dists[idx]);
+            // query for visibility
+            // debugf("i=%d\n", i);
+            matrix_t *xform = &cube_xforms[idx];
+            bool visible = occ_check_target_visible(culler, sw_zbuffer, &cube_mesh, xform, &big_scene.targets[idx], NULL);
+
+            if (visible || config_show_wireframe) {
+                glPushMatrix();
+                glMultMatrixf(&xform->m[0][0]);
+                if (visible) {
+                    render_cube();
+                }
+                else {
+                    // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                    glDisable(GL_DEPTH_TEST);
+                    glEnable(GL_BLEND);
+                    glBlendFunc(GL_ONE, GL_ONE);
+                    glDisable(GL_LIGHTING);
+                    glDisable(GL_TEXTURE_2D);
+                    render_cube();
+                    glEnable(GL_TEXTURE_2D);
+                    glEnable(GL_LIGHTING);
+                    glDisable(GL_BLEND);
+                    glEnable(GL_DEPTH_TEST);
+                    // glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                }
+                glPopMatrix();
+            }
+
+            if (visible) {
+                // also draw to software zbuffer
+                occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, xform);
+                big_scene.stats.num_drawn++;
+            }
+        }
+    } else {
+        big_scene.stats.num_drawn = 0;
+        for (int idx = 0; idx < num_cubes; idx++) {
             glPushMatrix();
-            glMultMatrixf(&xform->m[0][0]);
+            glMultMatrixf(&cube_xforms[idx].m[0][0]);
             render_cube();
             glPopMatrix();
-            // also draw to software zbuffer
-            occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, xform);
-            num_visible++;
+            big_scene.stats.num_drawn++;
         }
     }
-    debugf("num_visible: %d/%d\n", num_visible, num_cubes);
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
 }
@@ -378,12 +447,11 @@ void render()
     occ_clear_zbuffer(sw_zbuffer);
 
     glMatrixMode(GL_MODELVIEW);
-    matrix_t modelview;
-    compute_camera_matrix(&modelview, &camera);
+    compute_camera_matrix(&g_view, &camera);
     matrix_t mvp;
-    matrix_mult_full(&mvp, &g_projection, &modelview);
+    matrix_mult_full(&mvp, &g_projection, &g_view);
 
-    glLoadMatrixf(&modelview.m[0][0]);
+    glLoadMatrixf(&g_view.m[0][0]);
     occ_set_mvp_matrix(culler, &mvp);
 
     //render_door_scene(disp);
@@ -400,7 +468,7 @@ void render()
                 if (z < minz) minz = z;
             }
         }
-        rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 20, "minZ: %u", minz);
+        // rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 20, "minZ: %u", minz);
     }
 
     // Show the software zbuffer
@@ -441,7 +509,9 @@ void render()
 
     // rdpq_text_print(NULL, FONT_SCIFI, xscale*(box.minX+box.maxX)*0.5f, yscale*(box.minY+box.maxY)*0.5f, cube_visible ? "seen" : "hidden");
     // rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 10, cube_visible ? "cube visible" : "cube hidden");
-    rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 30, config_show_wireframe ? "wireframe on" : "wireframe off");
+    rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 20, config_enable_culling ? "occlusion culling: ON" : "occlusion culling: OFF");
+    rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 30, config_show_wireframe ? "show culled: ON" : "show culled: OFF");
+    rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 40, "visible: %d/%d cubes", big_scene.stats.num_drawn, BIG_SCENE_NUM_CUBES);
     rdpq_detach_show();
 
     rspq_profile_next_frame();
@@ -491,6 +561,7 @@ int main()
     while (1)
 #endif
     {
+        uint32_t ticks_start = get_ticks();
         joypad_poll();
         joypad_buttons_t pressed = joypad_get_buttons_pressed(JOYPAD_PORT_1);
         joypad_inputs_t inputs = joypad_get_inputs(JOYPAD_PORT_1);
@@ -516,14 +587,7 @@ int main()
         }
 
         if (pressed.c_up) {
-            if (sphere_rings < SPHERE_MAX_RINGS) {
-                sphere_rings++;
-            }
-
-            if (sphere_segments < SPHERE_MAX_SEGMENTS) {
-                sphere_segments++;
-            }
-
+            config_enable_culling = !config_enable_culling;
             make_sphere_mesh();
         }
 
@@ -555,6 +619,11 @@ int main()
         render();
         if (DEBUG_RDP)
             rspq_wait();
+        
+        rspq_flush();
+        uint32_t ticks_end = get_ticks();
+        double delta = (ticks_end - ticks_start) / (double)TICKS_PER_SECOND;
+        debugf("deltatime: %f ms\n", delta * 1000.0);
 
         g_num_frames++;
         // debugf("camera.distance=%f; camera.rotation=%f;\n", camera.distance, camera.rotation);

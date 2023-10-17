@@ -55,6 +55,7 @@ static const uint16_t cube_indices[] = {
 };
 
 static GLuint cube_list;
+static GLuint cube_wireframe_list;
 
 void draw_cube()
 {
@@ -82,21 +83,55 @@ void setup_cube()
     glNewList(cube_list, GL_COMPILE);
     draw_cube();
     glEndList();
+
+    cube_wireframe_list = glGenLists(1);
+
+    glNewList(cube_wireframe_list, GL_COMPILE);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_LIGHTING);
+        glDisable(GL_TEXTURE_2D);
+        draw_cube();
+        glEnable(GL_TEXTURE_2D);
+        glEnable(GL_LIGHTING);
+        glEnable(GL_DEPTH_TEST);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    glEndList();
 }
 
-void draw_cube_list()
+void draw_cube_list(GLuint list)
 {
     glEnableClientState(GL_VERTEX_ARRAY);
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
     glEnableClientState(GL_NORMAL_ARRAY);
     glEnableClientState(GL_COLOR_ARRAY);
 
-    glCallList(cube_list);
+    glCallList(list);
 
     glDisableClientState(GL_VERTEX_ARRAY);
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
     glDisableClientState(GL_NORMAL_ARRAY);
     glDisableClientState(GL_COLOR_ARRAY);
+}
+
+void render_wireframe_cube()
+{
+    rdpq_debug_log_msg("Cube");
+    //glPushMatrix();
+    //glTranslatef(0,-1.f,0);
+
+    // Apply vertex color as material color.
+    // Because the cube has colors set per vertex, we can color each face seperately
+    glEnable(GL_COLOR_MATERIAL);
+
+    // Apply to ambient and diffuse material properties
+    glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+
+    draw_cube_list(cube_wireframe_list);
+    
+    glDisable(GL_COLOR_MATERIAL);
+
+    //glPopMatrix();
 }
 
 void render_cube()
@@ -112,8 +147,7 @@ void render_cube()
     // Apply to ambient and diffuse material properties
     glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
 
-    //draw_cube();
-    draw_cube_list();
+    draw_cube_list(cube_list);
     
     glDisable(GL_COLOR_MATERIAL);
 
