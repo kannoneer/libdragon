@@ -37,7 +37,8 @@ const float inv_subpixel_scale = 1.0f / SUBPIXEL_SCALE;
 bool g_verbose_setup = false;
 bool g_measure_error = false;
 bool g_verbose_raster = false; // print depth at vertex pixels
-bool g_verbose_early_out = true; // print coordinates of pixels that pass the depth test
+bool g_verbose_early_out = false; // print coordinates of pixels that pass the depth test
+bool g_verbose_visibility_tracking = false;
 bool config_discard_based_on_tr_code = true;
 
 enum {
@@ -431,15 +432,11 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
     int ofs = 0;
     if (target) {
         ofs = target->last_visible_idx; // start from where we last found a visible pixel
-        debugf("ofs = %d = %d * 3\n", ofs, target->last_visible_idx);
         target->last_visible_idx = 0;
     }
 
     for (int is = 0; is < num_indices; is += 3) {
         int wrapped_is = (is + ofs) % num_indices; // start from 'ofs' but render the whole mesh
-        if (target) {
-            debugf("wrapped_is = %d = (%d+%d) %% %lu\n", wrapped_is, is, ofs, num_indices);
-        }
         const uint16_t *inds = &indices[wrapped_is];
         cpu_vtx_t verts[3] = {0};
         cpu_vtx_t clipping_cache[CLIPPING_CACHE_SIZE];
@@ -549,8 +546,8 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         // Early out from all triangles even if only one of them was visible
         if ((flags & RASTER_FLAG_EARLY_OUT) && query_result && query_result->visible) {
             target->last_visible_idx = wrapped_is;
-            if (target) {
-            debugf("was visible at wrapped_is = %d = (%d+%d) %% %lu\n", wrapped_is, is, ofs, num_indices);
+            if (target && g_verbose_visibility_tracking) {
+                debugf("was visible at wrapped_is = %d = (%d+%d) %% %lu\n", wrapped_is, is, ofs, num_indices);
             }
             return;
         }
@@ -709,7 +706,6 @@ occ_target_t* target, occ_raster_query_result_t *out_result)
     occ_result_box_t box = {};
     bool pass = true;
 
-    debugf("%lu != %lu\n", target->last_visible_frame , occ->frame - 1);
     // Do a rough check only if target was not visible last time.
     if (target->last_visible_frame != occ->frame - 1) {
         pass = occ_check_mesh_visible_rough(occ, zbuffer, mesh, model_xform, &box);
@@ -719,18 +715,25 @@ occ_target_t* target, occ_raster_query_result_t *out_result)
             out_result->x = box.hitX;
             out_result->y = box.hitY;
             out_result->depth = box.udepth;
-            debugf("coarse fail\n");
+            if (g_verbose_visibility_tracking) {
+                debugf("coarse fail\n");
+            }
             return false;
         }
     }
 
     pass = occ_check_mesh_visible_precise(occ, zbuffer, mesh, model_xform, target, out_result);
-    debugf("tris drawn: %d, last_visible = %d\n", out_result->num_tris_drawn, target->last_visible_idx);
+
+    if (g_verbose_visibility_tracking) {
+        debugf("tris drawn: %d, last_visible = %d\n", out_result->num_tris_drawn, target->last_visible_idx);
+    }
 
     if (pass) {
         target->last_visible_frame = occ->frame;
     } else {
-        debugf("precise fail\n");
+        if (g_verbose_visibility_tracking) {
+            debugf("precise fail\n");
+        }
     }
 
     return pass;
