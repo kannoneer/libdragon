@@ -25,7 +25,7 @@
 
 static occ_culler_t *culler;
 
-static uint32_t animation = 3283;
+static uint32_t animation = 0;
 static uint32_t texture_index = 0;
 static camera_t camera;
 static surface_t zbuffer;
@@ -183,28 +183,8 @@ void set_light_positions(float rotation)
 
 static occ_target_t cube_target = {};
 
-void render()
+void render_door_scene(surface_t* disp)
 {
-    surface_t *disp = display_get();
-
-    rdpq_attach(disp, &zbuffer);
-
-    gl_context_begin();
-
-    glClearColor(environment_color[0], environment_color[1], environment_color[2], environment_color[3]);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    occ_next_frame(culler);
-    occ_clear_zbuffer(sw_zbuffer);
-
-    glMatrixMode(GL_MODELVIEW);
-    matrix_t modelview;
-    compute_camera_matrix(&modelview, &camera);
-    matrix_t mvp;
-    matrix_mult_full(&mvp, &g_projection, &modelview);
-
-    glLoadMatrixf(&modelview.m[0][0]);
-    occ_set_mvp_matrix(culler, &mvp);
-
     float rotation = animation * 0.5f;
 
     set_light_positions(rotation);
@@ -231,7 +211,7 @@ void render()
 
     // occ_draw_mesh(culler, sw_zbuffer, &plane_mesh, NULL);
 
-    long unsigned int anim_timer = 26; // HACK g_num_frames;
+    long unsigned int anim_timer = g_num_frames;
     //debugf("g_num_frames: %llu\n", g_num_frames);
 
     occ_mesh_t cube_mesh = {
@@ -265,12 +245,12 @@ void render()
 
     // Occlusion culling
 
-    occ_result_box_t box = {};
+    //occ_result_box_t box = {};
     occ_raster_query_result_t raster_query = {};
     bool cube_visible = occ_check_target_visible(culler, sw_zbuffer, &cube_mesh, &cube_xform, &cube_target, &raster_query);
-    box.hitX = raster_query.x;
-    box.hitY = raster_query.y;
-    box.udepth = raster_query.depth;
+    //box.hitX = raster_query.x;
+    //box.hitY = raster_query.y;
+    //box.udepth = raster_query.depth;
     // bool cube_visible = occ_check_mesh_visible_rough(culler, sw_zbuffer, &cube_mesh, &cube_xform, &box);
     //occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, &cube_xform);
 
@@ -308,8 +288,51 @@ void render()
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
     // render_primitives(rotation);
+}
+
+void render_big_scene(surface_t* disp)
+{
+    glEnable(GL_LIGHTING);
+    glEnable(GL_NORMALIZE);
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
+
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
+
+    render_cube();
+
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+}
+
+void render()
+{
+    surface_t *disp = display_get();
+
+    rdpq_attach(disp, &zbuffer);
+
+    gl_context_begin();
+
+    glClearColor(environment_color[0], environment_color[1], environment_color[2], environment_color[3]);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    occ_next_frame(culler);
+    occ_clear_zbuffer(sw_zbuffer);
+
+    glMatrixMode(GL_MODELVIEW);
+    matrix_t modelview;
+    compute_camera_matrix(&modelview, &camera);
+    matrix_t mvp;
+    matrix_mult_full(&mvp, &g_projection, &modelview);
+
+    glLoadMatrixf(&modelview.m[0][0]);
+    occ_set_mvp_matrix(culler, &mvp);
+
+    //render_door_scene(disp);
+    render_big_scene(disp);
 
     gl_context_end();
+
 
     if (true) {
         uint16_t minz = 0xffff;
@@ -330,10 +353,10 @@ void render()
     // rdpq_detach();
     rspq_flush();
 
-    if (true || (g_num_frames / 2) % 2 == 0) {
-        rdpq_set_mode_fill(cube_visible ? (color_t){0, 255, 0, 64} : (color_t){255, 0, 0, 64});
-        rdpq_fill_rectangle(box.minX, box.minY, box.maxX, box.maxY);
-    }
+    // if (true || (g_num_frames / 2) % 2 == 0) {
+    //     rdpq_set_mode_fill(cube_visible ? (color_t){0, 255, 0, 64} : (color_t){255, 0, 0, 64});
+    //     rdpq_fill_rectangle(box.minX, box.minY, box.maxX, box.maxY);
+    // }
 
     // debugf("octagon ratio: %f \n", g_num_checked / ((float)(box.maxX - box.minX) * (float)(box.maxY - box.minY)));
     for (int i=0;i<g_num_checked;i++) {
@@ -343,23 +366,24 @@ void render()
 
     rspq_flush();
 
-    float xscale = disp->width / (float)sw_zbuffer->width;
-    float yscale = disp->height / (float)sw_zbuffer->height;
-    float xvisible = xscale * box.hitX;
-    float yvisible = yscale * box.hitY;
+    // float xscale = disp->width / (float)sw_zbuffer->width;
+    // float yscale = disp->height / (float)sw_zbuffer->height;
+    // float xvisible = xscale * box.hitX;
+    // float yvisible = yscale * box.hitY;
 
-    if (cube_visible) {
-        // Draw the visible pixel to both the mini-image and the full rendering
-        rdpq_set_mode_fill((color_t){0, 0, 255, 255});
-        rdpq_fill_rectangle(box.hitX, box.hitY + 1, box.hitX, box.hitY + 1);
-        if (config_show_visible_point) {
-            rdpq_set_mode_fill((color_t){255, 255, 255, 255});
-            rdpq_fill_rectangle(xvisible - 1, yvisible - 1, xvisible + 2, yvisible + 2);
-        }
-    }
+    // if (cube_visible) {
+    //     // Draw the visible pixel to both the mini-image and the full rendering
+    //     rdpq_set_mode_fill((color_t){0, 0, 255, 255});
+    //     rdpq_fill_rectangle(box.hitX, box.hitY + 1, box.hitX, box.hitY + 1);
+    //     if (config_show_visible_point) {
+    //         rdpq_set_mode_fill((color_t){255, 255, 255, 255});
+    //         rdpq_fill_rectangle(xvisible - 1, yvisible - 1, xvisible + 2, yvisible + 2);
+    //     }
+    // }
 
     // rdpq_text_print(NULL, FONT_SCIFI, xscale*(box.minX+box.maxX)*0.5f, yscale*(box.minY+box.maxY)*0.5f, cube_visible ? "seen" : "hidden");
-    rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 10, cube_visible ? "cube visible" : "cube hidden");
+    // rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 10, cube_visible ? "cube visible" : "cube hidden");
+    rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 30, config_show_wireframe ? "wireframe on" : "wireframe off");
     rdpq_detach_show();
 
     rspq_profile_next_frame();

@@ -607,7 +607,7 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
     // 3. compute min Z
     // 3. check the bounding box against zbuffer with the given minZ
 
-    // octagon check:
+    // octagon test:
     // 1. for each vertex, compute unscaled rotated screen coordinates:
     //  [ xr ] = [ +1 -1 ] [ x ]
     //  [ yr ]   [ -1 -1 ] [ y ]
@@ -666,10 +666,7 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
         oct_box.hi.y = ceilf(oct_box.hi.y);
     }
 
-    // debugf("octagon: min=(%f, %f), max=(%f, %f)\n", oct_box.lo.x, oct_box.lo.y, oct_box.hi.x, oct_box.hi.y);
-
     uint16_t udepth = FLOAT_TO_U16(minZ);
-    // debugf("box: (%f, %f, %f, %f), minZ=%f, udepth=%u\n", minX, minY, maxX, maxY, minZ, udepth);
     occ_box2df_t* rotated_box = NULL;
     if (g_octagon_test) {
         rotated_box = &oct_box;

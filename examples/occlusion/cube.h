@@ -54,9 +54,7 @@ static const uint16_t cube_indices[] = {
     20, 21, 22, 20, 22, 23,
 };
 
-void setup_cube()
-{
-}
+static GLuint cube_list;
 
 void draw_cube()
 {
@@ -78,6 +76,29 @@ void draw_cube()
     glDisableClientState(GL_COLOR_ARRAY);
 }
 
+void setup_cube()
+{
+    cube_list = glGenLists(1);
+    glNewList(cube_list, GL_COMPILE);
+    draw_cube();
+    glEndList();
+}
+
+void draw_cube_list()
+{
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    glEnableClientState(GL_NORMAL_ARRAY);
+    glEnableClientState(GL_COLOR_ARRAY);
+
+    glCallList(cube_list);
+
+    glDisableClientState(GL_VERTEX_ARRAY);
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    glDisableClientState(GL_NORMAL_ARRAY);
+    glDisableClientState(GL_COLOR_ARRAY);
+}
+
 void render_cube()
 {
     rdpq_debug_log_msg("Cube");
@@ -91,7 +112,8 @@ void render_cube()
     // Apply to ambient and diffuse material properties
     glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
 
-    draw_cube();
+    //draw_cube();
+    draw_cube_list();
     
     glDisable(GL_COLOR_MATERIAL);
 
