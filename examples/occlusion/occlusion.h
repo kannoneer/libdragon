@@ -38,7 +38,8 @@ bool g_verbose_setup = false;
 bool g_measure_error = false;
 bool g_verbose_raster = false; // print depth at vertex pixels
 bool g_verbose_early_out = false; // print coordinates of pixels that pass the depth test
-bool g_verbose_visibility_tracking = false;
+bool g_verbose_visibility_tracking = false; // debug prints of last visible tri tracking
+bool g_octagon_test = false; // intersect screenspace box with a 45 degree rotated box to get a stricter octagon test
 bool config_discard_based_on_tr_code = true;
 
 enum {
@@ -63,7 +64,7 @@ typedef uint32_t occ_clip_action_t;
 occ_clip_action_t config_near_clipping_action = CLIP_ACTION_DO_IT;
 
 #define OCC_RASTER_FLAGS_DRAW  (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_WRITE_DEPTH |RASTER_FLAG_ROUND_DEPTH_UP | RASTER_FLAG_DISCARD_FAR)
-#define OCC_RASTER_FLAGS_QUERY (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_EARLY_OUT | RASTER_FLAG_WRITE_DEPTH)
+#define OCC_RASTER_FLAGS_QUERY (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_EARLY_OUT)
 
 typedef struct occ_culler_s {
     struct {
@@ -150,32 +151,6 @@ void occ_clear_zbuffer(surface_t *zbuffer)
         memset(zbuffer->buffer + zbuffer->stride * y, 0xff, zbuffer->stride);
     }
 }
-
-#if 0
-/* The determinant of a 2D matrix
- * [ a b ]
- * [ c d ]
- **/
-static int det2d(int a, int b, int c, int d)
-{
-	return a*d - b*c;
-}
-
-// Need x+y+1 bits to represent this result, where x and y are bit widths
-// of the two input coordinates.
-// Source: Ben Pye at https://fgiesen.wordpress.com/2013/02/08/triangle-rasterization-in-practice/#comment-21823
-static int orient2d(vec2 a, vec2 b, vec2 c)
-{
-	// The 2D cross product of vectors a->b and a->p
-	// See https://fgiesen.wordpress.com/2013/02/08/triangle-rasterization-in-practice/
-	return (b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x);
-	//return det2d(b.x - a.x, c.x - a.x,
-	//             b.y - a.y, c.y - a.y);
-	// vec2_t ab = vec2_sub(b, a);
-	// vec2_t ac = vec2_sub(c, a);
-	// return cross2d(ab, ac);
-}
-#endif
 
 bool isTopLeftEdge(vec2 a, vec2 b)
 {
@@ -675,18 +650,31 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
         minY = min(minY, vert.screen_pos[1]);
         maxY = max(maxY, vert.screen_pos[1]);
 
-        vec2f pr = rotate_xy_coords_45deg(vert.screen_pos[0], vert.screen_pos[1]);
-        oct_box.lo.x = min(oct_box.lo.x, pr.x);
-        oct_box.lo.y = min(oct_box.lo.y, pr.y);
-        oct_box.hi.x = max(oct_box.hi.x, pr.x);
-        oct_box.hi.y = max(oct_box.hi.y, pr.y);
+        if (g_octagon_test) {
+            vec2f pr = rotate_xy_coords_45deg(vert.screen_pos[0], vert.screen_pos[1]);
+            oct_box.lo.x = min(oct_box.lo.x, pr.x);
+            oct_box.lo.y = min(oct_box.lo.y, pr.y);
+            oct_box.hi.x = max(oct_box.hi.x, pr.x);
+            oct_box.hi.y = max(oct_box.hi.y, pr.y);
+        }
+    }
+
+    if (g_octagon_test) {
+        oct_box.lo.x = floorf(oct_box.lo.x);
+        oct_box.lo.y = floorf(oct_box.lo.y);
+        oct_box.hi.x = ceilf(oct_box.hi.x);
+        oct_box.hi.y = ceilf(oct_box.hi.y);
     }
 
     // debugf("octagon: min=(%f, %f), max=(%f, %f)\n", oct_box.lo.x, oct_box.lo.y, oct_box.hi.x, oct_box.hi.y);
 
     uint16_t udepth = FLOAT_TO_U16(minZ);
     // debugf("box: (%f, %f, %f, %f), minZ=%f, udepth=%u\n", minX, minY, maxX, maxY, minZ, udepth);
-    return occ_check_pixel_box_visible(occ, zbuffer, udepth, minX, minY, maxX, maxY, &oct_box, out_box);
+    occ_box2df_t* rotated_box = NULL;
+    if (g_octagon_test) {
+        rotated_box = &oct_box;
+    }
+    return occ_check_pixel_box_visible(occ, zbuffer, udepth, minX, minY, maxX, maxY, rotated_box, out_box);
 }
 
 bool occ_check_mesh_visible_precise(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t *mesh, const matrix_t *model_xform,
