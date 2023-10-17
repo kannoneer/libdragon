@@ -185,6 +185,8 @@ static occ_target_t cube_target = {};
 
 void render_door_scene(surface_t* disp)
 {
+    long unsigned int anim_timer = g_num_frames;
+    //debugf("g_num_frames: %llu\n", g_num_frames);
     float rotation = animation * 0.5f;
 
     set_light_positions(rotation);
@@ -210,9 +212,6 @@ void render_door_scene(surface_t* disp)
     //  };
 
     // occ_draw_mesh(culler, sw_zbuffer, &plane_mesh, NULL);
-
-    long unsigned int anim_timer = g_num_frames;
-    //debugf("g_num_frames: %llu\n", g_num_frames);
 
     occ_mesh_t cube_mesh = {
         .vertices = cube_vertices,
@@ -290,8 +289,22 @@ void render_door_scene(surface_t* disp)
     // render_primitives(rotation);
 }
 
+#define BIG_SCENE_NUM_CUBES (20)
+
+struct
+{
+    occ_target_t targets[BIG_SCENE_NUM_CUBES];
+} big_scene = {};
+
+void setup_big_scene()
+{
+    // memset(&big_scene, 0, sizeof(big_scene));
+}
+
 void render_big_scene(surface_t* disp)
 {
+    long unsigned int anim_timer = g_num_frames;
+
     glEnable(GL_LIGHTING);
     glEnable(GL_NORMALIZE);
     glEnable(GL_DEPTH_TEST);
@@ -300,8 +313,53 @@ void render_big_scene(surface_t* disp)
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
 
-    render_cube();
+    occ_mesh_t cube_mesh = {
+        .vertices = cube_vertices,
+        .indices = cube_indices,
+        .num_vertices = sizeof(cube_vertices) / sizeof(cube_vertices[0]),
+        .num_indices = sizeof(cube_indices) / sizeof(cube_indices[0]),
+    };
 
+    const float wave = anim_timer * 0.2f;
+
+    const int num_cubes = BIG_SCENE_NUM_CUBES;
+    matrix_t cube_xforms[num_cubes];
+    const float height = 5.0f;
+    for (int i = 0; i < num_cubes; i++) {
+        float theta = i*2.83f;
+        // float phi = i*3.1f;
+        const float r = 15.0f; //10.0f * (0.5f + .5f*sin(i));
+        matrix_t translate = cpu_glTranslatef(
+            r * cos(theta),
+            height + (i / (float)num_cubes - 0.5f) * 1.5f * r,
+            r * sin(theta));
+        // matrix_t scale = cpu_glScalef(1.0f, 1.75f, 0.2f);
+        matrix_t rotate = cpu_glRotatef(i*45.f+wave, sqrtf(2)/2.f, 0.0f, sqrtf(2)/2.f);
+        matrix_mult_full(&cube_xforms[i], &translate, &rotate);
+    }
+
+    if (g_num_frames == 0) {
+    assert(big_scene.targets[0].last_visible_frame == 0);
+    }
+
+    int num_visible = 0;
+    for (int i = 0; i < num_cubes; i++) {
+        // query for visibility
+        // debugf("i=%d\n", i);
+        matrix_t *xform = &cube_xforms[i];
+        bool visible = occ_check_target_visible(culler, sw_zbuffer, &cube_mesh, xform, &big_scene.targets[i], NULL);
+        if (visible) {
+            // if visible, draw to screen
+            glPushMatrix();
+            glMultMatrixf(&xform->m[0][0]);
+            render_cube();
+            glPopMatrix();
+            // also draw to software zbuffer
+            occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, xform);
+            num_visible++;
+        }
+    }
+    debugf("num_visible: %d/%d\n", num_visible, num_cubes);
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
 }
@@ -423,6 +481,7 @@ int main()
     occ_set_viewport(culler, 0, 0, CULL_W, CULL_H);
 
     setup();
+    setup_big_scene();
 
     joypad_init();
 

@@ -688,6 +688,7 @@ bool occ_check_mesh_visible_precise(occ_culler_t *occ, surface_t *zbuffer, const
 bool occ_check_target_visible(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t* mesh, const matrix_t *model_xform,
 occ_target_t* target, occ_raster_query_result_t *out_result)
 {
+    // debugf("%s mesh=%p, model_xform=%p, target=%p, out_result=%p\n", __FUNCTION__, mesh, model_xform, target ,out_result);
     occ_result_box_t box = {};
     bool pass = true;
 
@@ -696,10 +697,12 @@ occ_target_t* target, occ_raster_query_result_t *out_result)
         pass = occ_check_mesh_visible_rough(occ, zbuffer, mesh, model_xform, &box);
 
         if (!pass) {
-            out_result->visible = false;
-            out_result->x = box.hitX;
-            out_result->y = box.hitY;
-            out_result->depth = box.udepth;
+            if (out_result) {
+                out_result->visible = false;
+                out_result->x = box.hitX;
+                out_result->y = box.hitY;
+                out_result->depth = box.udepth;
+            }
             if (g_verbose_visibility_tracking) {
                 debugf("coarse fail\n");
             }
