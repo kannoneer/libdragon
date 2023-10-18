@@ -217,9 +217,7 @@ void draw_tri(
 
     // Triangle area must be at least one pixel^2.
     const int min_triangle_area = SUBPIXEL_SCALE * SUBPIXEL_SCALE * 2;
-    if (abs(area2x) < min_triangle_area) {
-        return;
-    }
+    const bool is_small = abs(area2x) < min_triangle_area;
 
     int w0_row = -orient2d_subpixel(v1, v2, p_start);
     int w1_row = -orient2d_subpixel(v2, v0, p_start);
@@ -256,6 +254,20 @@ void draw_tri(
     float Zf_row = Z0f
         + ((minb.x * SUBPIXEL_SCALE - v0.x) / SUBPIXEL_SCALE) * dZdx
         + ((minb.y * SUBPIXEL_SCALE - v0.y) / SUBPIXEL_SCALE) * dZdy;
+
+    // Write a constant depth for small triangles.
+    // It's a a workaround for small triangle delta precision problems.
+    if (is_small) {
+        dZdx = 0.f;
+        dZdy = 0.f;
+        if (flags & RASTER_FLAG_WRITE_DEPTH) {
+            // Writing a depth? Make it conservative by writing farthest depth.
+            Zf_row = max(Z0f, max(Z1f, Z2f));
+        } else {
+            // Testing the depth? Test only the closest vertex value.
+            Zf_row = min(Z0f, min(Z1f, Z2f));
+        }
+    }
 
     // Fixed point deltas for the integer-only inner loop. We use DELTA_BITS of precision.
     int32_t Z_row_fixed = (int32_t)(DELTA_SCALE * Zf_row);
