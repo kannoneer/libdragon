@@ -20,8 +20,10 @@
 // The demo will only run for a single frame and stop.
 #define DEBUG_RDP 0
 
-#define CULL_W (320 / 4)
-#define CULL_H (240 / 4)
+#define SCREEN_WIDTH (320)
+#define SCREEN_HEIGHT (240)
+#define CULL_W (SCREEN_WIDTH / 8)
+#define CULL_H (SCREEN_HEIGHT / 8)
 
 static occ_culler_t *culler;
 
@@ -40,11 +42,12 @@ static uint64_t g_num_frames = 0;
 
 static GLuint textures[4];
 
-static const GLfloat environment_color[] = {0.1f, 0.03f, 0.2f, 1.f};
+static const GLfloat environment_color[] = {0.1f, 0.5f, 0.5f, 1.f};
 
 static bool config_show_visible_point = true;
-static bool config_show_wireframe = true;
+static bool config_show_wireframe = false;
 static bool config_enable_culling = true;
+static int config_depth_view_mode = 2;
 
 static const GLfloat light_pos[8][4] = {
     {1, 0, 0, 0},
@@ -94,11 +97,7 @@ void compute_camera_matrix(matrix_t *matrix, const camera_t *camera)
 
 void setup()
 {
-    // camera.distance =-17.817123;
-    // camera.rotation=100.012470;
-    // camera.distance=-14.149927; camera.rotation=199.996902;
-    // camera.distance=-14.868696; camera.rotation=192.478134;
-    camera.distance=-14.868696; camera.rotation=217.978134;
+    camera.distance=-40.0; camera.rotation=0.f;
 
     zbuffer = surface_alloc(FMT_RGBA16, display_get_width(), display_get_height());
     sw_zbuffer_array[0] = surface_alloc(FMT_RGBA16, CULL_W, CULL_H);
@@ -308,7 +307,7 @@ void setup_big_scene()
 
 void render_big_scene(surface_t* disp)
 {
-    long unsigned int anim_timer = g_num_frames;
+    long unsigned int anim_timer = 0; // g_num_frames; // HACK
 
     glEnable(GL_LIGHTING);
     glEnable(GL_NORMALIZE);
@@ -413,9 +412,11 @@ void render_big_scene(surface_t* disp)
                 glPopMatrix();
             }
 
-            if (visible) {
+            if (true || visible) {
                 // also draw to software zbuffer
                 occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, xform);
+            }
+            if (visible) {
                 big_scene.stats.num_drawn++;
             }
         }
@@ -473,11 +474,20 @@ void render()
 
     // Show the software zbuffer
 
+    rdpq_blitparms_t params={};
     // rdpq_attach(disp, NULL);
-    rdpq_set_mode_standard(); // Can't use copy mode if we need a 16-bit -> 32-bit conversion
-    rdpq_tex_blit(sw_zbuffer, 0, 0, NULL);
-    // rdpq_detach();
-    rspq_flush();
+    if (config_depth_view_mode > 0) {
+        rdpq_set_mode_standard(); // Can't use copy mode if we need a 16-bit -> 32-bit conversion
+        if (config_depth_view_mode == 2) {
+            rdpq_set_env_color((color_t){0, 0, 0, 160});
+            rdpq_mode_combiner(RDPQ_COMBINER1((0, 0, 0, TEX0), (0, 0, 0, ENV)));
+            rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY);
+            params.scale_x = SCREEN_WIDTH / CULL_W;
+            params.scale_y = SCREEN_HEIGHT / CULL_H;
+        }
+
+        rdpq_tex_blit(sw_zbuffer, 0, 0, &params);
+    }
 
     // if (true || (g_num_frames / 2) % 2 == 0) {
     //     rdpq_set_mode_fill(cube_visible ? (color_t){0, 255, 0, 64} : (color_t){255, 0, 0, 64});
@@ -485,10 +495,10 @@ void render()
     // }
 
     // debugf("octagon ratio: %f \n", g_num_checked / ((float)(box.maxX - box.minX) * (float)(box.maxY - box.minY)));
-    for (int i=0;i<g_num_checked;i++) {
-        vec2 p = g_checked_pixels[i];
-        graphics_draw_pixel(disp, p.x, p.y, 0x0fff);
-    }
+    // for (int i=0;i<g_num_checked;i++) {
+    //     vec2 p = g_checked_pixels[i];
+    //     graphics_draw_pixel(disp, p.x, p.y, 0x0fff);
+    // }
 
     rspq_flush();
 
@@ -592,15 +602,7 @@ int main()
         }
 
         if (pressed.c_down) {
-            if (sphere_rings > SPHERE_MIN_RINGS) {
-                sphere_rings--;
-            }
-
-            if (sphere_segments > SPHERE_MIN_SEGMENTS) {
-                sphere_segments--;
-            }
-
-            make_sphere_mesh();
+            config_depth_view_mode = (config_depth_view_mode + 1) % 3;
         }
 
         if (pressed.c_right) {
