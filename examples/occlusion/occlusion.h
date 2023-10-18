@@ -704,9 +704,10 @@ occ_target_t* target, occ_raster_query_result_t *out_result)
     // debugf("%s mesh=%p, model_xform=%p, target=%p, out_result=%p\n", __FUNCTION__, mesh, model_xform, target ,out_result);
     occ_result_box_t box = {};
     bool pass = true;
+    const bool force_rough_only = false;
 
     // Do a rough check only if target was not visible last time.
-    if (target->last_visible_frame != occ->frame - 1) {
+    if (target->last_visible_frame != occ->frame - 1 || force_rough_only) {
         pass = occ_check_mesh_visible_rough(occ, zbuffer, mesh, model_xform, &box);
 
         if (!pass) {
@@ -721,6 +722,10 @@ occ_target_t* target, occ_raster_query_result_t *out_result)
             }
             return false;
         }
+    }
+
+    if (force_rough_only) {
+        return pass;
     }
 
     pass = occ_check_mesh_visible_precise(occ, zbuffer, mesh, model_xform, target, out_result);
