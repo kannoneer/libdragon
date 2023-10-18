@@ -185,9 +185,10 @@ void draw_tri(
     occ_raster_query_result_t* result,
     surface_t *zbuffer)
 {
-    vec2 v0 = {SUBPIXEL_SCALE * v0f.x + 0.5f, SUBPIXEL_SCALE * v0f.y + 0.5f};
-    vec2 v1 = {SUBPIXEL_SCALE * v1f.x + 0.5f, SUBPIXEL_SCALE * v1f.y + 0.5f};
-    vec2 v2 = {SUBPIXEL_SCALE * v2f.x + 0.5f, SUBPIXEL_SCALE * v2f.y + 0.5f};
+    // The -0.5 bias is added to empirically match SW depth map pixels to hi-rez RDP picture.
+    vec2 v0 = {SUBPIXEL_SCALE * (v0f.x-0.5f) + 0.5f, SUBPIXEL_SCALE * (v0f.y-0.5f) + 0.5f};
+    vec2 v1 = {SUBPIXEL_SCALE * (v1f.x-0.5f) + 0.5f, SUBPIXEL_SCALE * (v1f.y-0.5f) + 0.5f};
+    vec2 v2 = {SUBPIXEL_SCALE * (v2f.x-0.5f) + 0.5f, SUBPIXEL_SCALE * (v2f.y-0.5f) + 0.5f};
 
     vec2 minb = {
         (min(v0.x, min(v1.x, v2.x)) >> SUBPIXEL_BITS),
