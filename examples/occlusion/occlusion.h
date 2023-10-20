@@ -4,6 +4,8 @@
 
 #include "cpumath.h"
 #include "transforms.h" // for vertex_t
+#include "profiler.h"
+
 #include <malloc.h>
 #include <memory.h>
 #include <n64types.h>
@@ -430,6 +432,8 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         cpu_vtx_t clipping_cache[CLIPPING_CACHE_SIZE];
         cpu_clipping_list_t clipping_list = {.count = 0};
 
+        prof_begin(REGION_TRANSFORM);
+
         for (int i = 0; i < 3; i++) {
             verts[i].obj_attributes.position[0] = vertices[inds[i]].position[0];
             verts[i].obj_attributes.position[1] = vertices[inds[i]].position[1];
@@ -442,6 +446,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
             cpu_vertex_pre_tr(&verts[i], mvp);
             cpu_vertex_calc_screenspace(&verts[i]);
         }
+        prof_end(REGION_TRANSFORM);
 
         if (g_verbose_setup) {
             debugf("pos=(%f, %f, %f, %f), cs_pos=(%f, %f, %f, %f), tr_code=%d\n",
@@ -502,6 +507,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         }
 
         if (clipping_list.count == 0) {
+            prof_begin(REGION_RASTERIZATION);
             draw_tri(
                 (vec2f){verts[0].screen_pos[0], verts[0].screen_pos[1]},
                 (vec2f){verts[1].screen_pos[0], verts[1].screen_pos[1]},
@@ -509,8 +515,10 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
                 verts[0].depth, verts[1].depth, verts[2].depth,
                 flags, query_result,
                 zbuffer);
+            prof_end(REGION_RASTERIZATION);
             num_tris_drawn++;
         } else {
+            prof_begin(REGION_RASTERIZATION);
             for (uint32_t i = 1; i < clipping_list.count; i++) {
                 vec2f sv[3];
                 sv[0].x = clipping_list.vertices[0]->screen_pos[0];
@@ -527,6 +535,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
                     zbuffer);
                 num_tris_drawn++;
             }
+            prof_end(REGION_RASTERIZATION);
         }
 
         if (query_result) { query_result->num_tris_drawn = num_tris_drawn; }
@@ -572,6 +581,8 @@ bool occ_check_pixel_box_visible(occ_culler_t *occ, surface_t *zbuffer,
                                  uint16_t depth, int minX, int minY, int maxX, int maxY,
                                  occ_box2df_t* in_rotated_box, occ_result_box_t *out_box)
 {
+
+    prof_begin(REGION_TESTING);
     if (minX < 0) minX = 0;
     if (minY < 0) minY = 0;
     if (maxX > zbuffer->width - 1) maxX = zbuffer->width - 1;
@@ -605,16 +616,19 @@ bool occ_check_pixel_box_visible(occ_culler_t *occ, surface_t *zbuffer,
                     out_box->hitX = x;
                     out_box->hitY = y;
                 }
+                prof_end(REGION_TESTING);
                 return true;
             }
         }
     }
 
+    prof_end(REGION_TESTING);
     return false; // Every box pixel was behind the Z-buffer
 }
 
 bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t* mesh, const matrix_t *model_xform, occ_result_box_t *out_box)
 {
+    prof_begin(REGION_TESTING);
     // 1. transform and project each point to screen space
     // 2. compute the XY bounding box
     // 3. compute min Z
@@ -632,8 +646,10 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
     matrix_t mvp_new;
 
     if (model_xform) {
+        prof_begin(REGION_TRANSFORM);
         mvp = &mvp_new;
         matrix_mult_full(mvp, &occ->mvp, model_xform);
+        prof_end(REGION_TRANSFORM);
     }
     else {
         mvp = &occ->mvp;
@@ -648,6 +664,7 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
     occ_box2df_t oct_box = {{__FLT_MAX__, __FLT_MAX__}, {-__FLT_MAX__, -__FLT_MAX__}};
 
     for (int iv = 0; iv < mesh->num_vertices; iv++) {
+        prof_begin(REGION_TRANSFORM);
         cpu_vtx_t vert = {};
         vert.obj_attributes.position[0] = mesh->vertices[iv].position[0];
         vert.obj_attributes.position[1] = mesh->vertices[iv].position[1];
@@ -656,6 +673,7 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
 
         cpu_vertex_pre_tr(&vert, mvp);
         cpu_vertex_calc_screenspace(&vert);
+        prof_end(REGION_TRANSFORM);
         if (vert.depth < 0.f) return true; // HACK: any vertex behind camera makes the object visible
         minZ = min(minZ, vert.depth);
         minX = min(minX, vert.screen_pos[0]);
@@ -684,6 +702,7 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
     if (g_octagon_test) {
         rotated_box = &oct_box;
     }
+    prof_end(REGION_TESTING);
     return occ_check_pixel_box_visible(occ, zbuffer, udepth, minX, minY, maxX, maxY, rotated_box, out_box);
 }
 

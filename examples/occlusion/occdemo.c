@@ -575,6 +575,7 @@ int main()
         joypad_poll();
         joypad_buttons_t pressed = joypad_get_buttons_pressed(JOYPAD_PORT_1);
         joypad_inputs_t inputs = joypad_get_inputs(JOYPAD_PORT_1);
+        prof_next_frame();
 
         if (pressed.a) {
             animation++;
@@ -626,6 +627,9 @@ int main()
         uint32_t ticks_end = get_ticks();
         double delta = (ticks_end - ticks_start) / (double)TICKS_PER_SECOND;
         debugf("deltatime: %f ms\n", delta * 1000.0);
+
+        prof_print_stats();
+        prof_reset_stats();
 
         g_num_frames++;
         // debugf("camera.distance=%f; camera.rotation=%f;\n", camera.distance, camera.rotation);
