@@ -217,10 +217,6 @@ void draw_tri(
 
     if ((flags & RASTER_FLAG_BACKFACE_CULL) && area2x <= 0) return;
 
-    // Triangle area must be at least one pixel^2.
-    const int min_triangle_area = SUBPIXEL_SCALE * SUBPIXEL_SCALE * 2;
-    const bool is_small = abs(area2x) < min_triangle_area;
-
     int w0_row = -orient2d_subpixel(v1, v2, p_start);
     int w1_row = -orient2d_subpixel(v2, v0, p_start);
     int w2_row = -orient2d_subpixel(v0, v1, p_start);
@@ -259,6 +255,10 @@ void draw_tri(
 
     // Write a constant depth for small triangles.
     // It's a a workaround for small triangle delta precision problems.
+    // Small triangle area is less than one pixel^2.
+    const int min_triangle_area = SUBPIXEL_SCALE * SUBPIXEL_SCALE * 2;
+    const bool is_small = abs(area2x) < min_triangle_area;
+
     if (is_small) {
         dZdx = 0.f;
         dZdy = 0.f;
@@ -395,8 +395,9 @@ void draw_tri(
     }
 }
 
-void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform,
-                                 const vertex_t *vertices, const uint16_t *indices, uint32_t num_indices,
+#define OCC_MAX_MESH_VERTEX_COUNT (24) // enough for a cube with duplicated verts
+
+void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform, const occ_mesh_t* mesh,
                                  occ_target_t* target, occ_raster_flags_t flags, occ_raster_query_result_t* query_result)
 {
     // We render a viewport (x,y,x+w,y+h) in zbuffer's pixel space
@@ -418,6 +419,21 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         mvp = &occ->mvp;
     }
 
+    // Transform all vertices first
+    prof_begin(REGION_TRANSFORM);
+    cpu_vtx_t all_verts[OCC_MAX_MESH_VERTEX_COUNT] = {0};
+
+    for (uint32_t i = 0; i < mesh->num_vertices; i++) {
+        all_verts[i].obj_attributes.position[0] = mesh->vertices[i].position[0];
+        all_verts[i].obj_attributes.position[1] = mesh->vertices[i].position[1];
+        all_verts[i].obj_attributes.position[2] = mesh->vertices[i].position[2];
+        all_verts[i].obj_attributes.position[3] = 1.0f; // Q: where does cpu pipeline set this?
+
+        cpu_vertex_pre_tr(&all_verts[i], mvp);
+        cpu_vertex_calc_screenspace(&all_verts[i]);
+    }
+    prof_end(REGION_TRANSFORM);
+
     int num_tris_drawn = 0;
     int ofs = 0;
     if (target) {
@@ -425,28 +441,12 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         target->last_visible_idx = 0;
     }
 
-    for (int is = 0; is < num_indices; is += 3) {
-        int wrapped_is = (is + ofs) % num_indices; // start from 'ofs' but render the whole mesh
-        const uint16_t *inds = &indices[wrapped_is];
-        cpu_vtx_t verts[3] = {0};
+    for (int is = 0; is < mesh->num_indices; is += 3) {
+        int wrapped_is = (is + ofs) % mesh->num_indices; // start from 'ofs' but render the whole mesh
+        const uint16_t *inds = &mesh->indices[wrapped_is];
+        cpu_vtx_t verts[3] = {all_verts[inds[0]], all_verts[inds[1]], all_verts[inds[2]]};
         cpu_vtx_t clipping_cache[CLIPPING_CACHE_SIZE];
         cpu_clipping_list_t clipping_list = {.count = 0};
-
-        prof_begin(REGION_TRANSFORM);
-
-        for (int i = 0; i < 3; i++) {
-            verts[i].obj_attributes.position[0] = vertices[inds[i]].position[0];
-            verts[i].obj_attributes.position[1] = vertices[inds[i]].position[1];
-            verts[i].obj_attributes.position[2] = vertices[inds[i]].position[2];
-            verts[i].obj_attributes.position[3] = 1.0f; // Q: where does cpu pipeline set this?
-                                                        // debugf("i=%d, pos[3] = %f\n", i, verts[i].obj_attributes.position[3]);
-        }
-
-        for (int i = 0; i < 3; i++) {
-            cpu_vertex_pre_tr(&verts[i], mvp);
-            cpu_vertex_calc_screenspace(&verts[i]);
-        }
-        prof_end(REGION_TRANSFORM);
 
         if (g_verbose_setup) {
             debugf("pos=(%f, %f, %f, %f), cs_pos=(%f, %f, %f, %f), tr_code=%d\n",
@@ -544,7 +544,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         if ((flags & RASTER_FLAG_EARLY_OUT) && query_result && query_result->visible) {
             target->last_visible_idx = wrapped_is;
             if (target && g_verbose_visibility_tracking) {
-                debugf("was visible at wrapped_is = %d = (%d+%d) %% %lu\n", wrapped_is, is, ofs, num_indices);
+                debugf("was visible at wrapped_is = %d = (%d+%d) %% %lu\n", wrapped_is, is, ofs, mesh->num_indices);
             }
             return;
         }
@@ -553,7 +553,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
 
 void occ_draw_mesh(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t *mesh, const matrix_t *model_xform)
 {
-	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, mesh->vertices, mesh->indices, mesh->num_indices, NULL, OCC_RASTER_FLAGS_DRAW, NULL);
+	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, mesh, NULL, OCC_RASTER_FLAGS_DRAW, NULL);
 }
 
 static vec2f rotate_xy_coords_45deg(float x, float y) {
@@ -710,7 +710,7 @@ bool occ_check_mesh_visible_precise(occ_culler_t *occ, surface_t *zbuffer, const
                                     occ_target_t *target, occ_raster_query_result_t *out_result)
 {
     occ_raster_query_result_t result = {};
-    occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, mesh->vertices, mesh->indices, mesh->num_indices, target, OCC_RASTER_FLAGS_QUERY, &result);
+    occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, mesh, target, OCC_RASTER_FLAGS_QUERY, &result);
     if (out_result) {
         *out_result = result;
     }

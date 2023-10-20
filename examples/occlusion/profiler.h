@@ -41,10 +41,6 @@ void prof_print_stats()
         debugf("%-16s %6.3f %%\n", name, (prof_times[idx] / (double)total_ticks)*100);
 
 
-    // for (int i = 0; i < REGION_COUNT; i++) {
-        // double ratio = prof_times[i] / (double)total_ticks;
-        // debugf("%2i: %6f %%\n", i, ratio*100);
-    // }
     PRINT_REGION(REGION_TRANSFORM, "Transform")
     PRINT_REGION(REGION_RASTERIZATION, "Rasterization")
     PRINT_REGION(REGION_TESTING, "Testing")
