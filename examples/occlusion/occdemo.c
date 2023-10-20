@@ -26,6 +26,7 @@
 #define CULL_H (SCREEN_HEIGHT / 8)
 
 static occ_culler_t *culler;
+static occ_hull_t cube_hull;
 
 static uint32_t animation = 0;
 static uint32_t texture_index = 0;
@@ -169,6 +170,20 @@ void setup()
     }
 
     rdpq_text_register_font(FONT_SCIFI, rdpq_font_load("rom:/FerriteCoreDX.font64"));
+
+    // Convert cube mesh to a 'hull' that's optimized for culling
+    occ_mesh_t cube_mesh = {
+        .vertices = (vertex_t*)cube_vertices,
+        .indices = (uint16_t*)cube_indices,
+        .num_vertices = sizeof(cube_vertices) / sizeof(cube_vertices[0]),
+        .num_indices = sizeof(cube_indices) / sizeof(cube_indices[0]),
+    };
+
+    bool conversion_success = occ_hull_from_flat_mesh(&cube_mesh, &cube_hull);
+    if (!conversion_success) {
+        assert(false && "Couldn't convert cube mesh!\n");
+        while (true) {}
+    }
 }
 
 void set_light_positions(float rotation)
@@ -215,8 +230,8 @@ void render_door_scene(surface_t* disp)
     // occ_draw_mesh(culler, sw_zbuffer, &plane_mesh, NULL);
 
     occ_mesh_t cube_mesh = {
-        .vertices = cube_vertices,
-        .indices = cube_indices,
+        .vertices = (vertex_t*)cube_vertices,
+        .indices = (uint16_t*)cube_indices,
         .num_vertices = sizeof(cube_vertices) / sizeof(cube_vertices[0]),
         .num_indices = sizeof(cube_indices) / sizeof(cube_indices[0]),
     };
@@ -317,13 +332,6 @@ void render_big_scene(surface_t* disp)
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
 
-    occ_mesh_t cube_mesh = {
-        .vertices = cube_vertices,
-        .indices = cube_indices,
-        .num_vertices = sizeof(cube_vertices) / sizeof(cube_vertices[0]),
-        .num_indices = sizeof(cube_indices) / sizeof(cube_indices[0]),
-    };
-
     const float wave = anim_timer * 0.2f;
 
     const int num_cubes = BIG_SCENE_NUM_CUBES;
@@ -387,7 +395,7 @@ void render_big_scene(surface_t* disp)
             // query for visibility
             // debugf("i=%d\n", i);
             matrix_t *xform = &cube_xforms[idx];
-            bool visible = occ_check_target_visible(culler, sw_zbuffer, &cube_mesh, xform, &big_scene.targets[idx], NULL);
+            bool visible = occ_check_target_visible(culler, sw_zbuffer, &cube_hull.mesh, xform, &big_scene.targets[idx], NULL);
 
             if (visible || config_show_wireframe) {
                 glPushMatrix();
@@ -414,7 +422,7 @@ void render_big_scene(surface_t* disp)
 
             if (true || visible) {
                 // also draw to software zbuffer
-                occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, xform);
+                occ_draw_mesh(culler, sw_zbuffer, &cube_hull.mesh, xform);
             }
             if (visible) {
                 big_scene.stats.num_drawn++;

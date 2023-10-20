@@ -99,11 +99,15 @@ typedef struct occ_raster_query_result_s {
 } occ_raster_query_result_t;
 
 typedef struct occ_mesh_s {
-    const vertex_t *vertices;
-    const uint16_t *indices;
+    vertex_t *vertices;
+    uint16_t *indices;
     uint32_t num_vertices;
     uint32_t num_indices;
 } occ_mesh_t;
+
+typedef struct occ_hull_s {
+    occ_mesh_t mesh; // a hull always owns its mesh data
+} occ_hull_t;
 
 typedef struct occ_occluder_s {
     uint16_t last_visible_idx;      // last visible index buffer offset
@@ -762,4 +766,18 @@ occ_target_t* target, occ_raster_query_result_t *out_result)
     }
 
     return pass;
+}
+
+bool occ_hull_from_flat_mesh(const occ_mesh_t* mesh_in, occ_hull_t* hull_out)
+{
+    occ_mesh_t* m = &hull_out->mesh;
+    m->num_vertices = mesh_in->num_vertices;
+    m->num_indices = mesh_in->num_indices;
+
+    m->vertices = malloc(sizeof(vertex_t) * mesh_in->num_vertices);
+    memcpy(m->vertices, mesh_in->vertices, sizeof(vertex_t) * mesh_in->num_vertices);
+    m->indices = malloc(sizeof(uint16_t) * mesh_in->num_indices);
+    memcpy(m->indices, mesh_in->indices, sizeof(uint16_t) * mesh_in->num_indices);
+
+    return true;
 }
