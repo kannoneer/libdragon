@@ -422,7 +422,8 @@ void render_big_scene(surface_t* disp)
             // HACK: always draw occluders to SW Z-buffer even if they didn't pass the rough check
             if (true || visible) {
                 // also draw to software zbuffer
-                occ_draw_mesh(culler, sw_zbuffer, &cube_hull.mesh, xform);
+                //occ_draw_mesh(culler, sw_zbuffer, &cube_hull.mesh, xform);
+                occ_draw_hull(culler, sw_zbuffer, &cube_hull, xform);
             }
             if (visible) {
                 big_scene.stats.num_drawn++;
@@ -526,9 +527,9 @@ void render()
     occ_set_view_and_projection(culler, &g_view, &g_projection);
 
     //render_door_scene(disp);
-    //render_big_scene(disp);
+    render_big_scene(disp);
     //render_2d_scene(disp);
-    render_single_cube_scene(disp);
+    // render_single_cube_scene(disp);
 
     gl_context_end();
 
@@ -698,7 +699,7 @@ int main()
         
         rspq_flush();
         uint32_t ticks_end = get_ticks();
-        if (false) {
+        if (true) {
             double delta = (ticks_end - ticks_start) / (double)TICKS_PER_SECOND;
             debugf("deltatime: %f ms\n", delta * 1000.0);
             prof_print_stats();

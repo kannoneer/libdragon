@@ -35,7 +35,7 @@ const float inv_subpixel_scale = 1.0f / SUBPIXEL_SCALE;
 #define ZBUFFER_UINT_PTR_AT(zbuffer, x, y) ((u_uint16_t *)(zbuffer->buffer + (zbuffer->stride * y + x * sizeof(uint16_t))))
 
 #define DUMP_WHEN_Z_OVERFLOWS 1
-#define SCREENSPACE_BIAS (-0.5f) // bias for (x,y) screenspace coordinates to make them cover RDP draw pixels
+#define SCREENSPACE_BIAS (-0.50f) // an empirical bias for (x,y) screenspace coordinates to make them cover OpenGL drawn pixels
 
 // Rasky's "defer statement" implementation.
 #define PPCAT2(n,x) n ## x
@@ -232,7 +232,7 @@ void draw_tri(
     occ_raster_query_result_t* result,
     surface_t *zbuffer)
 {
-    // The -0.5 screenspace bias is added to empirically match SW depth map pixels to hi-rez RDP picture.
+    // The screenspace bias is added to empirically match SW depth map pixels to hi-rez RDP picture.
     vec2 v0 = {SUBPIXEL_SCALE * (v0f.x+SCREENSPACE_BIAS) + 0.5f, SUBPIXEL_SCALE * (v0f.y+SCREENSPACE_BIAS) + 0.5f};
     vec2 v1 = {SUBPIXEL_SCALE * (v1f.x+SCREENSPACE_BIAS) + 0.5f, SUBPIXEL_SCALE * (v1f.y+SCREENSPACE_BIAS) + 0.5f};
     vec2 v2 = {SUBPIXEL_SCALE * (v2f.x+SCREENSPACE_BIAS) + 0.5f, SUBPIXEL_SCALE * (v2f.y+SCREENSPACE_BIAS) + 0.5f};
@@ -504,17 +504,17 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
 
     if (tri_normals) {
         int num_tris = mesh->num_indices/3;
-        debugf("num_tris: %d\n", num_tris);
+        // debugf("num_tris: %d\n", num_tris);
         for (int i = 0; i < num_tris; i++) {
             float n_model[4] = {tri_normals[i].x, tri_normals[i].y, tri_normals[i].z, 0.f};
             float n[4];
             //TODO use inverse transpose if non-uniform scale?
             matrix_mult(&n[0], modelview, &n_model[0]);
             view_normals[i] = (vec3f){n[0], n[1], n[2]};
-            debugf("[%-2d] (%f, %f, %f, %f) -> (%f, %f, %f, %f)\n",
-                    i,
-                   n_model[0], n_model[1], n_model[2], n_model[3],
-                   n[0], n[1], n[2], n[3]);
+            // debugf("[%-2d] (%f, %f, %f, %f) -> (%f, %f, %f, %f)\n",
+            //         i,
+            //        n_model[0], n_model[1], n_model[2], n_model[3],
+            //        n[0], n[1], n[2], n[3]);
         }
     }
     prof_end(REGION_TRANSFORM);
@@ -571,13 +571,12 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
             }
 
             if (tri_neighbors) {
+                // Silhouette edges join triangles with different view space Z signs
                 for (int j = 0; j < 3; j++) {
                     uint16_t other = tri_neighbors[tri_idx * 3 + j];
-                    // debugf("j=%d, other=%u\n", j, other);
                     if (other != OCC_NO_EDGE_NEIGHBOR) {
                         vec3f *N_other = &view_normals[other];
                         if (N_other->z < 0) {
-                            // debugf("tri_idx=%d, N->z = %f, N_other = %f\n", tri_idx, N->z, N_other->z);
                             edge_flag_mask |= (RASTER_FLAG_SHRINK_EDGE_01 << j);
                         }
                     }
@@ -896,7 +895,7 @@ bool occ_hull_from_flat_mesh(const occ_mesh_t* mesh_in, occ_hull_t* hull_out)
 
     m->num_vertices = 0; // will be incremented in the loop below
 
-    bool verbose = true;
+    bool verbose = false;
 
     for (uint32_t vertex_idx=0; vertex_idx < mesh_in->num_vertices; vertex_idx++) {
         float f[3] = {
