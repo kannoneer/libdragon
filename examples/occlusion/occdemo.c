@@ -99,7 +99,7 @@ void compute_camera_matrix(matrix_t *matrix, const camera_t *camera)
 
 void setup()
 {
-    camera.distance=-40.0; camera.rotation=0.f;
+    camera.distance=-10.0; camera.rotation=0.f;
 
     zbuffer = surface_alloc(FMT_RGBA16, display_get_width(), display_get_height());
     sw_zbuffer_array[0] = surface_alloc(FMT_RGBA16, CULL_W, CULL_H);
@@ -472,6 +472,39 @@ void render_2d_scene(surface_t*)
         sw_zbuffer);
 }
 
+void render_single_cube_scene(surface_t*)
+{
+    long unsigned int anim_timer = g_num_frames;
+
+    glEnable(GL_LIGHTING);
+    glEnable(GL_NORMALIZE);
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
+
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
+
+    matrix_t xform;
+
+    vec3f pos = (vec3f){0.f, 2.f, 0.f};
+
+    matrix_t translate = cpu_glTranslatef(pos.x, pos.y, pos.z);
+    matrix_t rotate = cpu_glRotatef(45.f + anim_timer*0.5f, sqrtf(2)/2.f, 0.0f, sqrtf(2)/2.f);
+    matrix_mult_full(&xform, &translate, &rotate);
+
+    bool visible = occ_check_target_visible(culler, sw_zbuffer, &cube_hull.mesh, &xform, &cube_target, NULL);
+    (void)visible;
+
+    glPushMatrix();
+    glMultMatrixf(&xform.m[0][0]);
+    render_cube();
+    glPopMatrix();
+
+    occ_draw_mesh(culler, sw_zbuffer, &cube_hull.mesh, &xform);
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+}
+
 void render()
 {
     surface_t *disp = display_get();
@@ -495,7 +528,8 @@ void render()
 
     //render_door_scene(disp);
     //render_big_scene(disp);
-    render_2d_scene(disp);
+    //render_2d_scene(disp);
+    render_single_cube_scene(disp);
 
     gl_context_end();
 
