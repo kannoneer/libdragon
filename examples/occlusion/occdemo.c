@@ -49,6 +49,7 @@ static bool config_show_visible_point = true;
 static bool config_show_wireframe = false;
 static bool config_enable_culling = true;
 static int config_depth_view_mode = 2;
+static bool config_conservative = true;
 
 static const GLfloat light_pos[8][4] = {
     {1, 0, 0, 0},
@@ -443,6 +444,34 @@ void render_big_scene(surface_t* disp)
     glDisable(GL_LIGHTING);
 }
 
+void render_2d_scene(surface_t*)
+{
+    vec2f a = (vec2f){10, 15};
+    vec2f b = (vec2f){15, 25};
+    vec2f c = (vec2f){35, 20};
+
+    occ_raster_query_result_t result={};
+    uint32_t flags = (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_WRITE_DEPTH |RASTER_FLAG_ROUND_DEPTH_UP | RASTER_FLAG_DISCARD_FAR);
+
+    if (config_conservative) {
+        flags |= RASTER_FLAG_SHRINK_EDGE_01;
+        flags |= RASTER_FLAG_SHRINK_EDGE_12;
+        flags |= RASTER_FLAG_SHRINK_EDGE_20;
+        // flags |= RASTER_FLAG_EXPAND_EDGE_01;
+        // flags |= RASTER_FLAG_EXPAND_EDGE_12;
+        // flags |= RASTER_FLAG_EXPAND_EDGE_20;
+    }
+
+    draw_tri(
+        a, b, c,
+        0.5f,
+        0.5f,
+        0.5f,
+        flags,
+        &result,
+        sw_zbuffer);
+}
+
 void render()
 {
     surface_t *disp = display_get();
@@ -465,7 +494,8 @@ void render()
     occ_set_mvp_matrix(culler, &mvp);
 
     //render_door_scene(disp);
-    render_big_scene(disp);
+    //render_big_scene(disp);
+    render_2d_scene(disp);
 
     gl_context_end();
 
@@ -616,7 +646,8 @@ int main()
         }
 
         if (pressed.c_right) {
-            texture_index = (texture_index + 1) % 4;
+            config_conservative = !config_conservative;
+            debugf("conservative rasterization: %s\n", config_conservative ? "ON" : "OFF");
         }
 
         float y = inputs.stick_y / 128.f;
@@ -634,10 +665,11 @@ int main()
         
         rspq_flush();
         uint32_t ticks_end = get_ticks();
-        double delta = (ticks_end - ticks_start) / (double)TICKS_PER_SECOND;
-        debugf("deltatime: %f ms\n", delta * 1000.0);
-
-        prof_print_stats();
+        if (false) {
+            double delta = (ticks_end - ticks_start) / (double)TICKS_PER_SECOND;
+            debugf("deltatime: %f ms\n", delta * 1000.0);
+            prof_print_stats();
+        }
         prof_reset_stats();
 
         g_num_frames++;
