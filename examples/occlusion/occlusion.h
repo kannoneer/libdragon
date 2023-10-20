@@ -200,10 +200,22 @@ static int orient2d_subpixel(vec2 a, vec2 b, vec2 c)
     return ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) >> SUBPIXEL_BITS;
 }
 
-// Returns a normal vector pointing to the left of line segment ab
+// Returns a normal vector pointing to the left of line segment ab. In screen space where y axis grows downwards.
 vec2 get_edge_normal(vec2 a, vec2 b)
 {
 	return (vec2){ b.y - a.y, -(b.x - a.x) };
+}
+
+static int compute_conservative_edge_bias(vec2 a, vec2 b, bool shrink)
+{
+    // See Tomas Akenine-Möller and Timo Aila, "A Simple Algorithm for Conservative and Tiled Rasterization", 2005.
+    vec2 n = get_edge_normal(a, b);            // normal points inside the triangle, or the left of line segment 'ab'
+    int edge_bias = (abs(n.x) + abs(n.y)) / 2; // Q: why did we have this /2 here again?
+    if (shrink) {
+        return -edge_bias;
+    } else {
+        return edge_bias;
+    }
 }
 
 void draw_tri(
@@ -256,36 +268,18 @@ void draw_tri(
     int bias2 = isTopLeftEdge(v0, v1) ? 0 : -1;
 
     // Adjust edge functions based on triangle edge normals.
-    // See Tomas Akenine-Möller and Timo Aila, "A Simple Algorithm for Conservative and Tiled Rasterization", 2005.
+    assert(!((flags & RASTER_FLAG_SHRINK_EDGE_01) && (flags & RASTER_FLAG_EXPAND_EDGE_01)));
+    assert(!((flags & RASTER_FLAG_SHRINK_EDGE_12) && (flags & RASTER_FLAG_EXPAND_EDGE_12)));
+    assert(!((flags & RASTER_FLAG_SHRINK_EDGE_20) && (flags & RASTER_FLAG_EXPAND_EDGE_20)));
+
     if (flags & (RASTER_FLAG_SHRINK_EDGE_01 | RASTER_FLAG_EXPAND_EDGE_01)) {
-        assert(!((flags & RASTER_FLAG_SHRINK_EDGE_01) && (flags & RASTER_FLAG_EXPAND_EDGE_01)));
-        vec2 n01 = get_edge_normal(v0, v1); // normal points inside the triangle
-        int edge01_bias = (abs(n01.x) + abs(n01.y)) / 2;
-        if (flags & RASTER_FLAG_SHRINK_EDGE_01) {
-            bias2 -= edge01_bias;
-        } else {
-            bias2 += edge01_bias;
-        }
+        bias2 += compute_conservative_edge_bias(v0, v1, flags & RASTER_FLAG_SHRINK_EDGE_01);
     }
     if (flags & (RASTER_FLAG_SHRINK_EDGE_12 | RASTER_FLAG_EXPAND_EDGE_12)) {
-        assert(!((flags & RASTER_FLAG_SHRINK_EDGE_12) && (flags & RASTER_FLAG_EXPAND_EDGE_12)));
-        vec2 n12 = get_edge_normal(v1, v2);
-        int edge12_bias = (abs(n12.x) + abs(n12.y)) / 2;
-        if (flags & RASTER_FLAG_SHRINK_EDGE_12) {
-            bias0 -= edge12_bias;
-        } else {
-            bias0 += edge12_bias;
-        }
+        bias0 += compute_conservative_edge_bias(v1, v2, flags & RASTER_FLAG_SHRINK_EDGE_12);
     }
     if (flags & (RASTER_FLAG_SHRINK_EDGE_20 | RASTER_FLAG_EXPAND_EDGE_20)) {
-        assert(!((flags & RASTER_FLAG_SHRINK_EDGE_20) && (flags & RASTER_FLAG_EXPAND_EDGE_20)));
-        vec2 n20 = get_edge_normal(v2, v0);
-        int edge20_bias = (abs(n20.x) + abs(n20.y)) / 2;
-        if (flags & RASTER_FLAG_SHRINK_EDGE_20) {
-            bias1 -= edge20_bias;
-        } else {
-            bias1 += edge20_bias;
-        }
+        bias1 += compute_conservative_edge_bias(v2, v0, flags & RASTER_FLAG_SHRINK_EDGE_20);
     }
 
     w0_row += bias0;
