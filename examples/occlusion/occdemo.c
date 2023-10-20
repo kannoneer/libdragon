@@ -127,8 +127,6 @@ void setup()
     glLoadIdentity();
     glMultMatrixf(&g_projection.m[0][0]);
 
-    occ_set_projection_matrix(culler, &g_projection);
-
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 
@@ -500,7 +498,8 @@ void render_single_cube_scene(surface_t*)
     render_cube();
     glPopMatrix();
 
-    occ_draw_mesh(culler, sw_zbuffer, &cube_hull.mesh, &xform);
+    //occ_draw_mesh(culler, sw_zbuffer, &cube_hull.mesh, &xform);
+    occ_draw_hull(culler, sw_zbuffer, &cube_hull, &xform);
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
 }
@@ -520,11 +519,11 @@ void render()
 
     glMatrixMode(GL_MODELVIEW);
     compute_camera_matrix(&g_view, &camera);
-    matrix_t mvp;
-    matrix_mult_full(&mvp, &g_projection, &g_view);
+    // matrix_t mvp;
+    // matrix_mult_full(&mvp, &g_projection, &g_view);
 
     glLoadMatrixf(&g_view.m[0][0]);
-    occ_set_mvp_matrix(culler, &mvp);
+    occ_set_view_and_projection(culler, &g_view, &g_projection);
 
     //render_door_scene(disp);
     //render_big_scene(disp);

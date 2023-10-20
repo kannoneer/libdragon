@@ -97,6 +97,7 @@ typedef struct occ_culler_s {
     } viewport;
     matrix_t proj;
     matrix_t mvp;
+    matrix_t view_matrix;
     uint32_t frame;
 } occ_culler_t;
 
@@ -125,8 +126,13 @@ typedef struct occ_mesh_s {
     uint32_t num_indices;
 } occ_mesh_t;
 
+#define OCC_NO_EDGE_NEIGHBOR 0xffff
+
 typedef struct occ_hull_s {
     occ_mesh_t mesh; // a hull always owns its mesh data
+    vec3f* tri_normals; // num_indices/3 triangle normal vectors
+    uint16_t* neighbors; // three neighbors per triangle, one for each edge. num_indices size.
+                        // OCC_NO_EDGE_NEIGHBOR sentinel value marks outer edges
 } occ_hull_t;
 
 typedef struct occ_occluder_s {
@@ -155,14 +161,11 @@ void occ_free(occ_culler_t *culler)
     free(culler);
 }
 
-void occ_set_projection_matrix(occ_culler_t *culler, matrix_t *proj)
+void occ_set_view_and_projection(occ_culler_t *culler, matrix_t *view, matrix_t *proj)
 {
+    culler->view_matrix = *view;
     culler->proj = *proj;
-}
-
-void occ_set_mvp_matrix(occ_culler_t *culler, matrix_t *mvp)
-{
-    culler->mvp = *mvp;
+    matrix_mult_full(&culler->mvp, proj, view);
 }
 
 void occ_next_frame(occ_culler_t *culler)
@@ -268,18 +271,18 @@ void draw_tri(
     int bias2 = isTopLeftEdge(v0, v1) ? 0 : -1;
 
     // Adjust edge functions based on triangle edge normals.
-    assert(!((flags & RASTER_FLAG_SHRINK_EDGE_01) && (flags & RASTER_FLAG_EXPAND_EDGE_01)));
     assert(!((flags & RASTER_FLAG_SHRINK_EDGE_12) && (flags & RASTER_FLAG_EXPAND_EDGE_12)));
     assert(!((flags & RASTER_FLAG_SHRINK_EDGE_20) && (flags & RASTER_FLAG_EXPAND_EDGE_20)));
+    assert(!((flags & RASTER_FLAG_SHRINK_EDGE_01) && (flags & RASTER_FLAG_EXPAND_EDGE_01)));
 
-    if (flags & (RASTER_FLAG_SHRINK_EDGE_01 | RASTER_FLAG_EXPAND_EDGE_01)) {
-        bias2 += compute_conservative_edge_bias(v0, v1, flags & RASTER_FLAG_SHRINK_EDGE_01);
-    }
     if (flags & (RASTER_FLAG_SHRINK_EDGE_12 | RASTER_FLAG_EXPAND_EDGE_12)) {
         bias0 += compute_conservative_edge_bias(v1, v2, flags & RASTER_FLAG_SHRINK_EDGE_12);
     }
     if (flags & (RASTER_FLAG_SHRINK_EDGE_20 | RASTER_FLAG_EXPAND_EDGE_20)) {
         bias1 += compute_conservative_edge_bias(v2, v0, flags & RASTER_FLAG_SHRINK_EDGE_20);
+    }
+    if (flags & (RASTER_FLAG_SHRINK_EDGE_01 | RASTER_FLAG_EXPAND_EDGE_01)) {
+        bias2 += compute_conservative_edge_bias(v0, v1, flags & RASTER_FLAG_SHRINK_EDGE_01);
     }
 
     w0_row += bias0;
@@ -454,9 +457,13 @@ void draw_tri(
 }
 
 #define OCC_MAX_MESH_VERTEX_COUNT (24) // enough for a cube with duplicated verts
+#define OCC_MAX_MESH_INDEX_COUNT (30)
+
+static vec3f view_normals[OCC_MAX_MESH_INDEX_COUNT]; // FIXME Had to move this out because otherwise it's marked "unused variable?"
 
 void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform, const occ_mesh_t* mesh,
-                                 occ_target_t* target, occ_raster_flags_t flags, occ_raster_query_result_t* query_result)
+                                vec3f* tri_normals, uint16_t* tri_neighbors,
+                                occ_target_t* target, const occ_raster_flags_t flags, occ_raster_query_result_t* query_result)
 {
     // We render a viewport (x,y,x+w,y+h) in zbuffer's pixel space
     cpu_glViewport(
@@ -468,13 +475,17 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         zbuffer->height);
 
     matrix_t* mvp = NULL;
-    matrix_t mvp_new;
+    matrix_t* modelview = NULL;
+    matrix_t mvp_new, modelview_new;
 
     if (model_xform) {
         mvp = &mvp_new;
+        modelview = &modelview_new;
         matrix_mult_full(mvp, &occ->mvp, model_xform);
+        matrix_mult_full(modelview, &occ->view_matrix, model_xform);
     } else {
         mvp = &occ->mvp;
+        modelview = &occ->view_matrix;
     }
 
     // Transform all vertices first
@@ -489,6 +500,22 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
 
         cpu_vertex_pre_tr(&all_verts[i], mvp);
         cpu_vertex_calc_screenspace(&all_verts[i]);
+    }
+
+    if (tri_normals) {
+        int num_tris = mesh->num_indices/3;
+        debugf("num_tris: %d\n", num_tris);
+        for (int i = 0; i < num_tris; i++) {
+            float n_model[4] = {tri_normals[i].x, tri_normals[i].y, tri_normals[i].z, 0.f};
+            float n[4];
+            //TODO use inverse transpose if non-uniform scale?
+            matrix_mult(&n[0], modelview, &n_model[0]);
+            view_normals[i] = (vec3f){n[0], n[1], n[2]};
+            debugf("[%-2d] (%f, %f, %f, %f) -> (%f, %f, %f, %f)\n",
+                    i,
+                   n_model[0], n_model[1], n_model[2], n_model[3],
+                   n[0], n[1], n[2], n[3]);
+        }
     }
     prof_end(REGION_TRANSFORM);
 
@@ -534,6 +561,30 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
             continue;
         }
 
+        uint32_t edge_flag_mask = 0;
+
+        if (tri_normals) {
+            int tri_idx = is/3;
+            vec3f* N = &view_normals[tri_idx];
+            if (N->z < 0 && (flags & RASTER_FLAG_BACKFACE_CULL)) {
+                continue;
+            }
+
+            if (tri_neighbors) {
+                for (int j = 0; j < 3; j++) {
+                    uint16_t other = tri_neighbors[tri_idx * 3 + j];
+                    // debugf("j=%d, other=%u\n", j, other);
+                    if (other != OCC_NO_EDGE_NEIGHBOR) {
+                        vec3f *N_other = &view_normals[other];
+                        if (N_other->z < 0) {
+                            // debugf("tri_idx=%d, N->z = %f, N_other = %f\n", tri_idx, N->z, N_other->z);
+                            edge_flag_mask |= (RASTER_FLAG_SHRINK_EDGE_01 << j);
+                        }
+                    }
+                }
+            }
+        }
+
         const int NEAR_PLANE_INDEX = 2;
         const int FAR_PLANE_INDEX = 5;
         const bool clips_near = (verts[0].tr_code | verts[1].tr_code | verts[2].tr_code) & (1 << NEAR_PLANE_INDEX);
@@ -571,7 +622,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
                 (vec2f){verts[1].screen_pos[0], verts[1].screen_pos[1]},
                 (vec2f){verts[2].screen_pos[0], verts[2].screen_pos[1]},
                 verts[0].depth, verts[1].depth, verts[2].depth,
-                flags, query_result,
+                flags | edge_flag_mask, query_result,
                 zbuffer);
             prof_end(REGION_RASTERIZATION);
             num_tris_drawn++;
@@ -589,7 +640,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
                 draw_tri(
                     sv[0], sv[1], sv[2],
                     clipping_list.vertices[0]->depth, clipping_list.vertices[i - 1]->depth, clipping_list.vertices[i]->depth,
-                    flags, query_result,
+                    flags | edge_flag_mask, query_result,
                     zbuffer);
                 num_tris_drawn++;
             }
@@ -611,7 +662,12 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
 
 void occ_draw_mesh(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t *mesh, const matrix_t *model_xform)
 {
-	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, mesh, NULL, OCC_RASTER_FLAGS_DRAW, NULL);
+	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, mesh, NULL, NULL, NULL, OCC_RASTER_FLAGS_DRAW, NULL);
+}
+
+void occ_draw_hull(occ_culler_t *occ, surface_t *zbuffer, const occ_hull_t* hull, const matrix_t *model_xform)
+{
+	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, &hull->mesh, hull->tri_normals, hull->neighbors, NULL, OCC_RASTER_FLAGS_DRAW, NULL);
 }
 
 static vec2f rotate_xy_coords_45deg(float x, float y) {
@@ -774,7 +830,7 @@ bool occ_check_mesh_visible_precise(occ_culler_t *occ, surface_t *zbuffer, const
                                     occ_target_t *target, occ_raster_query_result_t *out_result)
 {
     occ_raster_query_result_t result = {};
-    occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, mesh, target, OCC_RASTER_FLAGS_QUERY, &result);
+    occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, mesh, NULL, NULL, target, OCC_RASTER_FLAGS_QUERY, &result);
     if (out_result) {
         *out_result = result;
     }
@@ -836,15 +892,17 @@ bool occ_hull_from_flat_mesh(const occ_mesh_t* mesh_in, occ_hull_t* hull_out)
     int* old_to_new = malloc(sizeof(int) * mesh_in->num_vertices);
     DEFER(free(old_to_new));
 
+    // Deduplicate vertices based on position only
+
     m->num_vertices = 0; // will be incremented in the loop below
 
-    bool verbose = false;
+    bool verbose = true;
 
-    for (uint32_t vertex_id=0; vertex_id < mesh_in->num_vertices; vertex_id++) {
+    for (uint32_t vertex_idx=0; vertex_idx < mesh_in->num_vertices; vertex_idx++) {
         float f[3] = {
-            mesh_in->vertices[vertex_id].position[0],
-            mesh_in->vertices[vertex_id].position[1],
-            mesh_in->vertices[vertex_id].position[2]
+            mesh_in->vertices[vertex_idx].position[0],
+            mesh_in->vertices[vertex_idx].position[1],
+            mesh_in->vertices[vertex_idx].position[2]
         };
 
         int new_idx = -1;
@@ -870,7 +928,7 @@ bool occ_hull_from_flat_mesh(const occ_mesh_t* mesh_in, occ_hull_t* hull_out)
 
         }
 
-        old_to_new[vertex_id] = new_idx;
+        old_to_new[vertex_idx] = new_idx;
     }
 
     if (verbose) {
@@ -892,9 +950,113 @@ bool occ_hull_from_flat_mesh(const occ_mesh_t* mesh_in, occ_hull_t* hull_out)
         debugf("index buffer:\n");
         for (int i = 0; i < m->num_indices; i++) {
             debugf("%d, ", m->indices[i]);
+            if (i%3 == 2) debugf(" ");
         }
         debugf("\n");
         debugf("vertex count before: %lu, after: %lu. %s\n", mesh_in->num_vertices, m->num_vertices, m->num_vertices < mesh_in->num_vertices/2 ? "nice!" : "");
+    }
+
+    // Compute normals for the new mesh
+    assert(m->num_indices % 3 == 0);
+    int num_tris = m->num_indices / 3;
+    hull_out->tri_normals = malloc(num_tris * sizeof(vec3f));
+    for (int tri_idx = 0; tri_idx < num_tris; tri_idx++) {
+        uint16_t *inds = &m->indices[tri_idx * 3];
+        vec3f v0 = (vec3f){m->vertices[inds[0]].position[0], m->vertices[inds[0]].position[1], m->vertices[inds[0]].position[2]};
+        vec3f v1 = (vec3f){m->vertices[inds[1]].position[0], m->vertices[inds[1]].position[1], m->vertices[inds[1]].position[2]};
+        vec3f v2 = (vec3f){m->vertices[inds[2]].position[0], m->vertices[inds[2]].position[1], m->vertices[inds[2]].position[2]};
+        vec3f v01 = vec3f_sub(v1, v0);
+        vec3f v02 = vec3f_sub(v2, v0);
+        vec3f N_unnormalized = cross3df(v01, v02);
+        vec3f N;
+        cpu_gl_normalize(&N.x, &N_unnormalized.x);
+        hull_out->tri_normals[tri_idx] = N;
+    }
+
+    if (verbose) {
+        debugf("Triangle normals:\n");
+        for (int tri_idx = 0; tri_idx < num_tris; tri_idx++) {
+            vec3f N = hull_out->tri_normals[tri_idx];
+            debugf("[%-2d] (%f, %f, %f)\n", tri_idx, N.x, N.y, N.z);
+        }
+    }
+
+    // Compute neighbors for each edge with brute force.
+
+    // Two triangles are neighbors if they both have an edge with the same vertex indices.
+    // We canonicalize the edges below by putting the smaller index first. This way
+    // they can be compared regardless of triangle's winding order.
+
+    hull_out->neighbors = malloc(num_tris * 3 * sizeof(uint16_t));
+    uint16_t* neighbors = hull_out->neighbors;
+    const uint16_t* indices = hull_out->mesh.indices;
+
+    for (int tri_a = 0; tri_a < num_tris; tri_a++) {
+        for (int i = 0; i < 3; i++) {
+            uint16_t edge_a0 = indices[tri_a * 3 + i];              // vertex at  i
+            uint16_t edge_a1 = indices[tri_a * 3 + ((1 << i) & 3)]; // vertex at (i+1) % 3
+            if (edge_a0 > edge_a1) {
+                SWAP(edge_a0, edge_a1);
+            }
+
+            bool neighbor_found = false;
+
+            for (int tri_b = 0; tri_b < num_tris; tri_b++) {
+                if (tri_a == tri_b) continue;
+                for (int j = 0; j < 3; j++) {
+                    uint16_t edge_b0 = indices[tri_b * 3 + j];
+                    uint16_t edge_b1 = indices[tri_b * 3 + ((1 << j) & 3)];
+                    if (edge_b0 > edge_b1) {
+                        SWAP(edge_b0, edge_b1);
+                    }
+
+                    if (edge_a0 == edge_b0 && edge_a1 == edge_b1) {
+                        neighbors[tri_a * 3 + i] = tri_b;
+                        neighbor_found = true;
+                        break;
+                    }
+                }
+
+                if (neighbor_found) break;
+            }
+
+            if (!neighbor_found) {
+                neighbors[tri_a * 3 + i] = OCC_NO_EDGE_NEIGHBOR;
+            }
+        }
+    }
+
+    // Check validity of the neighbor array
+    for (int tri_idx = 0; tri_idx < num_tris; tri_idx++) {
+        for (int i = 0; i < 3; i++) {
+            uint16_t other = neighbors[tri_idx * 3 + i];
+            if (other != OCC_NO_EDGE_NEIGHBOR) {
+                bool found = false;
+                for (int j = 0; j < 3; j++) {
+                    if (neighbors[other * 3 + j] == tri_idx) {
+                        found = true;
+                    }
+                }
+                if (!found) {
+                    debugf("Error: Neighbor array wasn't symmetric at tri_idx=%d, i=%d, other=%u\n", tri_idx, i, other);
+                    free(hull_out->neighbors);
+                    hull_out->neighbors = NULL;
+                    return false;
+                }
+            }
+        }
+
+    }
+
+    if (verbose) {
+        for (int tri_idx = 0; tri_idx < num_tris; tri_idx++) {
+            debugf("tri %-2d: ", tri_idx);
+            for (int i = 0; i < 3; i++) {
+                uint16_t neighbor = neighbors[tri_idx * 3 + i];
+                debugf("%-5u ", neighbor);
+            }
+            debugf("\n");
+        }
     }
 
     return true;
