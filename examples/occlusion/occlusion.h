@@ -59,12 +59,19 @@ bool config_discard_based_on_tr_code = true;
 
 enum {
     RASTER_FLAG_BACKFACE_CULL = 1,
-    RASTER_FLAG_EARLY_OUT = 1 << 1,      // Return when the first depth pass is found
-    RASTER_FLAG_NEG_SLOPE_BIAS = 1 << 2, // Negative slope bias, nudge closer, minimum per-pixel depth
-    RASTER_FLAG_POS_SLOPE_BIAS = 1 << 3, // Positive slope bias, nudge farther, maximum per-pixel depth
-    RASTER_FLAG_ROUND_DEPTH_UP = 1 << 4, // Round depths to the next higher 16-bit integer. Default is rounding down.
-    RASTER_FLAG_DISCARD_FAR = 1 << 5,    // Discard any triangle that touches the far plane.
-    RASTER_FLAG_WRITE_DEPTH = 1 << 6,    // Actually write to depth buffer
+    RASTER_FLAG_EARLY_OUT = 1 << 1,         // Return when the first depth pass is found
+    RASTER_FLAG_NEG_SLOPE_BIAS = 1 << 2,    // Negative slope bias, nudge closer, minimum per-pixel depth
+    RASTER_FLAG_POS_SLOPE_BIAS = 1 << 3,    // Positive slope bias, nudge farther, maximum per-pixel depth
+    RASTER_FLAG_ROUND_DEPTH_UP = 1 << 4,    // Round depths to the next higher 16-bit integer. Default is rounding down.
+    RASTER_FLAG_DISCARD_FAR = 1 << 5,       // Discard any triangle that touches the far plane.
+    RASTER_FLAG_WRITE_DEPTH = 1 << 6,       // Actually write to depth buffer
+    RASTER_FLAG_RESERVED1 = 1 << 7,
+    RASTER_FLAG_SHRINK_EDGE_01 = 1 << 8,    // Inner conservative rasterization
+    RASTER_FLAG_SHRINK_EDGE_12 = 1 << 9,
+    RASTER_FLAG_SHRINK_EDGE_20 = 1 << 10,
+    RASTER_FLAG_EXPAND_EDGE_01 = 1 << 11,   // Outer conservative rasterization
+    RASTER_FLAG_EXPAND_EDGE_12 = 1 << 12,
+    RASTER_FLAG_EXPAND_EDGE_20 = 1 << 13
 };
 
 typedef uint32_t occ_raster_flags_t;
@@ -193,6 +200,12 @@ static int orient2d_subpixel(vec2 a, vec2 b, vec2 c)
     return ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) >> SUBPIXEL_BITS;
 }
 
+// Returns a normal vector pointing to the left of line segment ab
+vec2 get_edge_normal(vec2 a, vec2 b)
+{
+	return (vec2){ b.y - a.y, -(b.x - a.x) };
+}
+
 void draw_tri(
     vec2f v0f,
     vec2f v1f,
@@ -242,6 +255,39 @@ void draw_tri(
     int bias1 = isTopLeftEdge(v2, v0) ? 0 : -1;
     int bias2 = isTopLeftEdge(v0, v1) ? 0 : -1;
 
+    // Adjust edge functions based on triangle edge normals.
+    // See Tomas Akenine-Möller and Timo Aila, "A Simple Algorithm for Conservative and Tiled Rasterization", 2005.
+    if (flags & (RASTER_FLAG_SHRINK_EDGE_01 | RASTER_FLAG_EXPAND_EDGE_01)) {
+        assert(!((flags & RASTER_FLAG_SHRINK_EDGE_01) && (flags & RASTER_FLAG_EXPAND_EDGE_01)));
+        vec2 n01 = get_edge_normal(v0, v1); // normal points inside the triangle
+        int edge01_bias = (abs(n01.x) + abs(n01.y)) / 2;
+        if (flags & RASTER_FLAG_SHRINK_EDGE_01) {
+            bias2 -= edge01_bias;
+        } else {
+            bias2 += edge01_bias;
+        }
+    }
+    if (flags & (RASTER_FLAG_SHRINK_EDGE_12 | RASTER_FLAG_EXPAND_EDGE_12)) {
+        assert(!((flags & RASTER_FLAG_SHRINK_EDGE_12) && (flags & RASTER_FLAG_EXPAND_EDGE_12)));
+        vec2 n12 = get_edge_normal(v1, v2);
+        int edge12_bias = (abs(n12.x) + abs(n12.y)) / 2;
+        if (flags & RASTER_FLAG_SHRINK_EDGE_12) {
+            bias0 -= edge12_bias;
+        } else {
+            bias0 += edge12_bias;
+        }
+    }
+    if (flags & (RASTER_FLAG_SHRINK_EDGE_20 | RASTER_FLAG_EXPAND_EDGE_20)) {
+        assert(!((flags & RASTER_FLAG_SHRINK_EDGE_20) && (flags & RASTER_FLAG_EXPAND_EDGE_20)));
+        vec2 n20 = get_edge_normal(v2, v0);
+        int edge20_bias = (abs(n20.x) + abs(n20.y)) / 2;
+        if (flags & RASTER_FLAG_SHRINK_EDGE_20) {
+            bias1 -= edge20_bias;
+        } else {
+            bias1 += edge20_bias;
+        }
+    }
+
     w0_row += bias0;
     w1_row += bias1;
     w2_row += bias2;
@@ -269,6 +315,7 @@ void draw_tri(
     float Zf_row = Z0f
         + ((minb.x * SUBPIXEL_SCALE - v0.x) / SUBPIXEL_SCALE) * dZdx
         + ((minb.y * SUBPIXEL_SCALE - v0.y) / SUBPIXEL_SCALE) * dZdy;
+
 
     // Write a constant depth for small triangles.
     // It's a a workaround for small triangle delta precision problems.
