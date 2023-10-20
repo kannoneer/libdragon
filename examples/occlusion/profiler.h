@@ -38,7 +38,7 @@ void prof_print_stats()
     }
 
     #define PRINT_REGION(idx, name) \
-        debugf("%-16s %6.3f %%\n", name, (prof_times[idx] / (double)total_ticks)*100);
+        debugf("%-16s %6.3f %%\n", name, (prof_times[idx] / (double)(total_ticks+1))*100);
 
 
     PRINT_REGION(REGION_TRANSFORM, "Transform")

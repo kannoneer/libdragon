@@ -181,7 +181,7 @@ void setup()
 
     bool conversion_success = occ_hull_from_flat_mesh(&cube_mesh, &cube_hull);
     if (!conversion_success) {
-        assert(false && "Couldn't convert cube mesh!\n");
+        assert(false && "Couldn't convert cube mesh!");
         while (true) {}
     }
 }
@@ -420,6 +420,7 @@ void render_big_scene(surface_t* disp)
                 glPopMatrix();
             }
 
+            // HACK: always draw occluders to SW Z-buffer even if they didn't pass the rough check
             if (true || visible) {
                 // also draw to software zbuffer
                 occ_draw_mesh(culler, sw_zbuffer, &cube_hull.mesh, xform);

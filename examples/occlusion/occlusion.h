@@ -35,6 +35,19 @@ const float inv_subpixel_scale = 1.0f / SUBPIXEL_SCALE;
 #define ZBUFFER_UINT_PTR_AT(zbuffer, x, y) ((u_uint16_t *)(zbuffer->buffer + (zbuffer->stride * y + x * sizeof(uint16_t))))
 
 #define DUMP_WHEN_Z_OVERFLOWS 1
+#define SCREENSPACE_BIAS (-0.5f) // bias for (x,y) screenspace coordinates to make them cover RDP draw pixels
+
+// Rasky's "defer statement" implementation.
+#define PPCAT2(n,x) n ## x
+#define PPCAT(n,x) PPCAT2(n,x)
+
+// DEFER(stmt): execute "stmt" statement when the current lexical block exits.
+// This is useful in tests to execute cleanup functions even if the test fails
+// through ASSERT macros.
+#define DEFER2(stmt, counter) \
+    void PPCAT(__cleanup, counter) (int* __u) { stmt; } \
+    int PPCAT(__var, counter) __attribute__((unused, cleanup(PPCAT(__cleanup, counter ))));
+#define DEFER(stmt) DEFER2(stmt, __COUNTER__)
 
 bool g_verbose_setup = false;
 bool g_measure_error = false;
@@ -46,9 +59,9 @@ bool config_discard_based_on_tr_code = true;
 
 enum {
     RASTER_FLAG_BACKFACE_CULL = 1,
-    RASTER_FLAG_EARLY_OUT = 1 << 1,
-    RASTER_FLAG_NEG_SLOPE_BIAS = 1 << 2,   // Negative slope bias, nudge closer, minimum per-pixel depth
-    RASTER_FLAG_POS_SLOPE_BIAS = 1 << 3,  // Positive slope bias, nudge farther, maximum per-pixel depth
+    RASTER_FLAG_EARLY_OUT = 1 << 1,      // Return when the first depth pass is found
+    RASTER_FLAG_NEG_SLOPE_BIAS = 1 << 2, // Negative slope bias, nudge closer, minimum per-pixel depth
+    RASTER_FLAG_POS_SLOPE_BIAS = 1 << 3, // Positive slope bias, nudge farther, maximum per-pixel depth
     RASTER_FLAG_ROUND_DEPTH_UP = 1 << 4, // Round depths to the next higher 16-bit integer. Default is rounding down.
     RASTER_FLAG_DISCARD_FAR = 1 << 5,    // Discard any triangle that touches the far plane.
     RASTER_FLAG_WRITE_DEPTH = 1 << 6,    // Actually write to depth buffer
@@ -191,10 +204,10 @@ void draw_tri(
     occ_raster_query_result_t* result,
     surface_t *zbuffer)
 {
-    // The -0.5 bias is added to empirically match SW depth map pixels to hi-rez RDP picture.
-    vec2 v0 = {SUBPIXEL_SCALE * (v0f.x-0.5f) + 0.5f, SUBPIXEL_SCALE * (v0f.y-0.5f) + 0.5f};
-    vec2 v1 = {SUBPIXEL_SCALE * (v1f.x-0.5f) + 0.5f, SUBPIXEL_SCALE * (v1f.y-0.5f) + 0.5f};
-    vec2 v2 = {SUBPIXEL_SCALE * (v2f.x-0.5f) + 0.5f, SUBPIXEL_SCALE * (v2f.y-0.5f) + 0.5f};
+    // The -0.5 screenspace bias is added to empirically match SW depth map pixels to hi-rez RDP picture.
+    vec2 v0 = {SUBPIXEL_SCALE * (v0f.x+SCREENSPACE_BIAS) + 0.5f, SUBPIXEL_SCALE * (v0f.y+SCREENSPACE_BIAS) + 0.5f};
+    vec2 v1 = {SUBPIXEL_SCALE * (v1f.x+SCREENSPACE_BIAS) + 0.5f, SUBPIXEL_SCALE * (v1f.y+SCREENSPACE_BIAS) + 0.5f};
+    vec2 v2 = {SUBPIXEL_SCALE * (v2f.x+SCREENSPACE_BIAS) + 0.5f, SUBPIXEL_SCALE * (v2f.y+SCREENSPACE_BIAS) + 0.5f};
 
     vec2 minb = {
         (min(v0.x, min(v1.x, v2.x)) >> SUBPIXEL_BITS),
@@ -677,6 +690,8 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
 
         cpu_vertex_pre_tr(&vert, mvp);
         cpu_vertex_calc_screenspace(&vert);
+        vert.screen_pos[0] += SCREENSPACE_BIAS;
+        vert.screen_pos[1] += SCREENSPACE_BIAS;
         prof_end(REGION_TRANSFORM);
         if (vert.depth < 0.f) return true; // HACK: any vertex behind camera makes the object visible
         minZ = min(minZ, vert.depth);
@@ -693,6 +708,10 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
             oct_box.hi.y = max(oct_box.hi.y, pr.y);
         }
     }
+
+    // Upper bounds are exclusive so round up to include the pixels right at the edge as well.
+    maxX = ceilf(maxX);
+    maxY = ceilf(maxY);
 
     if (g_octagon_test) {
         oct_box.lo.x = floorf(oct_box.lo.x);
@@ -771,13 +790,71 @@ occ_target_t* target, occ_raster_query_result_t *out_result)
 bool occ_hull_from_flat_mesh(const occ_mesh_t* mesh_in, occ_hull_t* hull_out)
 {
     occ_mesh_t* m = &hull_out->mesh;
-    m->num_vertices = mesh_in->num_vertices;
-    m->num_indices = mesh_in->num_indices;
+    vertex_t* scratch = malloc(sizeof(vertex_t) * OCC_MAX_MESH_VERTEX_COUNT);
+    DEFER(free(scratch));
+    int* old_to_new = malloc(sizeof(int) * mesh_in->num_vertices);
+    DEFER(free(old_to_new));
 
-    m->vertices = malloc(sizeof(vertex_t) * mesh_in->num_vertices);
-    memcpy(m->vertices, mesh_in->vertices, sizeof(vertex_t) * mesh_in->num_vertices);
+    m->num_vertices = 0; // will be incremented in the loop below
+
+    bool verbose = false;
+
+    for (uint32_t vertex_id=0; vertex_id < mesh_in->num_vertices; vertex_id++) {
+        float f[3] = {
+            mesh_in->vertices[vertex_id].position[0],
+            mesh_in->vertices[vertex_id].position[1],
+            mesh_in->vertices[vertex_id].position[2]
+        };
+
+        int new_idx = -1;
+        for (int slot=0; slot < m->num_vertices; slot++) {
+            if (scratch[slot].position[0] == f[0]
+            && scratch[slot].position[1] == f[1]
+            && scratch[slot].position[2] == f[2]) {
+                new_idx = slot;
+                break;
+            }
+        }
+
+        if (new_idx == -1) {
+            if (m->num_vertices == OCC_MAX_MESH_VERTEX_COUNT) {
+                debugf("max vertex count limit %d reached\n", OCC_MAX_MESH_VERTEX_COUNT);
+                return false;
+            }
+
+            new_idx = m->num_vertices++;
+            scratch[new_idx].position[0] = f[0];
+            scratch[new_idx].position[1] = f[1];
+            scratch[new_idx].position[2] = f[2];
+
+        }
+
+        old_to_new[vertex_id] = new_idx;
+    }
+
+    if (verbose) {
+        for (int i = 0; i < mesh_in->num_vertices; i++) {
+            debugf("old_to_new[%d] = %d\n", i, old_to_new[i]);
+        }
+    }
+
     m->indices = malloc(sizeof(uint16_t) * mesh_in->num_indices);
-    memcpy(m->indices, mesh_in->indices, sizeof(uint16_t) * mesh_in->num_indices);
+
+    for (uint32_t i=0; i < mesh_in->num_indices; i++) {
+        m->indices[m->num_indices++] = old_to_new[mesh_in->indices[i]];
+    }
+
+    m->vertices = malloc(m->num_vertices * sizeof(vertex_t));
+    memcpy(m->vertices, scratch, m->num_vertices * sizeof(vertex_t));
+
+    if (verbose) {
+        debugf("index buffer:\n");
+        for (int i = 0; i < m->num_indices; i++) {
+            debugf("%d, ", m->indices[i]);
+        }
+        debugf("\n");
+        debugf("vertex count before: %lu, after: %lu. %s\n", mesh_in->num_vertices, m->num_vertices, m->num_vertices < mesh_in->num_vertices/2 ? "nice!" : "");
+    }
 
     return true;
 }
