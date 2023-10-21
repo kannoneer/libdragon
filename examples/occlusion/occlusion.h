@@ -459,7 +459,10 @@ void draw_tri(
 #define OCC_MAX_MESH_VERTEX_COUNT (24) // enough for a cube with duplicated verts
 #define OCC_MAX_MESH_INDEX_COUNT (30)
 
-static bool view_normal_positive[OCC_MAX_MESH_INDEX_COUNT];
+static float matrix_mult_z_only(const matrix_t *m, const float *v)
+{
+    return m->m[0][2] * v[0] + m->m[1][2] * v[1] + m->m[2][2] * v[2] + m->m[3][2] * v[3];
+}
 
 void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform, const occ_mesh_t* mesh,
                                 vec3f* tri_normals, uint16_t* tri_neighbors,
@@ -491,20 +494,16 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
     // Transform all vertices first
     prof_begin(REGION_TRANSFORM);
     cpu_vtx_t all_verts[OCC_MAX_MESH_VERTEX_COUNT] = {0};
+    bool tri_faces_camera[OCC_MAX_MESH_INDEX_COUNT];
+
 
     if (tri_normals) {
         int num_tris = mesh->num_indices/3;
-        // debugf("num_tris: %d\n", num_tris);
         for (int i = 0; i < num_tris; i++) {
-            float n_model[4] = {tri_normals[i].x, tri_normals[i].y, tri_normals[i].z, 0.f};
-            float n[4];
+            float n[4] = {tri_normals[i].x, tri_normals[i].y, tri_normals[i].z, 0.f};
             //TODO use inverse transpose if non-uniform scale?
-            matrix_mult(&n[0], modelview, &n_model[0]);
-            view_normal_positive[i] = n[2] > 0;
-            // debugf("[%-2d] (%f, %f, %f, %f) -> (%f, %f, %f, %f)\n",
-            //         i,
-            //        n_model[0], n_model[1], n_model[2], n_model[3],
-            //        n[0], n[1], n[2], n[3]);
+            float view_z = matrix_mult_z_only(modelview, n);
+            tri_faces_camera[i] = view_z > 0;
         }
     }
 
@@ -566,7 +565,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
 
         if (tri_normals) {
             int tri_idx = is/3;
-            if (!view_normal_positive[tri_idx] && (flags & RASTER_FLAG_BACKFACE_CULL)) {
+            if (!tri_faces_camera[tri_idx] && (flags & RASTER_FLAG_BACKFACE_CULL)) {
                 continue;
             }
 
@@ -575,7 +574,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
                 for (int j = 0; j < 3; j++) {
                     uint16_t other = tri_neighbors[tri_idx * 3 + j];
                     if (other != OCC_NO_EDGE_NEIGHBOR) {
-                        if (!view_normal_positive[other]) {
+                        if (!tri_faces_camera[other]) {
                             edge_flag_mask |= (RASTER_FLAG_SHRINK_EDGE_01 << j);
                             break;
                         }
