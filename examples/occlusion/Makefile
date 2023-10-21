@@ -31,9 +31,12 @@ filesystem/FerriteCoreDX.font64: MKFONT_FLAGS+=--size 12
 occdemo.z64: N64_ROM_TITLE="Occlusion Demo"
 occdemo.z64: $(BUILD_DIR)/occdemo.dfs
 
+run: occdemo.z64
+	ares occdemo.z64
+
 clean:
 	rm -rf $(BUILD_DIR) filesystem/ occdemo.z64
 
 -include $(wildcard $(BUILD_DIR)/*.d)
 
-.PHONY: all clean
+.PHONY: all clean run
