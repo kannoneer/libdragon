@@ -459,7 +459,7 @@ void draw_tri(
 #define OCC_MAX_MESH_VERTEX_COUNT (24) // enough for a cube with duplicated verts
 #define OCC_MAX_MESH_INDEX_COUNT (30)
 
-static vec3f view_normals[OCC_MAX_MESH_INDEX_COUNT]; // FIXME Had to move this out because otherwise it's marked "unused variable?"
+static bool view_normal_positive[OCC_MAX_MESH_INDEX_COUNT];
 
 void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform, const occ_mesh_t* mesh,
                                 vec3f* tri_normals, uint16_t* tri_neighbors,
@@ -492,6 +492,22 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
     prof_begin(REGION_TRANSFORM);
     cpu_vtx_t all_verts[OCC_MAX_MESH_VERTEX_COUNT] = {0};
 
+    if (tri_normals) {
+        int num_tris = mesh->num_indices/3;
+        // debugf("num_tris: %d\n", num_tris);
+        for (int i = 0; i < num_tris; i++) {
+            float n_model[4] = {tri_normals[i].x, tri_normals[i].y, tri_normals[i].z, 0.f};
+            float n[4];
+            //TODO use inverse transpose if non-uniform scale?
+            matrix_mult(&n[0], modelview, &n_model[0]);
+            view_normal_positive[i] = n[2] > 0;
+            // debugf("[%-2d] (%f, %f, %f, %f) -> (%f, %f, %f, %f)\n",
+            //         i,
+            //        n_model[0], n_model[1], n_model[2], n_model[3],
+            //        n[0], n[1], n[2], n[3]);
+        }
+    }
+
     for (uint32_t i = 0; i < mesh->num_vertices; i++) {
         all_verts[i].obj_attributes.position[0] = mesh->vertices[i].position[0];
         all_verts[i].obj_attributes.position[1] = mesh->vertices[i].position[1];
@@ -502,21 +518,6 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         cpu_vertex_calc_screenspace(&all_verts[i]);
     }
 
-    if (tri_normals) {
-        int num_tris = mesh->num_indices/3;
-        // debugf("num_tris: %d\n", num_tris);
-        for (int i = 0; i < num_tris; i++) {
-            float n_model[4] = {tri_normals[i].x, tri_normals[i].y, tri_normals[i].z, 0.f};
-            float n[4];
-            //TODO use inverse transpose if non-uniform scale?
-            matrix_mult(&n[0], modelview, &n_model[0]);
-            view_normals[i] = (vec3f){n[0], n[1], n[2]};
-            // debugf("[%-2d] (%f, %f, %f, %f) -> (%f, %f, %f, %f)\n",
-            //         i,
-            //        n_model[0], n_model[1], n_model[2], n_model[3],
-            //        n[0], n[1], n[2], n[3]);
-        }
-    }
     prof_end(REGION_TRANSFORM);
 
     int num_tris_drawn = 0;
@@ -565,8 +566,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
 
         if (tri_normals) {
             int tri_idx = is/3;
-            vec3f* N = &view_normals[tri_idx];
-            if (N->z < 0 && (flags & RASTER_FLAG_BACKFACE_CULL)) {
+            if (!view_normal_positive[tri_idx] && (flags & RASTER_FLAG_BACKFACE_CULL)) {
                 continue;
             }
 
@@ -575,9 +575,9 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
                 for (int j = 0; j < 3; j++) {
                     uint16_t other = tri_neighbors[tri_idx * 3 + j];
                     if (other != OCC_NO_EDGE_NEIGHBOR) {
-                        vec3f *N_other = &view_normals[other];
-                        if (N_other->z < 0) {
+                        if (!view_normal_positive[other]) {
                             edge_flag_mask |= (RASTER_FLAG_SHRINK_EDGE_01 << j);
+                            break;
                         }
                     }
                 }
