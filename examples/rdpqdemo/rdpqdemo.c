@@ -9,6 +9,8 @@ static sprite_t *yuverror_sprite;
 //static sprite_t *yuverror2_sprite;
 static sprite_t *ci4_sprite;
 static sprite_t *rgba16_sprite;
+static sprite_t *pattern_sprite;
+static sprite_t *baseline_sprite;
 
 static rspq_block_t *tiles_block;
 static bool g_show_basic = false;
@@ -91,6 +93,7 @@ void render(int cur_frame)
     rdpq_set_mode_standard();
     rdpq_mode_filter(FILTER_BILINEAR);
     rdpq_mode_alphacompare(1);                // colorkey (draw pixel with alpha >= 1)
+    rdpq_mode_dithering(DITHER_NONE_NONE);
 
     // for (uint32_t i = 0; i < num_objs; i++)
     // {
@@ -99,6 +102,28 @@ void render(int cur_frame)
     //     });
     // }
 
+    rdpq_mode_push();
+
+    if (true) {
+        int scale = 127;
+        int sub = 191;
+        // Set y = (x - 0.75) * 0.5 + 1
+        rdpq_set_env_color((color_t){sub,sub,sub,0});
+        rdpq_set_prim_color((color_t){scale,scale,scale,255});
+        rdpq_mode_combiner(RDPQ_COMBINER1((TEX0,ENV,PRIM,TEX0), (0,0,0,1)));
+    }
+
+    rdpq_mode_antialias(AA_NONE);
+    rdpq_blitparms_t parms = {};
+    parms.flip_y = false;
+    parms.scale_x = 3.f;
+    parms.scale_y = 3.f;
+    rdpq_sprite_blit(pattern_sprite, 16, 16, &parms);
+    rdpq_sprite_blit(baseline_sprite, 16, 16 + baseline_sprite->height * parms.scale_y + 8,  &parms);
+
+    rdpq_mode_pop();
+
+    if (false) {
     sprite_t* spritelist[] = {baseline_sprite, yuverror_sprite};
     int spritesizes[][2] = {{64,64}, {64,64}, {64,64}};
 
@@ -146,6 +171,7 @@ void render(int cur_frame)
         parms.scale_y = 2.f;
         rdpq_sprite_blit(rgba16_sprite, 8, 8, &parms);
     }
+    }
 
     rdpq_detach_show();
 }
@@ -155,8 +181,9 @@ int main()
     debug_init_isviewer();
     debug_init_usblog();
 
-    display_init(RESOLUTION_320x240, DEPTH_16_BPP, 3, GAMMA_NONE, FILTERS_RESAMPLE);
-
+    display_init(RESOLUTION_640x480, DEPTH_16_BPP, 3, GAMMA_NONE, FILTERS_DISABLED);
+    // *(volatile uint32_t*)0xA4400000 |= 0x300; // disable AA
+    
     controller_init();
     timer_init();
 
@@ -175,6 +202,14 @@ int main()
     yuverror_sprite = sprite_load("rom:/yuverror/"IMGNAME".sprite");
     rgba16_sprite = sprite_load("rom:/rgba16/"IMGNAME".sprite");
     ci4_sprite = sprite_load("rom:/ci4/"IMGNAME".sprite");
+
+    // pattern_sprite = sprite_load("rom:/abc2_3x.sprite");
+    // baseline_sprite = sprite_load("rom:/abc2_3x_baseline.sprite");
+    pattern_sprite = sprite_load("rom:/rdplol_3x.sprite");
+    baseline_sprite = sprite_load("rom:/rdplol_3x_baseline.sprite");
+    // pattern_sprite = sprite_load("rom:/pattern.sprite");
+
+    #undef IMGNAME
 
     obj_max_x = display_width - brew_sprite->width;
     obj_max_y = display_height - brew_sprite->height;
