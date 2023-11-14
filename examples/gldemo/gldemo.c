@@ -18,6 +18,38 @@
 // The demo will only run for a single frame and stop.
 #define DEBUG_RDP 0
 
+// Random numbers. I can't recall where I copied this code.
+#define XORHASH_RAND_MAX (0xffffffffU)
+
+static uint32_t xorhash_state = 1;
+
+static uint32_t xorhash(void) {
+	uint32_t x = xorhash_state;
+	x ^= x << 13;
+	x ^= x >> 7;
+	x ^= x << 5;
+	return xorhash_state = x;
+}
+
+static uint32_t xorhash_func(uint32_t x) {
+	x ^= x << 13;
+	x ^= x >> 7;
+	x ^= x << 5;
+	return x;
+}
+
+static float randomf()
+{
+    return xorhash()/(float)XORHASH_RAND_MAX;
+}
+
+// per-frame test config
+typedef struct config_s {
+    bool clear;
+    bool render;
+    bool audio_update;
+} config_t;
+
 static uint32_t animation = 3283;
 static uint32_t texture_index = 0;
 static camera_t camera;
@@ -148,16 +180,15 @@ void set_light_positions(float rotation)
     glPopMatrix();
 }
 
-void render()
+
+void run_test_frame(surface_t *disp, const config_t* cfg)
 {
-    surface_t *disp = display_get();
-
-    rdpq_attach(disp, &zbuffer);
-
     gl_context_begin();
 
-    glClearColor(environment_color[0], environment_color[1], environment_color[2], environment_color[3]);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    if (cfg->clear) {
+        glClearColor(environment_color[0], environment_color[1], environment_color[2], environment_color[3]);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    }
 
     glMatrixMode(GL_MODELVIEW);
     camera_transform(&camera);
@@ -174,35 +205,39 @@ void render()
 
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
-    
-    render_plane();
-    render_decal();
-    render_cube();
-    render_skinned(&camera, animation);
 
-    glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
-    render_sphere(rotation);
+    if (cfg->render) {
+        render_plane();
+        render_decal();
+        render_cube();
+        render_skinned(&camera, animation);
 
-    glDisable(GL_TEXTURE_2D);
-    glDisable(GL_LIGHTING);
-    render_primitives(rotation);
+        glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1) % 4]);
+        render_sphere(rotation);
+
+        glDisable(GL_TEXTURE_2D);
+        glDisable(GL_LIGHTING);
+        render_primitives(rotation);
+    }
 
     gl_context_end();
 
-    rdpq_detach_show();
-
-    rspq_profile_next_frame();
-
-    if (((frames++) % 60) == 0) {
-        rspq_profile_dump();
-        rspq_profile_reset();
+    if (cfg->audio_update) {
+		if (audio_can_write()) {
+			short *buf = audio_write_begin();
+			mixer_poll(buf, audio_get_buffer_length());
+			audio_write_end();
+		}
     }
+
 }
 
 int main()
 {
 	debug_init_isviewer();
 	debug_init_usblog();
+
+    debugf("Build %s\n", __TIMESTAMP__);
     
     dfs_init(DFS_DEFAULT_LOCATION);
 
@@ -216,11 +251,19 @@ int main()
     rdpq_debug_log(true);
 #endif
 
+	audio_init(44100, 4);
+	mixer_init(32);
+
     setup();
 
     joypad_init();
 
     rspq_profile_start();
+
+	xm64player_t xm;
+    xm64player_open(&xm, "rom:/AQUA.xm64");
+    xm64player_set_loop(&xm, true);
+    xm64player_play(&xm, 0);
 
 #if !DEBUG_RDP
     while (1)
@@ -294,9 +337,56 @@ int main()
             camera.rotation = camera.rotation - x * 1.2f;
         }
 
-        render();
+        #define LENGTH (50)
+
+        for (int round = 1; round < 100000; round++) {
+            uint32_t seed = (uint32_t)round;
+            xorhash_state = seed;
+            camera.distance = -10.f + -9.f * randomf();
+            camera.rotation = 360.f * randomf();
+
+            debugf("[%d] seed: %lu, length: %d\n", round, seed, LENGTH);
+            debugf("[%d] camera.distance=%f, camera.rotation=%f (%lx, %lx)\n", round, camera.distance, camera.rotation, *((uint32_t*)&camera.distance), *((uint32_t*)&camera.rotation));
+
+            config_t configs[LENGTH];
+            debugf("[%d] config_t configs[] = { ", round);
+            for (int i=0;i<LENGTH;i++) {
+                configs[i] =(config_t){
+                    .clear = (xorhash() % 2),
+                    .render = (xorhash() % 2),
+                    .audio_update = (xorhash() % 2)};
+                debugf("{%d,%d,%d},", configs[i].clear, configs[i].render, configs[i].audio_update);
+            }
+            debugf(" }\n");
+
+
+            surface_t *disp = display_get();
+            rdpq_attach(disp, &zbuffer);
+
+            for (int i = 0; i < LENGTH; i++) {
+                run_test_frame(disp, &configs[i]);
+            }
+
+            char msg[100];
+			sprintf(msg, "finished round %d", round);
+            graphics_draw_text(disp, 8, 8, msg);
+            rdpq_detach_show();
+
+            // wait everything to finish before starting the next round
+            rspq_wait();
+            wait_ms(20);
+        }
+
+        #undef LENGTH
+
+        rspq_profile_next_frame();
+
+        if (((frames++) % 60) == 0) {
+            rspq_profile_dump();
+            rspq_profile_reset();
+        }
+
         if (DEBUG_RDP)
             rspq_wait();
     }
-
 }
