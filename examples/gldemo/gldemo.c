@@ -369,7 +369,8 @@ int main()
 
             char msg[100];
 			sprintf(msg, "finished round %d", round);
-            graphics_draw_text(disp, 8, 8, msg);
+            graphics_draw_text(disp, 8, 8, __TIMESTAMP__);
+            graphics_draw_text(disp, 8, 16, msg);
             rdpq_detach_show();
 
             // wait everything to finish before starting the next round
