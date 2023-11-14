@@ -48,6 +48,7 @@ typedef struct config_s {
     bool clear;
     bool render;
     bool audio_update;
+    bool run_buffer;
 } config_t;
 
 static uint32_t animation = 3283;
@@ -260,11 +261,6 @@ int main()
 
     rspq_profile_start();
 
-	xm64player_t xm;
-    xm64player_open(&xm, "rom:/AQUA.xm64");
-    xm64player_set_loop(&xm, true);
-    xm64player_play(&xm, 0);
-
 #if !DEBUG_RDP
     while (1)
 #endif
@@ -392,11 +388,17 @@ int main()
                 configs[i] =(config_t){
                     .clear = (xorhash() % 2),
                     .render = (xorhash() % 2),
-                    .audio_update = (xorhash() % 2)};
-                debugf("{%d,%d,%d},", configs[i].clear, configs[i].render, configs[i].audio_update);
+                    .audio_update = true, //(xorhash() % 2),
+                    .run_buffer = (xorhash() % 2),
+                    };
+                debugf("{%d,%d,%d,%d},", configs[i].clear, configs[i].render, configs[i].audio_update, configs[i].run_buffer);
             }
             debugf(" }\n");
 
+            xm64player_t xm;
+            xm64player_open(&xm, "rom:/AQUA.xm64");
+            xm64player_set_loop(&xm, true);
+            xm64player_play(&xm, 0);
 
             surface_t *disp = display_get();
 
@@ -404,8 +406,10 @@ int main()
 
             for (int i = 0; i < LENGTH; i++) {
                 run_test_frame(disp, &configs[i]);
-                rdpq_sync_full(NULL, NULL);
-                rdpq_exec(rdp_buffers, sizeof(rdp_buffers));
+                if (configs[i].run_buffer) {
+                    rdpq_sync_full(NULL, NULL);
+                    rdpq_exec(rdp_buffers, sizeof(rdp_buffers));
+                }
             }
 
             char msg[100];
@@ -414,9 +418,11 @@ int main()
             graphics_draw_text(disp, 8, 16, msg);
             rdpq_detach_show();
 
+            xm64player_close(&xm);
+
             // wait everything to finish before starting the next round
             rspq_wait();
-            wait_ms(20);
+            wait_ms(100);
         }
 
         #undef LENGTH
