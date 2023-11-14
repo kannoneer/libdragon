@@ -337,6 +337,44 @@ int main()
             camera.rotation = camera.rotation - x * 1.2f;
         }
 
+        void* temp_zbuffer = memalign(16, 320*240*sizeof(uint16_t));
+        void* temp_colorbuffer1 = memalign(16, 320*240*sizeof(uint16_t));
+        void* temp_colorbuffer2 = memalign(16, 320*240*sizeof(uint16_t));
+
+        // 0x80119240 0x8013ea60 0x80164280
+
+
+        debugf("%p %p %p\n", temp_zbuffer, temp_colorbuffer1, temp_colorbuffer2);
+        debugf("%p %p %p\n", PhysicalAddr(temp_zbuffer), PhysicalAddr(temp_colorbuffer1), PhysicalAddr(temp_colorbuffer2));
+
+        uint64_t rdp_buffers[] = {
+            // 0xe9019960800629d0LLU, //    SYNC_FULL
+            0xfe00000000800000LLU, //    SET_Z_IMAGE      <detach>
+            0xff881c0700800000LLU, //    SET_COLOR_IMAGE  <detach>
+            0xf700000000010001LLU, //    SET_FILL_COLOR   rgba16=(0,0,0,1) rgba32=(0,1,0,1)
+            0xed00000000004000LLU, //    SET_SCISSOR      xy=(0.00,0.00)-(1.00,0.00)
+            0xfe00000000000000LLU | (uint64_t)PhysicalAddr(temp_zbuffer), //    SET_Z_IMAGE      dram=000d7040
+            0xff13bd3f00000000LLU | (uint64_t)PhysicalAddr(temp_colorbuffer1), //    SET_COLOR_IMAGE  dram=00062a00 w=320 h=240 rgba16
+            0xf700000000010001LLU, //    SET_FILL_COLOR   rgba16=(0,0,0,1) rgba32=(0,1,0,1)
+            0xed000000005003c0LLU, //    SET_SCISSOR      xy=(0.00,0.00)-(320.00,240.00)
+            0xed000000004ff3c0LLU, //    SET_SCISSOR      xy=(0.00,0.00)-(319.75,240.00)
+            0xef30000000000000LLU, //    SET_OTHER_MODES  fill
+            0xf7000000fffcfffcLLU, //    SET_FILL_COLOR   rgba16=(31,31,30,0) rgba32=(255,252,255,252)
+            0xfe00000000800000LLU, //    SET_Z_IMAGE      <detach>
+            0xff13bd3f00000000LLU | (uint64_t)PhysicalAddr(temp_colorbuffer2), //    SET_COLOR_IMAGE  dram=000d7040 w=320 h=240 rgba16
+            0xf7000000fffcfffcLLU, //    SET_FILL_COLOR   rgba16=(31,31,30,0) rgba32=(255,252,255,252)
+            0xef30000000000000LLU, //    SET_OTHER_MODES  fill
+            0xf64fc3bc00000000LLU, //    FILL_RECT        xy=(0.00,0.00)-(319.00,239.00)
+            0xe700000000000000LLU, //    SYNC_PIPE
+            0xef30000000000000LLU, //    SET_OTHER_MODES  fill
+            0xfe00000000000000LLU | (uint64_t)PhysicalAddr(temp_zbuffer), //    SET_Z_IMAGE      dram=000d7040
+            0xff13bd3f00000000LLU | (uint64_t)PhysicalAddr(temp_colorbuffer1), //    SET_COLOR_IMAGE  dram=00062a00 w=320 h=240 rgba16
+            0xf7000000fffcfffcLLU, //    SET_FILL_COLOR   rgba16=(31,31,30,0) rgba32=(255,252,255,252)
+            0xf700000000010001LLU, //    SET_FILL_COLOR   rgba16=(0,0,0,1) rgba32=(0,1,0,1)
+            0xef30000000000000LLU, //    SET_OTHER_MODES  fill
+            0xf64fc3bc00000000LLU, //    FILL_RECT        xy=(0.00,0.00)-(319.00,239.00)
+        };
+
         #define LENGTH (50)
 
         for (int round = 1; round < 100000; round++) {
@@ -361,10 +399,13 @@ int main()
 
 
             surface_t *disp = display_get();
+
             rdpq_attach(disp, &zbuffer);
 
             for (int i = 0; i < LENGTH; i++) {
                 run_test_frame(disp, &configs[i]);
+                rdpq_sync_full(NULL, NULL);
+                rdpq_exec(rdp_buffers, sizeof(rdp_buffers));
             }
 
             char msg[100];
