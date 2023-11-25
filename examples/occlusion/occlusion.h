@@ -507,10 +507,21 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         }
     }
 
+    float origin[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    float origin_z = matrix_mult_z_only(modelview, origin);
+    float radius = 3.0f; //sqrtf(3.0f*3.0f + 3.0f*3.0f + 3.0f*3.0f); // cube.h diagonal
+    float farthest_dist = -origin_z + radius;
+    const float near_margin = 1.0f / occ->viewport.width; // wanted margin at near plane
+    const float nearplane = 1.0f;
+    const float world_margin = farthest_dist * (near_margin / nearplane); // wanted margin at farthest point
+    const float upscale = 1.0f + world_margin / radius;
+    debugf("origin_z: %f, farthest_dist: %f, world_margin: %f, upscale: %f\n", origin_z, farthest_dist, world_margin, upscale);
+    //const float upscale = 1.0f + 0.1f;
+
     for (uint32_t i = 0; i < mesh->num_vertices; i++) {
-        all_verts[i].obj_attributes.position[0] = mesh->vertices[i].position[0];
-        all_verts[i].obj_attributes.position[1] = mesh->vertices[i].position[1];
-        all_verts[i].obj_attributes.position[2] = mesh->vertices[i].position[2];
+        all_verts[i].obj_attributes.position[0] = upscale * mesh->vertices[i].position[0];
+        all_verts[i].obj_attributes.position[1] = upscale * mesh->vertices[i].position[1];
+        all_verts[i].obj_attributes.position[2] = upscale * mesh->vertices[i].position[2];
         all_verts[i].obj_attributes.position[3] = 1.0f; // Q: where does cpu pipeline set this?
 
         cpu_vertex_pre_tr(&all_verts[i], mvp);
