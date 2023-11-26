@@ -344,6 +344,7 @@ void draw_tri(
     int32_t Z_row_fixed = (int32_t)(DELTA_SCALE * Zf_row);
     int32_t dZdx_fixed = (int32_t)(DELTA_SCALE * dZdx);
     int32_t dZdy_fixed = (int32_t)(DELTA_SCALE * dZdy);
+    int32_t max_Z_fixed = (int32_t)(DELTA_SCALE * 1.0f) - 1;
 
     // Problem: Negative biases make queries super conservative and you can see objects behind walls!
     if (flags & RASTER_FLAG_NEG_SLOPE_BIAS) {
@@ -388,7 +389,14 @@ void draw_tri(
                     bias = (1 << DELTA_BITS) - 1;
                 }
 
-                uint16_t depth = (Z_incr_fixed + bias) >> (DELTA_BITS - 16);
+                uint16_t depth;
+
+                if (Z_incr_fixed < max_Z_fixed) {
+                    depth = (Z_incr_fixed + bias) >> (DELTA_BITS - 16);
+                } else {
+                    depth = 0xffff - 1;
+                }
+
                 // if (true) { depth = 0x8000;  }
 
                 u_uint16_t *buf = ZBUFFER_UINT_PTR_AT(zbuffer, p.x, p.y);
