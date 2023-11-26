@@ -492,23 +492,37 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const oc
         zbuffer->width,
         zbuffer->height);
 
+    // Transform all vertices first
+    prof_begin(REGION_TRANSFORM);
+
     matrix_t* mvp = (matrix_t*)matrices->mvp;
     matrix_t* modelview = (matrix_t*)matrices->modelview;
     matrix_t* model_xform = (matrix_t*)matrices->model;
     matrix_t mvp_new, modelview_new;
 
-    if (model_xform) {
+    if (modelview) {
+        assert(mvp); // ModelView and MVP should always come bundled
+    }
+
+    if (mvp && modelview) {
+        // Situation: modelview, mvp precomputed
+        // nothing to do
+        assert(!model_xform); // we ignore model_xform so it should't be passed in at all
+    } else if (!mvp && !modelview && model_xform) {
+        // No MVP nor modelview but we have transform
+        // Must multiply that in
         mvp = &mvp_new;
         modelview = &modelview_new;
         matrix_mult_full(mvp, &occ->mvp, model_xform);
         matrix_mult_full(modelview, &occ->view_matrix, model_xform);
-    } else {
+    } else if (!mvp && !modelview && !model_xform) {
+        // Everything at defaults: use global transforms
         mvp = &occ->mvp;
         modelview = &occ->view_matrix;
+    } else {
+        assert(false && "unexpected xform_matrices combo");
     }
 
-    // Transform all vertices first
-    prof_begin(REGION_TRANSFORM);
     cpu_vtx_t all_verts[OCC_MAX_MESH_VERTEX_COUNT] = {0};
     bool tri_faces_camera[OCC_MAX_MESH_INDEX_COUNT];
 
@@ -675,7 +689,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const oc
 
 void occ_draw_mesh(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t *mesh, const matrix_t *model_xform)
 {
-    const occ_xform_matrices_t matrices = {.mvp = &occ->mvp, .modelview = NULL, .model = model_xform};
+    const occ_xform_matrices_t matrices = {.mvp = NULL, .modelview = NULL, .model = model_xform};
 
 	occ_draw_indexed_mesh_flags(occ, zbuffer, &matrices, mesh,
         /* mesh_normals = */ NULL,
@@ -687,7 +701,7 @@ void occ_draw_mesh(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t *mesh
 
 void occ_draw_hull(occ_culler_t *occ, surface_t *zbuffer, const occ_hull_t* hull, const matrix_t *model_xform)
 {
-    const occ_xform_matrices_t matrices = {.mvp = &occ->mvp, .modelview = NULL, .model = model_xform};
+    const occ_xform_matrices_t matrices = {.mvp = NULL, .modelview = NULL, .model = model_xform};
 	occ_draw_indexed_mesh_flags(occ, zbuffer, &matrices, &hull->mesh, hull->tri_normals, hull->neighbors, NULL, OCC_RASTER_FLAGS_DRAW, NULL);
 }
 
@@ -847,24 +861,50 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
     return occ_check_pixel_box_visible(occ, zbuffer, udepth, minX, minY, maxX, maxY, rotated_box, out_box);
 }
 
+float compute_distance_scale(occ_culler_t *occ, const matrix_t *modelview)
+{
+    float origin[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    float origin_z = matrix_mult_z_only(modelview, origin);
+    float radius = 5.196f * 0.577; // cube max radius * (1/sqrtf(3)) sqrtf(3.0f*3.0f + 3.0f*3.0f + 3.0f*3.0f); // cube.h diagonal
+    float farthest_dist = -origin_z + radius;
+    // FIXME: near_margin should depend on FOV
+    const float near_margin = 1.0f / occ->viewport.width; // wanted margin at near plane
+    const float nearplane = 1.0f;
+    const float world_margin = farthest_dist * (near_margin / nearplane); // wanted margin at farthest point
+    const float upscale = 1.0f + world_margin / radius;
+    debugf("origin_z: %f, farthest_dist: %f, world_margin: %f, upscale: %f\n", origin_z, farthest_dist, world_margin, upscale);
+    //const float upscale = 1.0f + 0.1f;
+    return upscale;
+}
+
 bool occ_check_mesh_visible_precise(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t *mesh, const matrix_t *model_xform,
                                     occ_target_t *target, occ_raster_query_result_t *out_result)
 {
-    // float upscale = compute_distance_scale(occ, model_xform);
-    // matrix_t scaler = cpu_glScalef(upscale, upscale, upscale); // TODO replace with inline scaling
-    // matrix_t xform;
-    // matrix_mult_full(&xform, model_xform, &scaler);
 
-    // matrix_t mvp;
-    // matrix_mult_full(mvp, &occ->mvp, xform);
+    prof_begin(REGION_TRANSFORM);
 
+    matrix_t modelview_temp;
+    matrix_mult_full(&modelview_temp, &occ->view_matrix, model_xform);
+    float upscale = compute_distance_scale(occ, &modelview_temp);
+
+    matrix_t scaler = cpu_glScalef(upscale, upscale, upscale); // TODO replace with inline scaling
+    matrix_t xform;
+    matrix_mult_full(&xform, model_xform, &scaler);
+
+    matrix_t modelview;
+    matrix_mult_full(&modelview, &occ->view_matrix, &xform);
+
+    matrix_t mvp;
+    matrix_mult_full(&mvp, &occ->proj, &modelview);
+
+    prof_end(REGION_TRANSFORM);
 
     occ_raster_query_result_t result = {};
     uint32_t flags = OCC_RASTER_FLAGS_QUERY;
     flags |= RASTER_FLAG_WRITE_DEPTH; // DEBUG HACK!
     flags &= ~RASTER_FLAG_EARLY_OUT; // DEBUG HACK!
 
-    const occ_xform_matrices_t matrices = {.mvp = &occ->mvp, .modelview = NULL, .model = model_xform};
+    const occ_xform_matrices_t matrices = {.mvp = &mvp, .modelview = &modelview, .model = NULL};
     occ_draw_indexed_mesh_flags(occ, zbuffer, &matrices, mesh, NULL, NULL, target, flags, &result);
 
     if (out_result) {
@@ -879,21 +919,6 @@ float get_matrix_1st_column_xyz_magnitude(const matrix_t *m) {
         + m->m[0][1] * m->m[0][1]
         + m->m[0][2] * m->m[0][2];
     return sqrtf(s);
-}
-
-float compute_distance_scale(occ_culler_t *occ, const matrix_t *modelview)
-{
-    float origin[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-    float origin_z = matrix_mult_z_only(modelview, origin);
-    float radius = 5.196f * 0.577; // cube max radius * (1/sqrtf(3)) sqrtf(3.0f*3.0f + 3.0f*3.0f + 3.0f*3.0f); // cube.h diagonal
-    float farthest_dist = -origin_z + radius;
-    const float near_margin = 1.0f / occ->viewport.width; // wanted margin at near plane
-    const float nearplane = 1.0f;
-    const float world_margin = farthest_dist * (near_margin / nearplane); // wanted margin at farthest point
-    const float upscale = 1.0f + world_margin / radius;
-    debugf("origin_z: %f, farthest_dist: %f, world_margin: %f, upscale: %f\n", origin_z, farthest_dist, world_margin, upscale);
-    //const float upscale = 1.0f + 0.1f;
-    return upscale;
 }
 
 typedef struct occ_draw_data_s {
