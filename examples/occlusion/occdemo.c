@@ -261,7 +261,11 @@ void render_door_scene(surface_t* disp)
 
     //occ_result_box_t box = {};
     occ_raster_query_result_t raster_query = {};
-    bool cube_visible = occ_check_target_visible(culler, sw_zbuffer, &cube_mesh, &cube_xform, &cube_target, &raster_query);
+    //bool cube_visible = occ_check_target_visible(culler, sw_zbuffer, &cube_mesh, &cube_xform, &cube_target, &raster_query);
+    bool cube_visible=true;
+    (void)raster_query.depth;
+    (void)cube_target.last_visible_frame;
+    assert(false && "need to update occ check to use hull");
     //box.hitX = raster_query.x;
     //box.hitY = raster_query.y;
     //box.udepth = raster_query.depth;
@@ -394,7 +398,7 @@ void render_big_scene(surface_t* disp)
             // query for visibility
             // debugf("i=%d\n", i);
             matrix_t *xform = &cube_xforms[idx];
-            bool visible = occ_check_target_visible(culler, sw_zbuffer, &cube_hull.mesh, xform, &big_scene.targets[idx], NULL);
+            bool visible = occ_check_target_visible(culler, sw_zbuffer, &cube_hull, xform, &big_scene.targets[idx], NULL);
 
             if (visible || config_show_wireframe) {
                 glPushMatrix();
@@ -503,7 +507,7 @@ void render_single_cube_scene(surface_t*)
 
     //occ_draw_mesh(culler, sw_zbuffer, &cube_hull.mesh, &xform);
     // occ_draw_hull(culler, sw_zbuffer, &cube_hull, &xform);
-    occ_check_target_visible(culler, sw_zbuffer, &cube_hull.mesh, &xform, &target_single_cube, NULL);
+    occ_check_target_visible(culler, sw_zbuffer, &cube_hull, &xform, &target_single_cube, NULL);
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
 }
