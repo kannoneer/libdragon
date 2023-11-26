@@ -473,13 +473,7 @@ static float matrix_mult_z_only(const matrix_t *m, const float *v)
     return m->m[0][2] * v[0] + m->m[1][2] * v[1] + m->m[2][2] * v[2] + m->m[3][2] * v[3];
 }
 
-typedef struct occ_xform_matrices_s {
-    const matrix_t* mvp;
-    const matrix_t* modelview;
-    const matrix_t* model;
-} occ_xform_matrices_t;
-
-void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const occ_xform_matrices_t *matrices, const occ_mesh_t* mesh,
+void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform, const occ_mesh_t* mesh,
                                 vec3f* tri_normals, uint16_t* tri_neighbors,
                                 occ_target_t* target, const occ_raster_flags_t flags, occ_raster_query_result_t* query_result)
 {
@@ -495,32 +489,19 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const oc
     // Transform all vertices first
     prof_begin(REGION_TRANSFORM);
 
-    matrix_t* mvp = (matrix_t*)matrices->mvp;
-    matrix_t* modelview = (matrix_t*)matrices->modelview;
-    matrix_t* model_xform = (matrix_t*)matrices->model;
+    matrix_t* mvp = &occ->mvp;
+    matrix_t* modelview = NULL;
     matrix_t mvp_new, modelview_new;
 
-    if (modelview) {
-        assert(mvp); // ModelView and MVP should always come bundled
-    }
-
-    if (mvp && modelview) {
-        // Situation: modelview, mvp precomputed
-        // nothing to do
-        assert(!model_xform); // we ignore model_xform so it should't be passed in at all
-    } else if (!mvp && !modelview && model_xform) {
-        // No MVP nor modelview but we have transform
-        // Must multiply that in
-        mvp = &mvp_new;
-        modelview = &modelview_new;
-        matrix_mult_full(mvp, &occ->mvp, model_xform);
-        matrix_mult_full(modelview, &occ->view_matrix, model_xform);
-    } else if (!mvp && !modelview && !model_xform) {
+    if (!model_xform) {
         // Everything at defaults: use global transforms
         mvp = &occ->mvp;
         modelview = &occ->view_matrix;
     } else {
-        assert(false && "unexpected xform_matrices combo");
+        mvp = &mvp_new;
+        modelview = &modelview_new;
+        matrix_mult_full(mvp, &occ->mvp, model_xform);
+        matrix_mult_full(modelview, &occ->view_matrix, model_xform);
     }
 
     cpu_vtx_t all_verts[OCC_MAX_MESH_VERTEX_COUNT] = {0};
@@ -689,9 +670,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const oc
 
 void occ_draw_mesh(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t *mesh, const matrix_t *model_xform)
 {
-    const occ_xform_matrices_t matrices = {.mvp = NULL, .modelview = NULL, .model = model_xform};
-
-	occ_draw_indexed_mesh_flags(occ, zbuffer, &matrices, mesh,
+	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, mesh,
         /* mesh_normals = */ NULL,
         /* mesh_neighbors = */ NULL,
         /* target = */ NULL,
@@ -701,8 +680,7 @@ void occ_draw_mesh(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t *mesh
 
 void occ_draw_hull(occ_culler_t *occ, surface_t *zbuffer, const occ_hull_t* hull, const matrix_t *model_xform)
 {
-    const occ_xform_matrices_t matrices = {.mvp = NULL, .modelview = NULL, .model = model_xform};
-	occ_draw_indexed_mesh_flags(occ, zbuffer, &matrices, &hull->mesh, hull->tri_normals, hull->neighbors, NULL, OCC_RASTER_FLAGS_DRAW, NULL);
+	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, &hull->mesh, hull->tri_normals, hull->neighbors, NULL, OCC_RASTER_FLAGS_DRAW, NULL);
 }
 
 static vec2f rotate_xy_coords_45deg(float x, float y) {
@@ -880,32 +858,12 @@ float compute_distance_scale(occ_culler_t *occ, const matrix_t *modelview)
 bool occ_check_mesh_visible_precise(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t *mesh, const matrix_t *model_xform,
                                     occ_target_t *target, occ_raster_query_result_t *out_result)
 {
-
-    prof_begin(REGION_TRANSFORM);
-
-    matrix_t modelview_temp;
-    matrix_mult_full(&modelview_temp, &occ->view_matrix, model_xform);
-    float upscale = compute_distance_scale(occ, &modelview_temp);
-
-    matrix_t scaler = cpu_glScalef(upscale, upscale, upscale); // TODO replace with inline scaling
-    matrix_t xform;
-    matrix_mult_full(&xform, model_xform, &scaler);
-
-    matrix_t modelview;
-    matrix_mult_full(&modelview, &occ->view_matrix, &xform);
-
-    matrix_t mvp;
-    matrix_mult_full(&mvp, &occ->proj, &modelview);
-
-    prof_end(REGION_TRANSFORM);
-
     occ_raster_query_result_t result = {};
     uint32_t flags = OCC_RASTER_FLAGS_QUERY;
     flags |= RASTER_FLAG_WRITE_DEPTH; // DEBUG HACK!
     flags &= ~RASTER_FLAG_EARLY_OUT; // DEBUG HACK!
 
-    const occ_xform_matrices_t matrices = {.mvp = &mvp, .modelview = &modelview, .model = NULL};
-    occ_draw_indexed_mesh_flags(occ, zbuffer, &matrices, mesh, NULL, NULL, target, flags, &result);
+    occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, mesh, NULL, NULL, target, flags, &result);
 
     if (out_result) {
         *out_result = result;
