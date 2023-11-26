@@ -52,11 +52,11 @@ static GLuint textures[4];
 
 static const GLfloat environment_color[] = {0.1f, 0.5f, 0.5f, 1.f};
 
-static bool config_show_visible_point = true;
 static bool config_show_wireframe = true;
 static bool config_enable_culling = true;
 static int config_depth_view_mode = 1;
 static bool config_conservative = true;
+static bool config_top_down_view = false;
 
 static const GLfloat light_pos[8][4] = {
     {1, 0, 0, 0},
@@ -111,6 +111,16 @@ void compute_fps_camera_matrix(matrix_t *matrix, const fps_camera_t *camera)
         camera->pos[0] + cos(camera->angle), camera->pos[1], camera->pos[2] + sin(camera->angle),
         0, 1, 0);
 }
+
+void compute_top_down_camera_matrix(matrix_t *matrix, const fps_camera_t *camera)
+{
+    float h = 70.0f;
+    cpu_gluLookAt(matrix,
+        camera->pos[0], camera->pos[1] + h, camera->pos[2],
+        camera->pos[0] + cos(camera->angle), camera->pos[1], camera->pos[2] + sin(camera->angle),
+        0, 1, 0);
+}
+
 
 void setup()
 {
@@ -323,7 +333,7 @@ void render_door_scene(surface_t* disp)
     // render_primitives(rotation);
 }
 
-#define BIG_SCENE_NUM_CUBES (40)
+#define BIG_SCENE_NUM_CUBES (100)
 
 struct
 {
@@ -478,7 +488,6 @@ struct
 
 void setup_city_scene()
 {
-    // memset(&big_scene, 0, sizeof(big_scene));
 }
 
 void render_city_scene(surface_t* disp)
@@ -567,7 +576,7 @@ void render_city_scene(surface_t* disp)
             // query for visibility
             // debugf("i=%d\n", i);
             matrix_t *xform = &cube_xforms[idx];
-            bool visible = occ_check_target_visible(culler, sw_zbuffer, &cube_hull, xform, &big_scene.targets[idx], NULL);
+            bool visible = occ_check_target_visible(culler, sw_zbuffer, &cube_hull, xform, &city_scene.targets[idx], NULL);
 
             if (visible || config_show_wireframe) {
                 glPushMatrix();
@@ -680,7 +689,7 @@ void render_single_cube_scene(surface_t*)
     glDisable(GL_LIGHTING);
 }
 
-void render()
+void render(double delta)
 {
     surface_t *disp = display_get();
 
@@ -706,8 +715,14 @@ void render()
     // matrix_t mvp;
     // matrix_mult_full(&mvp, &g_projection, &g_view);
 
-    glLoadMatrixf(&g_view.m[0][0]);
     occ_set_view_and_projection(culler, &g_view, &g_projection);
+    glLoadMatrixf(&g_view.m[0][0]);
+
+    if (config_top_down_view) {
+        matrix_t new_view;
+        compute_top_down_camera_matrix(&new_view, &fps_camera);
+        glLoadMatrixf(&new_view.m[0][0]);
+    }
 
     //render_door_scene(disp);
     //render_big_scene(disp);
@@ -779,6 +794,7 @@ void render()
     rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 20, config_enable_culling ? "occlusion culling: ON" : "occlusion culling: OFF");
     rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 30, config_show_wireframe ? "show culled: ON" : "show culled: OFF");
     rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 40, "visible: %d/%d cubes", scene_stats.num_drawn, scene_stats.num_max);
+    rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 50, "delta: %.3f ms", delta*1000);
     rdpq_detach_show();
 
     rspq_profile_next_frame();
@@ -825,11 +841,13 @@ int main()
 
     rspq_profile_start();
 
+    double delta=1/30.0f; // last frame's delta time
+    uint32_t last_ticks = get_ticks();
+
 #if !DEBUG_RDP
     while (1)
 #endif
     {
-        uint32_t ticks_start = get_ticks();
         joypad_poll();
         joypad_buttons_t pressed = joypad_get_buttons_pressed(JOYPAD_PORT_1);
         joypad_inputs_t inputs = joypad_get_inputs(JOYPAD_PORT_1);
@@ -851,9 +869,6 @@ int main()
             config_show_wireframe = !config_show_wireframe;
         }
 
-        if (pressed.l) {
-            config_show_visible_point = !config_show_visible_point;
-        }
 
         if (pressed.c_up) {
             config_enable_culling = !config_enable_culling;
@@ -862,6 +877,11 @@ int main()
 
         if (pressed.c_down) {
             config_depth_view_mode = (config_depth_view_mode + 1) % 3;
+        }
+
+        if (pressed.c_left) {
+            config_top_down_view = !config_top_down_view;
+            debugf("top down view: %d\n", config_top_down_view);
         }
 
         if (pressed.c_right) {
@@ -873,34 +893,35 @@ int main()
         float x = inputs.stick_x / 128.f;
         float mag = x * x + y * y;
 
-    if (g_camera_mode == CAM_SPIN) {
-        if (fabsf(mag) > 0.01f) {
-            camera.distance += y * 0.2f;
-            camera.rotation = camera.rotation - x * 1.2f;
+        if (g_camera_mode == CAM_SPIN) {
+            if (fabsf(mag) > 0.01f) {
+                camera.distance += y * 0.2f;
+                camera.rotation = camera.rotation - x * 1.2f;
+            }
+        }
+        else if (g_camera_mode == CAM_FPS) {
+            if (fabsf(mag) > 0.01f) {
+                float adelta = 0.05f;
+                float mdelta = 0.3f;
+                fps_camera.pos[0] += mdelta * y * cos(fps_camera.angle);
+                fps_camera.pos[2] += mdelta * y * sin(fps_camera.angle);
+                fps_camera.angle = fmodf(fps_camera.angle + adelta * x, 2 * M_PI);
+            }
         }
 
-    } else if (g_camera_mode == CAM_FPS) {
-        if (fabsf(mag) > 0.01f) {
-            float adelta = 0.05f;
-            float mdelta = 0.3f;
-            fps_camera.pos[0] += mdelta * y * cos(fps_camera.angle);
-            fps_camera.pos[2] += mdelta * y * sin(fps_camera.angle);
-            fps_camera.angle = fmodf(fps_camera.angle + adelta * x, 2*M_PI);
-            
-        }
-    }
-
-        render();
+        render(delta);
         if (DEBUG_RDP)
             rspq_wait();
         
+        rspq_wait();
         rspq_flush();
         uint32_t ticks_end = get_ticks();
         if (true) {
-            double delta = (ticks_end - ticks_start) / (double)TICKS_PER_SECOND;
+            delta = (ticks_end - last_ticks) / (double)TICKS_PER_SECOND;
             debugf("deltatime: %f ms\n", delta * 1000.0);
             prof_print_stats();
         }
+        last_ticks = ticks_end;
         prof_reset_stats();
 
         g_num_frames++;
