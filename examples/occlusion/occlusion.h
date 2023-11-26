@@ -256,6 +256,8 @@ void draw_tri(
     if (maxb.x > zbuffer->width - 1) maxb.x = zbuffer->width - 1;
     if (maxb.y > zbuffer->height - 1) maxb.y = zbuffer->height - 1;
 
+    if (minb.x >= maxb.x || minb.y >= maxb.y) return;
+
     vec2 p_start = { minb.x << SUBPIXEL_BITS, minb.y << SUBPIXEL_BITS };
 
     int A01 = -(v0.y - v1.y), B01 = -(v1.x - v0.x);
