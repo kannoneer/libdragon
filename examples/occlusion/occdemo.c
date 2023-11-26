@@ -506,8 +506,9 @@ void render_single_cube_scene(surface_t*)
     glPopMatrix();
 
     //occ_draw_mesh(culler, sw_zbuffer, &cube_hull.mesh, &xform);
-    // occ_draw_hull(culler, sw_zbuffer, &cube_hull, &xform);
-    occ_check_target_visible(culler, sw_zbuffer, &cube_hull, &xform, &target_single_cube, NULL);
+    occ_draw_hull(culler, sw_zbuffer, &cube_hull, &xform);
+    (void)target_single_cube;
+    //occ_check_target_visible(culler, sw_zbuffer, &cube_hull, &xform, &target_single_cube, NULL);
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
 }
