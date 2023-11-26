@@ -22,8 +22,8 @@
 
 #define SCREEN_WIDTH (320)
 #define SCREEN_HEIGHT (240)
-#define CULL_W (SCREEN_WIDTH / 8)
-#define CULL_H (SCREEN_HEIGHT / 8)
+#define CULL_W (SCREEN_WIDTH / 4)
+#define CULL_H (SCREEN_HEIGHT / 4)
 
 static occ_culler_t *culler;
 static occ_hull_t cube_hull;
@@ -471,6 +471,8 @@ void render_2d_scene(surface_t*)
         sw_zbuffer);
 }
 
+static occ_target_t target_single_cube = {0};
+
 void render_single_cube_scene(surface_t*)
 {
     long unsigned int anim_timer = g_num_frames;
@@ -491,8 +493,8 @@ void render_single_cube_scene(surface_t*)
     matrix_t rotate = cpu_glRotatef(45.f + anim_timer*0.5f, sqrtf(2)/2.f, 0.0f, sqrtf(2)/2.f);
     matrix_mult_full(&xform, &translate, &rotate);
 
-    bool visible = occ_check_target_visible(culler, sw_zbuffer, &cube_hull.mesh, &xform, &cube_target, NULL);
-    (void)visible;
+    // bool visible = occ_check_target_visible(culler, sw_zbuffer, &cube_hull.mesh, &xform, &cube_target, NULL);
+    // (void)visible;
 
     glPushMatrix();
     glMultMatrixf(&xform.m[0][0]);
@@ -500,7 +502,8 @@ void render_single_cube_scene(surface_t*)
     glPopMatrix();
 
     //occ_draw_mesh(culler, sw_zbuffer, &cube_hull.mesh, &xform);
-    occ_draw_hull(culler, sw_zbuffer, &cube_hull, &xform);
+    // occ_draw_hull(culler, sw_zbuffer, &cube_hull, &xform);
+    occ_check_target_visible(culler, sw_zbuffer, &cube_hull.mesh, &xform, &target_single_cube, NULL);
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
 }
@@ -527,9 +530,9 @@ void render()
     occ_set_view_and_projection(culler, &g_view, &g_projection);
 
     //render_door_scene(disp);
-    render_big_scene(disp);
+    //render_big_scene(disp);
     //render_2d_scene(disp);
-    // render_single_cube_scene(disp);
+    render_single_cube_scene(disp);
 
     gl_context_end();
 
@@ -620,6 +623,7 @@ int main()
     dfs_init(DFS_DEFAULT_LOCATION);
 
     display_init(RESOLUTION_320x240, DEPTH_16_BPP, 3, GAMMA_NONE, FILTERS_RESAMPLE_ANTIALIAS_DEDITHER);
+    *(volatile uint32_t*)0xA4400000 |= 0x300; //disable filtering on PAL
 
     rdpq_init();
     gl_init();

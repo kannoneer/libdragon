@@ -583,7 +583,7 @@ static void cpu_gluLookAt(matrix_t *m, float eyex, float eyey, float eyez,
     m->m[3][3] = 1;
 };
 
-void print_matrix(matrix_t *matrix)
+void print_matrix(const matrix_t *matrix)
 {
     for (int row = 0; row < 4; row++) {
         for (int col = 0; col < 4; col++) {

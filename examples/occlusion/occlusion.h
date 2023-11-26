@@ -55,6 +55,7 @@ bool g_verbose_raster = false; // print depth at vertex pixels
 bool g_verbose_early_out = false; // print coordinates of pixels that pass the depth test
 bool g_verbose_visibility_tracking = false; // debug prints of last visible tri tracking
 bool g_octagon_test = false; // intersect screenspace box with a 45 degree rotated box to get a stricter octagon test
+bool config_shrink_silhouettes = false; // detect edges with flipped viewspace Z signs in each neighbor and add inner conservative flags
 bool config_discard_based_on_tr_code = true;
 
 enum {
@@ -65,7 +66,7 @@ enum {
     RASTER_FLAG_ROUND_DEPTH_UP = 1 << 4,    // Round depths to the next higher 16-bit integer. Default is rounding down.
     RASTER_FLAG_DISCARD_FAR = 1 << 5,       // Discard any triangle that touches the far plane.
     RASTER_FLAG_WRITE_DEPTH = 1 << 6,       // Actually write to depth buffer
-    RASTER_FLAG_RESERVED1 = 1 << 7,
+    RASTER_FLAG_REPORT_VISIBILITY = 1 << 7, // Write out visible pixel, combined with EARLY_OUT for testing-only mode
     RASTER_FLAG_SHRINK_EDGE_01 = 1 << 8,    // Inner conservative rasterization
     RASTER_FLAG_SHRINK_EDGE_12 = 1 << 9,
     RASTER_FLAG_SHRINK_EDGE_20 = 1 << 10,
@@ -86,7 +87,8 @@ typedef uint32_t occ_clip_action_t;
 occ_clip_action_t config_near_clipping_action = CLIP_ACTION_DO_IT;
 
 #define OCC_RASTER_FLAGS_DRAW  (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_WRITE_DEPTH |RASTER_FLAG_ROUND_DEPTH_UP | RASTER_FLAG_DISCARD_FAR)
-#define OCC_RASTER_FLAGS_QUERY (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_EARLY_OUT)
+// #define OCC_RASTER_FLAGS_DRAW  (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_WRITE_DEPTH |RASTER_FLAG_ROUND_DEPTH_UP | RASTER_FLAG_DISCARD_FAR | RASTER_FLAG_EXPAND_EDGE_01 | RASTER_FLAG_EXPAND_EDGE_12 | RASTER_FLAG_EXPAND_EDGE_20)
+#define OCC_RASTER_FLAGS_QUERY (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_EARLY_OUT | RASTER_FLAG_REPORT_VISIBILITY)
 
 typedef struct occ_culler_s {
     struct {
@@ -133,9 +135,10 @@ typedef struct occ_hull_s {
     vec3f* tri_normals; // num_indices/3 triangle normal vectors
     uint16_t* neighbors; // three neighbors per triangle, one for each edge. num_indices size.
                         // OCC_NO_EDGE_NEIGHBOR sentinel value marks outer edges
+    float max_radius;   // largest vertex distance from origin, to be used for culling
 } occ_hull_t;
 
-typedef struct occ_occluder_s {
+typedef struct occ_target_s {
     uint16_t last_visible_idx;      // last visible index buffer offset
     uint32_t last_visible_frame;    // index of the frame the object was visible
 } occ_target_t;
@@ -236,6 +239,9 @@ void draw_tri(
     vec2 v0 = {SUBPIXEL_SCALE * (v0f.x+SCREENSPACE_BIAS) + 0.5f, SUBPIXEL_SCALE * (v0f.y+SCREENSPACE_BIAS) + 0.5f};
     vec2 v1 = {SUBPIXEL_SCALE * (v1f.x+SCREENSPACE_BIAS) + 0.5f, SUBPIXEL_SCALE * (v1f.y+SCREENSPACE_BIAS) + 0.5f};
     vec2 v2 = {SUBPIXEL_SCALE * (v2f.x+SCREENSPACE_BIAS) + 0.5f, SUBPIXEL_SCALE * (v2f.y+SCREENSPACE_BIAS) + 0.5f};
+    // vec2 v0 = {SUBPIXEL_SCALE * (v0f.x+SCREENSPACE_BIAS), SUBPIXEL_SCALE * (v0f.y+SCREENSPACE_BIAS)};
+    // vec2 v1 = {SUBPIXEL_SCALE * (v1f.x+SCREENSPACE_BIAS), SUBPIXEL_SCALE * (v1f.y+SCREENSPACE_BIAS)};
+    // vec2 v2 = {SUBPIXEL_SCALE * (v2f.x+SCREENSPACE_BIAS), SUBPIXEL_SCALE * (v2f.y+SCREENSPACE_BIAS)};
 
     vec2 minb = {
         (min(v0.x, min(v1.x, v2.x)) >> SUBPIXEL_BITS),
@@ -349,7 +355,7 @@ void draw_tri(
 
     assert(!((flags & RASTER_FLAG_NEG_SLOPE_BIAS) && (flags & RASTER_FLAG_POS_SLOPE_BIAS))); // Mutually exclusive flags
 
-    if (flags & RASTER_FLAG_EARLY_OUT) {
+    if (flags & RASTER_FLAG_REPORT_VISIBILITY) {
         assert(result);
         result->visible = false;
     }
@@ -389,7 +395,7 @@ void draw_tri(
                     if (flags & RASTER_FLAG_WRITE_DEPTH) {
                         *buf = depth;
                     }
-                    if (flags & RASTER_FLAG_EARLY_OUT) {
+                    if (flags & RASTER_FLAG_REPORT_VISIBILITY) {
                         assert(result);
                         result->visible = true;
                         result->x = p.x;
@@ -435,7 +441,10 @@ void draw_tri(
 
                             while (true) {}; // HACK
                         }
-                        return; // early out was requested
+
+                        if (flags & RASTER_FLAG_EARLY_OUT) {
+                            return;
+                        }
                     }
                 }
 
@@ -464,7 +473,13 @@ static float matrix_mult_z_only(const matrix_t *m, const float *v)
     return m->m[0][2] * v[0] + m->m[1][2] * v[1] + m->m[2][2] * v[2] + m->m[3][2] * v[3];
 }
 
-void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform, const occ_mesh_t* mesh,
+typedef struct occ_xform_matrices_s {
+    const matrix_t* mvp;
+    const matrix_t* modelview;
+    const matrix_t* model;
+} occ_xform_matrices_t;
+
+void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const occ_xform_matrices_t *matrices, const occ_mesh_t* mesh,
                                 vec3f* tri_normals, uint16_t* tri_neighbors,
                                 occ_target_t* target, const occ_raster_flags_t flags, occ_raster_query_result_t* query_result)
 {
@@ -477,8 +492,9 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         zbuffer->width,
         zbuffer->height);
 
-    matrix_t* mvp = NULL;
-    matrix_t* modelview = NULL;
+    matrix_t* mvp = (matrix_t*)matrices->mvp;
+    matrix_t* modelview = (matrix_t*)matrices->modelview;
+    matrix_t* model_xform = (matrix_t*)matrices->model;
     matrix_t mvp_new, modelview_new;
 
     if (model_xform) {
@@ -496,7 +512,6 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
     cpu_vtx_t all_verts[OCC_MAX_MESH_VERTEX_COUNT] = {0};
     bool tri_faces_camera[OCC_MAX_MESH_INDEX_COUNT];
 
-
     if (tri_normals) {
         int num_tris = mesh->num_indices/3;
         for (int i = 0; i < num_tris; i++) {
@@ -507,21 +522,10 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         }
     }
 
-    float origin[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-    float origin_z = matrix_mult_z_only(modelview, origin);
-    float radius = 3.0f; //sqrtf(3.0f*3.0f + 3.0f*3.0f + 3.0f*3.0f); // cube.h diagonal
-    float farthest_dist = -origin_z + radius;
-    const float near_margin = 1.0f / occ->viewport.width; // wanted margin at near plane
-    const float nearplane = 1.0f;
-    const float world_margin = farthest_dist * (near_margin / nearplane); // wanted margin at farthest point
-    const float upscale = 1.0f + world_margin / radius;
-    debugf("origin_z: %f, farthest_dist: %f, world_margin: %f, upscale: %f\n", origin_z, farthest_dist, world_margin, upscale);
-    //const float upscale = 1.0f + 0.1f;
-
     for (uint32_t i = 0; i < mesh->num_vertices; i++) {
-        all_verts[i].obj_attributes.position[0] = upscale * mesh->vertices[i].position[0];
-        all_verts[i].obj_attributes.position[1] = upscale * mesh->vertices[i].position[1];
-        all_verts[i].obj_attributes.position[2] = upscale * mesh->vertices[i].position[2];
+        all_verts[i].obj_attributes.position[0] = mesh->vertices[i].position[0];
+        all_verts[i].obj_attributes.position[1] = mesh->vertices[i].position[1];
+        all_verts[i].obj_attributes.position[2] = mesh->vertices[i].position[2];
         all_verts[i].obj_attributes.position[3] = 1.0f; // Q: where does cpu pipeline set this?
 
         cpu_vertex_pre_tr(&all_verts[i], mvp);
@@ -580,7 +584,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
                 continue;
             }
 
-            if (tri_neighbors) {
+            if (tri_neighbors && config_shrink_silhouettes) {
                 // Silhouette edges join triangles with different view space Z signs
                 for (int j = 0; j < 3; j++) {
                     uint16_t other = tri_neighbors[tri_idx * 3 + j];
@@ -671,12 +675,20 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
 
 void occ_draw_mesh(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t *mesh, const matrix_t *model_xform)
 {
-	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, mesh, NULL, NULL, NULL, OCC_RASTER_FLAGS_DRAW, NULL);
+    const occ_xform_matrices_t matrices = {.mvp = &occ->mvp, .modelview = NULL, .model = model_xform};
+
+	occ_draw_indexed_mesh_flags(occ, zbuffer, &matrices, mesh,
+        /* mesh_normals = */ NULL,
+        /* mesh_neighbors = */ NULL,
+        /* target = */ NULL,
+        OCC_RASTER_FLAGS_DRAW,
+        /* query_result = */ NULL);
 }
 
 void occ_draw_hull(occ_culler_t *occ, surface_t *zbuffer, const occ_hull_t* hull, const matrix_t *model_xform)
 {
-	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, &hull->mesh, hull->tri_normals, hull->neighbors, NULL, OCC_RASTER_FLAGS_DRAW, NULL);
+    const occ_xform_matrices_t matrices = {.mvp = &occ->mvp, .modelview = NULL, .model = model_xform};
+	occ_draw_indexed_mesh_flags(occ, zbuffer, &matrices, &hull->mesh, hull->tri_normals, hull->neighbors, NULL, OCC_RASTER_FLAGS_DRAW, NULL);
 }
 
 static vec2f rotate_xy_coords_45deg(float x, float y) {
@@ -838,13 +850,56 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
 bool occ_check_mesh_visible_precise(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t *mesh, const matrix_t *model_xform,
                                     occ_target_t *target, occ_raster_query_result_t *out_result)
 {
+    // float upscale = compute_distance_scale(occ, model_xform);
+    // matrix_t scaler = cpu_glScalef(upscale, upscale, upscale); // TODO replace with inline scaling
+    // matrix_t xform;
+    // matrix_mult_full(&xform, model_xform, &scaler);
+
+    // matrix_t mvp;
+    // matrix_mult_full(mvp, &occ->mvp, xform);
+
+
     occ_raster_query_result_t result = {};
-    occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, mesh, NULL, NULL, target, OCC_RASTER_FLAGS_QUERY, &result);
+    uint32_t flags = OCC_RASTER_FLAGS_QUERY;
+    flags |= RASTER_FLAG_WRITE_DEPTH; // DEBUG HACK!
+    flags &= ~RASTER_FLAG_EARLY_OUT; // DEBUG HACK!
+
+    const occ_xform_matrices_t matrices = {.mvp = &occ->mvp, .modelview = NULL, .model = model_xform};
+    occ_draw_indexed_mesh_flags(occ, zbuffer, &matrices, mesh, NULL, NULL, target, flags, &result);
+
     if (out_result) {
         *out_result = result;
     }
     return result.visible;
 }
+
+float get_matrix_1st_column_xyz_magnitude(const matrix_t *m) {
+    float s =
+          m->m[0][0] * m->m[0][0]
+        + m->m[0][1] * m->m[0][1]
+        + m->m[0][2] * m->m[0][2];
+    return sqrtf(s);
+}
+
+float compute_distance_scale(occ_culler_t *occ, const matrix_t *modelview)
+{
+    float origin[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    float origin_z = matrix_mult_z_only(modelview, origin);
+    float radius = 5.196f * 0.577; // cube max radius * (1/sqrtf(3)) sqrtf(3.0f*3.0f + 3.0f*3.0f + 3.0f*3.0f); // cube.h diagonal
+    float farthest_dist = -origin_z + radius;
+    const float near_margin = 1.0f / occ->viewport.width; // wanted margin at near plane
+    const float nearplane = 1.0f;
+    const float world_margin = farthest_dist * (near_margin / nearplane); // wanted margin at farthest point
+    const float upscale = 1.0f + world_margin / radius;
+    debugf("origin_z: %f, farthest_dist: %f, world_margin: %f, upscale: %f\n", origin_z, farthest_dist, world_margin, upscale);
+    //const float upscale = 1.0f + 0.1f;
+    return upscale;
+}
+
+typedef struct occ_draw_data_s {
+    matrix_t *modelview;
+} occ_draw_data_t;
+
 
 bool occ_check_target_visible(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t* mesh, const matrix_t *model_xform,
 occ_target_t* target, occ_raster_query_result_t *out_result)
@@ -853,6 +908,22 @@ occ_target_t* target, occ_raster_query_result_t *out_result)
     occ_result_box_t box = {};
     bool pass = true;
     const bool force_rough_only = false;
+
+    //float mag = get_matrix_1st_column_xyz_magnitude(model_xform);
+    //TODO handle mag > 1 scaling
+    #if 0
+    float upscale = compute_distance_scale(occ, model_xform);
+    matrix_t scaler = cpu_glScalef(upscale, upscale, upscale); // TODO replace with inline scaling
+    matrix_t xform;
+    matrix_mult_full(&xform, model_xform, &scaler);
+
+    matrix_t mvp;
+    matrix_mult_full(mvp, &occ->mvp, xform);
+    #endif
+    // PROBLEM: need to edit modelview, not model
+    // SOLUTION: some kind of a DrawContext or Pipeline struct that holds mvp + xformed verts maybe
+    //           can look for the farthest vertex from that too??? chicken and egg again
+
 
     // Do a rough check only if target was not visible last time.
     if (target->last_visible_frame != occ->frame - 1 || force_rough_only) {
@@ -1055,6 +1126,38 @@ bool occ_hull_from_flat_mesh(const occ_mesh_t* mesh_in, occ_hull_t* hull_out)
             }
         }
 
+    }
+
+    // Compute the center of mass
+    float center[3] = {0.f, 0.f, 0.f};
+
+    for (uint32_t i=0;i<m->num_vertices;i++) {
+        float* v = &m->vertices[i].position[0];
+        center[0] += v[0];
+        center[1] += v[1];
+        center[2] += v[2];
+    }
+    center[0] /= m->num_vertices;
+    center[1] /= m->num_vertices;
+    center[2] /= m->num_vertices;
+
+    // Compute max distance from that center
+    hull_out->max_radius = 0.0;
+
+    for (uint32_t i=0;i<m->num_vertices;i++) {
+        float* p = &m->vertices[i].position[0];
+        float v[3] = {p[0] - center[0], p[1] - center[1], p[2] - center[2]};
+        float radius = sqrtf(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
+
+        // "Closest surface" approximation that works for cubes and planar quads
+        //float surface_dist = max(max(abs(v[0]), abs(v[1])), abs(v[2]));
+        hull_out->max_radius = max(radius, hull_out->max_radius);
+    }
+
+    assert(hull_out->max_radius > 1e-3);
+
+    if (verbose) {
+        debugf("max_radius: %f\n", hull_out->max_radius);
     }
 
     if (verbose) {
