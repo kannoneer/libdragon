@@ -55,8 +55,9 @@ bool g_verbose_raster = false; // print depth at vertex pixels
 bool g_verbose_early_out = false; // print coordinates of pixels that pass the depth test
 bool g_verbose_visibility_tracking = false; // debug prints of last visible tri tracking
 bool g_octagon_test = false; // intersect screenspace box with a 45 degree rotated box to get a stricter octagon test
-bool config_shrink_silhouettes = false; // detect edges with flipped viewspace Z signs in each neighbor and add inner conservative flags
+bool config_shrink_silhouettes = true; // detect edges with flipped viewspace Z signs in each neighbor and add inner conservative flags
 bool config_discard_based_on_tr_code = true;
+bool config_inflate_rough_bounds = true;
 
 enum {
     RASTER_FLAG_BACKFACE_CULL = 1,
@@ -217,7 +218,7 @@ static int compute_conservative_edge_bias(vec2 a, vec2 b, bool shrink)
 {
     // See Tomas Akenine-Möller and Timo Aila, "A Simple Algorithm for Conservative and Tiled Rasterization", 2005.
     vec2 n = get_edge_normal(a, b);            // normal points inside the triangle, or the left of line segment 'ab'
-    int edge_bias = (abs(n.x) + abs(n.y)) / 2; // Q: why did we have this /2 here again?
+    int edge_bias = (abs(n.x) + abs(n.y)) * 0.75; // factor chosen empirically to keep low-rez pixels inside high-rez RDP bounds
     if (shrink) {
         return -edge_bias;
     } else {
@@ -844,9 +845,18 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
         }
     }
 
+    if (config_inflate_rough_bounds) {
+        // Inflate bounds by 1 pixel to make it work with outer-conservative rasterization.
+        // In check_pixel_box_visible() these are clipped to screen bounds.
+        minX -= 1;
+        minY -= 1;
+        maxX += 1;
+        maxY += 1;
+    }
+
     // Upper bounds are exclusive so round up to include the pixels right at the edge as well.
-    maxX = ceilf(maxX);
-    maxY = ceilf(maxY);
+    //maxX = ceilf(maxX);
+    //maxY = ceilf(maxY);
 
     if (g_octagon_test) {
         oct_box.lo.x = floorf(oct_box.lo.x);
