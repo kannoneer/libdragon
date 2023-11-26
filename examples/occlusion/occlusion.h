@@ -236,6 +236,8 @@ void draw_tri(
     occ_raster_query_result_t* result,
     surface_t *zbuffer)
 {
+    const bool super_verbose = false;
+
     // The screenspace bias is added to empirically match SW depth map pixels to hi-rez RDP picture.
     vec2 v0 = {SUBPIXEL_SCALE * (v0f.x+SCREENSPACE_BIAS) + 0.5f, SUBPIXEL_SCALE * (v0f.y+SCREENSPACE_BIAS) + 0.5f};
     vec2 v1 = {SUBPIXEL_SCALE * (v1f.x+SCREENSPACE_BIAS) + 0.5f, SUBPIXEL_SCALE * (v1f.y+SCREENSPACE_BIAS) + 0.5f};
@@ -338,6 +340,22 @@ void draw_tri(
         }
     }
 
+    if (false) {
+        debugf("area2x: %d\n", area2x);
+        debugf("Z0f: %f, Z1f: %f, Z2f: %f\n", Z0f, Z1f, Z2f);
+        debugf("Zf_row: %f\n", Zf_row);
+
+                            debugf("minb: (%d, %d), maxb: (%d, %d), size: %dx%d\n", minb.x, minb.y, maxb.x, maxb.y, maxb.x-minb.x, maxb.y-minb.y);
+
+                            debugf("v0f: (%f, %f), v1f: (%f, %f), v2f: (%f, %f)\n",
+                                   v0f.x, v0f.y, v1f.x, v1f.y, v2f.x, v2f.y);
+                            debugf("v0: (%d, %d), v1: (%d, %d), v2: (%d, %d)\n",
+                                   v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
+
+                            debugf("v01: (%f, %f, %f), v02: (%f, %f, %f)\n",
+                                   v01.x, v01.y, v01.z, v02.x, v02.y, v02.z);
+    }
+
     // Fixed point deltas for the integer-only inner loop. We use DELTA_BITS of precision.
     int32_t Z_row_fixed = (int32_t)(DELTA_SCALE * Zf_row);
     int32_t dZdx_fixed = (int32_t)(DELTA_SCALE * dZdx);
@@ -360,8 +378,6 @@ void draw_tri(
         assert(result);
         result->visible = false;
     }
-
-    const bool super_verbose = false;
 
     if (super_verbose) {
         debugf("Z_row = %f, Z_row_fixed = %ld\n", Zf_row, Z_row_fixed);

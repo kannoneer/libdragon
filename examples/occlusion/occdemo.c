@@ -28,9 +28,16 @@
 static occ_culler_t *culler;
 static occ_hull_t cube_hull;
 
+enum camera_mode_enum {
+    CAM_SPIN = 0,
+    CAM_FPS = 1,
+};
+
 static uint32_t animation = 0;
 static uint32_t texture_index = 0;
 static camera_t camera;
+static fps_camera_t fps_camera;
+int g_camera_mode = CAM_SPIN;
 matrix_t g_view;
 static surface_t zbuffer;
 static surface_t sw_zbuffer_array[2];
@@ -46,9 +53,9 @@ static GLuint textures[4];
 static const GLfloat environment_color[] = {0.1f, 0.5f, 0.5f, 1.f};
 
 static bool config_show_visible_point = true;
-static bool config_show_wireframe = false;
+static bool config_show_wireframe = true;
 static bool config_enable_culling = true;
-static int config_depth_view_mode = 2;
+static int config_depth_view_mode = 1;
 static bool config_conservative = true;
 
 static const GLfloat light_pos[8][4] = {
@@ -97,6 +104,14 @@ void compute_camera_matrix(matrix_t *matrix, const camera_t *camera)
     matrix_mult_full(matrix, &lookat, &rotate);
 }
 
+void compute_fps_camera_matrix(matrix_t *matrix, const fps_camera_t *camera)
+{
+    cpu_gluLookAt(matrix,
+        camera->pos[0], camera->pos[1], camera->pos[2],
+        camera->pos[0] + cos(camera->angle), camera->pos[1], camera->pos[2] + sin(camera->angle),
+        0, 1, 0);
+}
+
 void setup()
 {
     camera.distance=-10.0; camera.rotation=0.f;
@@ -120,7 +135,7 @@ void setup()
 
     float aspect_ratio = (float)display_get_width() / (float)display_get_height();
     float near_plane = 1.0f;
-    float far_plane = 50.0f;
+    float far_plane = 100.0f;
 
     glMatrixMode(GL_PROJECTION);
     computeProjectionMatrix(&g_projection, 80.f, aspect_ratio, near_plane, far_plane);
@@ -313,10 +328,12 @@ void render_door_scene(surface_t* disp)
 struct
 {
     occ_target_t targets[BIG_SCENE_NUM_CUBES];
-    struct {
-        int num_drawn;
-    } stats;
 } big_scene = {};
+
+struct {
+    int num_drawn;
+    int num_max;
+} scene_stats;
 
 void setup_big_scene()
 {
@@ -325,7 +342,7 @@ void setup_big_scene()
 
 void render_big_scene(surface_t* disp)
 {
-    long unsigned int anim_timer = 0; // g_num_frames; // HACK
+    long unsigned int anim_timer = 0; //g_num_frames;
 
     glEnable(GL_LIGHTING);
     glEnable(GL_NORMALIZE);
@@ -361,7 +378,10 @@ void render_big_scene(surface_t* disp)
 
         matrix_t translate = cpu_glTranslatef(pos.x, pos.y, pos.z);
         matrix_t rotate = cpu_glRotatef(i*45.f+wave, sqrtf(2)/2.f, 0.0f, sqrtf(2)/2.f);
-        matrix_mult_full(&cube_xforms[i], &translate, &rotate);
+        matrix_t temp;
+        matrix_t scale = cpu_glScalef(1.0f, 2.0f, 1.0f);
+        matrix_mult_full(&temp, &rotate, &scale);
+        matrix_mult_full(&cube_xforms[i], &translate, &temp);
     }
 
     if (config_enable_culling) {
@@ -391,7 +411,8 @@ void render_big_scene(surface_t* disp)
 
         // draw from front to back
 
-        big_scene.stats.num_drawn = 0;
+        scene_stats.num_drawn = 0;
+        scene_stats.num_max = BIG_SCENE_NUM_CUBES;
         for (int order_i = 0; order_i < num_cubes; order_i++) {
             int idx = cube_order[order_i];
             // debugf("order_i =%d, idx= %d, dist = %f\n", order_i, idx, cube_z_dists[idx]);
@@ -423,24 +444,170 @@ void render_big_scene(surface_t* disp)
                 glPopMatrix();
             }
 
-            // HACK: always draw occluders to SW Z-buffer even if they didn't pass the rough check
-            if (true || visible) {
+            if (visible) {
                 // also draw to software zbuffer
-                //occ_draw_mesh(culler, sw_zbuffer, &cube_hull.mesh, xform);
                 occ_draw_hull(culler, sw_zbuffer, &cube_hull, xform);
             }
             if (visible) {
-                big_scene.stats.num_drawn++;
+                scene_stats.num_drawn++;
             }
         }
     } else {
-        big_scene.stats.num_drawn = 0;
+        scene_stats.num_drawn = 0;
         for (int idx = 0; idx < num_cubes; idx++) {
             glPushMatrix();
             glMultMatrixf(&cube_xforms[idx].m[0][0]);
             render_cube();
             glPopMatrix();
-            big_scene.stats.num_drawn++;
+            scene_stats.num_drawn++;
+        }
+    }
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+}
+
+#define CITY_SCENE_NUM_HOUSES (40)
+
+struct
+{
+    occ_target_t targets[CITY_SCENE_NUM_HOUSES];
+    struct {
+        int num_drawn;
+    } stats;
+} city_scene = {};
+
+void setup_city_scene()
+{
+    // memset(&big_scene, 0, sizeof(big_scene));
+}
+
+void render_city_scene(surface_t* disp)
+{
+    long unsigned int anim_timer = 0; //g_num_frames;
+
+    glEnable(GL_LIGHTING);
+    glEnable(GL_NORMALIZE);
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
+
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
+
+    const float wave = anim_timer * 0.2f;
+
+    const int num_cubes = CITY_SCENE_NUM_HOUSES;
+    matrix_t cube_xforms[num_cubes];
+    float cube_z_dists[num_cubes];
+    int cube_order[num_cubes];
+
+    const int COLS = 8;
+    const float marg = 16.0f;
+    const float sway = marg * 0.25f;
+
+
+    const float height = 3.0f;
+    for (int i = 0; i < num_cubes; i++) {
+        int x = i % COLS;
+        int z = i / COLS;
+
+        vec3f pos = (vec3f){
+            (x - COLS/2.0f) * marg + cos(i)*sway,
+            height,
+            (z - COLS/2.0f) * marg + sin(i)*sway};
+        
+        float fatness = 1.25f + 0.25*sin(i);
+
+        // compute viewspace z for front-to-back drawing
+        float world[4] = {pos.x, pos.y, pos.z, 1.0f};
+        float view[4] = {};
+
+        matrix_mult(&view[0], &g_view, &world[0]);
+        cube_z_dists[i] = -view[2];
+
+        matrix_t translate = cpu_glTranslatef(pos.x, pos.y, pos.z);
+        matrix_t rotate = cpu_glRotatef(i*45.f+wave, 0.0f, 1.0f, 0.0f);
+        matrix_t temp;
+        matrix_t scale = cpu_glScalef(fatness, height, fatness);
+        matrix_mult_full(&temp, &rotate, &scale);
+        matrix_mult_full(&cube_xforms[i], &translate, &temp);
+    }
+
+    if (config_enable_culling) {
+        // sort cubes by viewspace z
+
+        int compare(const void *a, const void *b)
+        {
+            float fa = cube_z_dists[*(int *)a];
+            float fb = cube_z_dists[*(int *)b];
+            // debugf("%f < %f\n", fa, fb);
+            if (fa < fb) {
+                return -1;
+            }
+            else if (fa > fb) {
+                return 1;
+            }
+            else {
+                return 0;
+            }
+        }
+
+        for (int i = 0; i < num_cubes; i++) {
+            cube_order[i] = i;
+        }
+
+        qsort(cube_order, num_cubes, sizeof(cube_order[0]), compare);
+
+        // draw from front to back
+
+        scene_stats.num_drawn = 0;
+        scene_stats.num_max = CITY_SCENE_NUM_HOUSES;
+        for (int order_i = 0; order_i < num_cubes; order_i++) {
+            int idx = cube_order[order_i];
+            // debugf("order_i =%d, idx= %d, dist = %f\n", order_i, idx, cube_z_dists[idx]);
+            // query for visibility
+            // debugf("i=%d\n", i);
+            matrix_t *xform = &cube_xforms[idx];
+            bool visible = occ_check_target_visible(culler, sw_zbuffer, &cube_hull, xform, &big_scene.targets[idx], NULL);
+
+            if (visible || config_show_wireframe) {
+                glPushMatrix();
+                glMultMatrixf(&xform->m[0][0]);
+                if (visible) {
+                    render_cube();
+                }
+                else {
+                    // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                    glDisable(GL_DEPTH_TEST);
+                    glEnable(GL_BLEND);
+                    glBlendFunc(GL_ONE, GL_ONE);
+                    glDisable(GL_LIGHTING);
+                    //glDisable(GL_TEXTURE_2D);
+                    render_cube();
+                    //glEnable(GL_TEXTURE_2D);
+                    glEnable(GL_LIGHTING);
+                    glDisable(GL_BLEND);
+                    glEnable(GL_DEPTH_TEST);
+                    // glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                }
+                glPopMatrix();
+            }
+
+            if (visible) {
+                // also draw to software zbuffer
+                occ_draw_hull(culler, sw_zbuffer, &cube_hull, xform);
+            }
+            if (visible) {
+                scene_stats.num_drawn++;
+            }
+        }
+    } else {
+        scene_stats.num_drawn = 0;
+        for (int idx = 0; idx < num_cubes; idx++) {
+            glPushMatrix();
+            glMultMatrixf(&cube_xforms[idx].m[0][0]);
+            render_cube();
+            glPopMatrix();
+            scene_stats.num_drawn++;
         }
     }
     glDisable(GL_TEXTURE_2D);
@@ -527,7 +694,15 @@ void render()
     occ_clear_zbuffer(sw_zbuffer);
 
     glMatrixMode(GL_MODELVIEW);
-    compute_camera_matrix(&g_view, &camera);
+
+    if (g_camera_mode == CAM_SPIN) {
+        compute_camera_matrix(&g_view, &camera);
+    } else if (g_camera_mode == CAM_FPS) {
+        compute_fps_camera_matrix(&g_view, &fps_camera);
+    }
+    else {
+        assert(!"unknown camera mode");
+    }
     // matrix_t mvp;
     // matrix_mult_full(&mvp, &g_projection, &g_view);
 
@@ -536,9 +711,10 @@ void render()
 
     //render_door_scene(disp);
     //render_big_scene(disp);
+    render_city_scene(disp);
     //render_2d_scene(disp);
-    render_single_cube_scene(disp);
-
+    //render_single_cube_scene(disp);
+    g_camera_mode = CAM_FPS;
     gl_context_end();
 
 
@@ -602,7 +778,7 @@ void render()
     // rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 10, cube_visible ? "cube visible" : "cube hidden");
     rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 20, config_enable_culling ? "occlusion culling: ON" : "occlusion culling: OFF");
     rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 30, config_show_wireframe ? "show culled: ON" : "show culled: OFF");
-    rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 40, "visible: %d/%d cubes", big_scene.stats.num_drawn, BIG_SCENE_NUM_CUBES);
+    rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 40, "visible: %d/%d cubes", scene_stats.num_drawn, scene_stats.num_max);
     rdpq_detach_show();
 
     rspq_profile_next_frame();
@@ -697,10 +873,22 @@ int main()
         float x = inputs.stick_x / 128.f;
         float mag = x * x + y * y;
 
+    if (g_camera_mode == CAM_SPIN) {
         if (fabsf(mag) > 0.01f) {
             camera.distance += y * 0.2f;
             camera.rotation = camera.rotation - x * 1.2f;
         }
+
+    } else if (g_camera_mode == CAM_FPS) {
+        if (fabsf(mag) > 0.01f) {
+            float adelta = 0.05f;
+            float mdelta = 0.3f;
+            fps_camera.pos[0] += mdelta * y * cos(fps_camera.angle);
+            fps_camera.pos[2] += mdelta * y * sin(fps_camera.angle);
+            fps_camera.angle = fmodf(fps_camera.angle + adelta * x, 2*M_PI);
+            
+        }
+    }
 
         render();
         if (DEBUG_RDP)

@@ -6,6 +6,11 @@ typedef struct {
     float rotation;
 } camera_t;
 
+typedef struct {
+    float pos[3];
+    float angle;
+} fps_camera_t;
+
 void camera_transform(const camera_t *camera)
 {
     // Set the camera transform
@@ -17,4 +22,13 @@ void camera_transform(const camera_t *camera)
     glRotatef(camera->rotation, 0, 1, 0);
 }
 
+// void fps_camera_transform(const fps_camera_t *camera)
+// {
+//     // Set the camera transform
+//     glLoadIdentity();
+//     gluLookAt(
+//         camera->pos[0], camera->pos[1], camera->pos[2],
+//         camera->pos[0] + cos(camera.angle), camera->pos[1], camera->pos[2] + sin(camera.angle),
+//         0, 1, 0);
+// }
 #endif
