@@ -64,6 +64,7 @@ static bool config_enable_culling = true;
 static int config_depth_view_mode = 1;
 static bool config_conservative = true;
 static bool config_top_down_view = false;
+static float config_far_plane = 25.f;
 
 static const GLfloat light_pos[8][4] = {
     {1, 0, 0, 0},
@@ -121,7 +122,7 @@ void compute_fps_camera_matrix(matrix_t *matrix, const fps_camera_t *camera)
 
 void compute_top_down_camera_matrix(matrix_t *matrix, const fps_camera_t *camera)
 {
-    float h = 70.0f;
+    float h = config_far_plane * 0.8;
     cpu_gluLookAt(matrix,
         camera->pos[0], camera->pos[1] + h, camera->pos[2],
         camera->pos[0] + cos(camera->angle), camera->pos[1], camera->pos[2] + sin(camera->angle),
@@ -152,7 +153,7 @@ void setup()
 
     float aspect_ratio = (float)display_get_width() / (float)display_get_height();
     float near_plane = 1.0f;
-    float far_plane = 50.0f;
+    float far_plane = config_far_plane;
 
     glMatrixMode(GL_PROJECTION);
     computeProjectionMatrix(&g_projection, 80.f, aspect_ratio, near_plane, far_plane);
@@ -502,13 +503,13 @@ static void copy_to_matrix(const float* in, matrix_t* out) {
 }
 
 
-#define CITY_SCENE_NUM_HOUSES (40)
+// #define CITY_SCENE_NUM_HOUSES (40)
 #define CITY_SCENE_MAX_OCCLUDERS (10)
 #define CITY_SCENE_MAX_NODES (50)
 
 struct city_scene_s
 {
-    occ_target_t targets[CITY_SCENE_NUM_HOUSES];
+    occ_target_t targets[CITY_SCENE_MAX_NODES];
     struct {
         int num_drawn;
     } stats;
@@ -628,6 +629,7 @@ void setup_city_scene()
 void render_city_scene(surface_t* disp)
 {
     long unsigned int anim_timer = 0; //g_num_frames;
+    (void)anim_timer;
 
     glEnable(GL_LIGHTING);
     glEnable(GL_NORMALIZE);
@@ -637,44 +639,16 @@ void render_city_scene(surface_t* disp)
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
 
-    const float wave = anim_timer * 0.2f;
+    // Draw occluders
 
-    const int num_cubes = CITY_SCENE_NUM_HOUSES;
-    matrix_t cube_xforms[num_cubes];
-    float cube_z_dists[num_cubes];
-    (void)cube_z_dists;
-
-    const int COLS = 8;
-    const float marg = 16.0f;
-    const float sway = marg * 0.25f;
-
-
-    const float height = 3.0f;
-    for (int i = 0; i < num_cubes; i++) {
-        int x = i % COLS;
-        int z = i / COLS;
-
-        vec3f pos = (vec3f){
-            (x - COLS/2.0f) * marg + cos(i)*sway,
-            height,
-            (z - COLS/2.0f) * marg + sin(i)*sway};
-        
-        float fatness = 1.25f + 0.25*sin(i);
-
-        // compute viewspace z for front-to-back drawing
-        float world[4] = {pos.x, pos.y, pos.z, 1.0f};
-        float view[4] = {};
-
-        matrix_mult(&view[0], &g_view, &world[0]);
-        cube_z_dists[i] = -view[2];
-
-        matrix_t translate = cpu_glTranslatef(pos.x, pos.y, pos.z);
-        matrix_t rotate = cpu_glRotatef(i*45.f+wave, 0.0f, 1.0f, 0.0f);
-        matrix_t temp;
-        matrix_t scale = cpu_glScalef(fatness, height, fatness);
-        matrix_mult_full(&temp, &rotate, &scale);
-        matrix_mult_full(&cube_xforms[i], &translate, &temp);
+    if (config_enable_culling) {
+        for (uint32_t i = 0; i < city_scene.num_occluders; i++) {
+            occ_raster_query_result_t result = {};
+            occ_draw_hull(culler, sw_zbuffer, &city_scene.occ_hulls[i], &city_scene.occluder_xforms[i], &result, OCCLUDER_TWO_SIDED);
+        }
     }
+
+    // Draw occludees (AKA objects, targets)
 
     GLfloat mat_diffuse[] = 
     {
@@ -684,30 +658,43 @@ void render_city_scene(surface_t* disp)
         0.0f, 0.0f, 1.0f, 1.0f,
     };
 
-    // model64_draw(city_scene.mdl_room);
+    scene_stats.num_drawn = 0;
+    scene_stats.num_max = 0;
 
-    for (uint32_t i=0;i<city_scene.num_nodes;i++) {
-        if (city_scene.node_should_test[i]) {
+    if (config_show_wireframe) {
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ONE);
+            glDisable(GL_DEPTH_TEST);
+    }
+
+    for (uint32_t i = 0; i < city_scene.num_nodes; i++) {
+        bool visible = true;
+        if (config_enable_culling && city_scene.node_should_test[i]) {
             occ_raster_query_result_t result = {};
-            occ_draw_hull(culler, sw_zbuffer, &unit_cube_hull, &city_scene.node_xforms[i], &result, 0);
+            //occ_draw_hull(culler, sw_zbuffer, &unit_cube_hull, &city_scene.node_xforms[i], &result, 0);
+            visible = occ_check_target_visible(culler, sw_zbuffer, &unit_cube_hull, &city_scene.node_xforms[i], &city_scene.targets[i], &result);
         }
 
-        debugf("drawing %lu, mdl=%p, node=%p\n", i, city_scene.mdl_room, city_scene.nodes[i]);
-        glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &mat_diffuse[4*(i%4)]);
-        glCallList(city_scene.node_dplists[i]);
+        debugf("%lu visible=%d\n", i, visible);
 
+        if (visible) {
+            debugf("drawing %lu, mdl=%p, node=%p\n", i, city_scene.mdl_room, city_scene.nodes[i]);
+            glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &mat_diffuse[4*(i%4)]);
+            glCallList(city_scene.node_dplists[i]);
+            scene_stats.num_drawn++;
+        } else if (config_show_wireframe) {
+            // glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &mat_diffuse[4*(i%4)]);
+            // glCallList(city_scene.node_dplists[i]);
+        }
+
+        scene_stats.num_max++;
     }
 
-    for (uint32_t i=0;i<city_scene.num_occluders;i++) {
-        model64_node_t* node = city_scene.occluders[i];
-        model64_draw_node(city_scene.mdl_room, node);
-        occ_raster_query_result_t result = {};
-        occ_draw_hull(culler, sw_zbuffer, &city_scene.occ_hulls[i], &city_scene.occluder_xforms[i], &result, OCCLUDER_TWO_SIDED);
+    if (config_show_wireframe) {
+        glEnable(GL_DEPTH_TEST);
+        glDisable(GL_BLEND);
     }
 
-    if (config_enable_culling) {
-    } else {
-    }
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
 }
@@ -882,7 +869,7 @@ void render(double delta)
     // rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 10, cube_visible ? "cube visible" : "cube hidden");
     rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 20, config_enable_culling ? "occlusion culling: ON" : "occlusion culling: OFF");
     rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 30, config_show_wireframe ? "show culled: ON" : "show culled: OFF");
-    rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 40, "visible: %d/%d cubes", scene_stats.num_drawn, scene_stats.num_max);
+    rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 40, "visible: %d/%d objects", scene_stats.num_drawn, scene_stats.num_max);
     rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 50, "delta: %.3f ms", delta*1000);
     rdpq_detach_show();
 
@@ -969,15 +956,10 @@ int main()
             config_depth_view_mode = (config_depth_view_mode + 1) % 3;
         }
 
-        if (pressed.c_left) {
-            config_top_down_view = !config_top_down_view;
-            debugf("top down view: %d\n", config_top_down_view);
-        }
-
-        if (pressed.c_right) {
-            config_conservative = !config_conservative;
-            debugf("conservative rasterization: %s\n", config_conservative ? "ON" : "OFF");
-        }
+        //config_top_down_view = !config_top_down_view;
+        //debugf("top down view: %d\n", config_top_down_view);
+        //config_conservative = !config_conservative;
+        //debugf("conservative rasterization: %s\n", config_conservative ? "ON" : "OFF");
 
         float y = inputs.stick_y / 128.f;
         float x = inputs.stick_x / 128.f;
@@ -990,13 +972,22 @@ int main()
             }
         }
         else if (g_camera_mode == CAM_FPS) {
+            float adelta = 0.05f;
+            float mdelta = 0.3f;
             if (fabsf(mag) > 0.01f) {
-                float adelta = 0.05f;
-                float mdelta = 0.3f;
                 fps_camera.pos[0] += mdelta * y * cos(fps_camera.angle);
                 fps_camera.pos[2] += mdelta * y * sin(fps_camera.angle);
                 fps_camera.angle = fmodf(fps_camera.angle + adelta * x, 2 * M_PI);
             }
+
+            if (fabsf(inputs.cstick_x) > 0.01f) {
+                fps_camera.pos[0] += mdelta * 0.015f * inputs.cstick_x * cos(fps_camera.angle + M_PI_2);
+                fps_camera.pos[2] += mdelta * 0.015f * inputs.cstick_x * sin(fps_camera.angle + M_PI_2);
+            }
+            // if (inputs.cstick_x) {
+            //     fps_camera.pos[0] += mdelta * cos(fps_camera.angle + M_PI_2);
+            //     fps_camera.pos[2] += mdelta * sin(fps_camera.angle + M_PI_2);
+            // }
             debugf("fps_camera.pos = {%f, %f, %f}, fps_camera.angle = %f\n", 
                 fps_camera.pos[0], fps_camera.pos[1], fps_camera.pos[2], fps_camera.angle);
         }
