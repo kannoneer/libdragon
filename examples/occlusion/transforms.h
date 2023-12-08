@@ -260,6 +260,7 @@ static void matrix_mult(float *d, const matrix_t *m, const float *v)
 
 void matrix_mult_full(matrix_t *d, const matrix_t *l, const matrix_t *r)
 {
+    assert(d != r && d != l && "destination can't be one of sources");
     matrix_mult(d->m[0], l, r->m[0]);
     matrix_mult(d->m[1], l, r->m[1]);
     matrix_mult(d->m[2], l, r->m[2]);

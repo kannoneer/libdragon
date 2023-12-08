@@ -239,14 +239,17 @@ void draw_tri(
     vec2 v2 = {SUBPIXEL_SCALE * (v2f.x+SCREENSPACE_BIAS) + 0.5f, SUBPIXEL_SCALE * (v2f.y+SCREENSPACE_BIAS) + 0.5f};
 
     int area2x = -orient2d_subpixel(v0, v1, v2);
-    if (area2x < 0) {
+    if (area2x <= 0) {
         if (flags & RASTER_FLAG_BACKFACE_CULL) {
             return;
-        } else {
+        } else if (area2x != 0) {
             SWAP(v1, v2);
             SWAP(Z1f, Z2f);
+        } else {
+            return;
         }
     }
+
     vec2 minb = {
         (min(v0.x, min(v1.x, v2.x)) >> SUBPIXEL_BITS),
         (min(v0.y, min(v1.y, v2.y)) >> SUBPIXEL_BITS)
@@ -269,9 +272,6 @@ void draw_tri(
     int A01 = -(v0.y - v1.y), B01 = -(v1.x - v0.x);
     int A12 = -(v1.y - v2.y), B12 = -(v2.x - v1.x);
     int A20 = -(v2.y - v0.y), B20 = -(v0.x - v2.x);
-
-
-    if ((flags & RASTER_FLAG_BACKFACE_CULL) && area2x <= 0) return;
 
     int w0_row = -orient2d_subpixel(v1, v2, p_start);
     int w1_row = -orient2d_subpixel(v2, v0, p_start);
@@ -413,8 +413,6 @@ void draw_tri(
                 } else {
                     depth = 0xffff - 1;
                 }
-
-                // if (true) { depth = 0x8000;  }
 
                 u_uint16_t *buf = ZBUFFER_UINT_PTR_AT(zbuffer, p.x, p.y);
 
@@ -1132,12 +1130,6 @@ bool occ_hull_from_flat_mesh(const occ_mesh_t* mesh_in, occ_hull_t* hull_out)
     return true;
 }
 
-// struct shadow_mesh {
-//     float verts[MESH_MAX_VERTICES][3];
-//     uint16_t indices[MESH_MAX_INDICES];
-//     int num_vertices;
-//     int num_indices;
-// };
 
 #include "../../src/model64_internal.h"
 
@@ -1203,4 +1195,71 @@ static bool model_to_occ_mesh(model64_t* model, mesh_t* mesh_in, occ_mesh_t* mes
         debugf("\n");
     }
     return true;
+}
+
+uint32_t uncompress_model64_verts(primitive_t* prim, vertex_t* vertices_out) {
+    assert(prim->position.type == GL_HALF_FIXED_N64);
+
+    int bits = prim->vertex_precision;
+    float scale = 1.0f / (1 << bits);
+
+    attribute_t* position = &prim->position;
+    assert(position->size == 3);
+
+    typedef int16_t u_int16_t __attribute__((aligned(1)));
+
+    uint32_t vertex_id=0;
+    for (; vertex_id < prim->num_vertices; vertex_id++) {
+        u_int16_t* pos = (u_int16_t*)(position->pointer + position->stride * vertex_id);
+        float f[3] = {scale * pos[0], scale * pos[1], scale * pos[2]};
+
+        memset(&vertices_out[vertex_id], 0, sizeof(vertices_out[0]));
+        vertices_out[vertex_id].position[0] = f[0];
+        vertices_out[vertex_id].position[1] = f[1];
+        vertices_out[vertex_id].position[2] = f[2];
+    }
+
+    return vertex_id;
+}
+
+static float compute_mesh_max_radius(mesh_t* mesh_in)
+{
+    bool verbose = true;
+
+    primitive_t* prim = &mesh_in->primitives[0];
+    attribute_t* attr = &prim->position;
+
+    if (verbose) {
+        debugf("Num primitives: %lu\n", mesh_in->num_primitives);
+        debugf("Num vertices: %lu\n", prim->num_vertices);
+        debugf("Num indices: %lu\n", prim->num_indices);
+
+        debugf("Primitive 0 pos attribute:\nsize=%lu, type=%lu, stride=%lu, pointer=%p\n",
+               attr->size,
+               attr->type,
+               attr->stride,
+               attr->pointer);
+    }
+    assert(mesh_in->num_primitives == 1 && "we can handle only a single primitive per mesh");
+
+    vertex_t* vertices =  malloc(prim->num_vertices * sizeof(vertex_t));
+    DEFER(free(vertices));
+
+    uint32_t count = uncompress_model64_verts(prim, vertices);
+
+    if (count != prim->num_vertices) {
+        debugf("model64 uncompression failed\n");
+        return 0.0f;
+    }
+
+    float max_radius = 0.0;
+
+    for (uint32_t i=0;i<count;i++) {
+        float* p = &vertices[i].position[0];
+        float radius = sqrtf(p[0]*p[0] + p[1]*p[1] + p[2]*p[2]);
+
+        max_radius = max(radius, max_radius);
+    }
+
+    return max_radius;
 }
