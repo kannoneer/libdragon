@@ -496,10 +496,12 @@ struct city_scene_s
     uint32_t num_occluders;
     model64_node_t* nodes[CITY_SCENE_MAX_NODES];
     model64_node_t* occluders[CITY_SCENE_MAX_OCCLUDERS];
+    occ_mesh_t* occ_meshes[CITY_SCENE_MAX_OCCLUDERS];
 } city_scene = {};
 
 void setup_city_scene()
 {
+    //bool verbose=false;
     struct city_scene_s* s = &city_scene;
 
     model64_t* model = model64_load("rom://room1.model64");
@@ -537,7 +539,26 @@ void setup_city_scene()
             debugf("wrote node node=%p", s->nodes[s->num_nodes - 1]);
         }
     }
+
     debugf("num_nodes: %lu, num_occluders: %lu\n", s->num_nodes, s->num_occluders);
+
+    for (uint32_t i=0;i<city_scene.num_occluders;i++) {
+        occ_mesh_t* mp = malloc(sizeof(occ_mesh_t));
+        city_scene.occ_meshes[i] = mp;
+        bool success = model_to_occ_mesh(model, s->occluders[i]->mesh, mp);
+        if (!success) {
+            debugf("conversion of occluder %lu failed\n", i);
+            assert(success);
+        }
+    }
+}
+
+void copy_to_matrix(const float* in, matrix_t* out) {
+    // matrix_t is in column-major order with m[col][row]
+
+    for (int i = 0; i < 16; ++i) {
+        out->m[i / 4][i % 4] = in[i];
+    }
 }
 
 void render_city_scene(surface_t* disp)
@@ -600,10 +621,32 @@ void render_city_scene(surface_t* disp)
     };
 
     // model64_draw(city_scene.mdl_room);
+
     for (uint32_t i=0;i<city_scene.num_nodes;i++) {
         debugf("drawing %lu, mdl=%p, node=%p\n", i, city_scene.mdl_room, city_scene.nodes[i]);
         glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &mat_diffuse[4*(i%4)]);
-        model64_draw_node(city_scene.mdl_room, city_scene.nodes[i]);
+        model64_node_t* node = city_scene.nodes[i];
+        model64_draw_node(city_scene.mdl_room, node);
+    }
+
+    for (uint32_t i=0;i<city_scene.num_occluders;i++) {
+        model64_node_t* node = city_scene.occluders[i];
+        model64_draw_node(city_scene.mdl_room, node);
+        node_transform_t* trform = &node->transform;
+        //matrix_t* mat = (matrix_t*)trform;
+        //debugf("printed1\n");
+        matrix_t mat;
+        copy_to_matrix(&trform->mtx[0], &mat);
+        print_matrix(&mat);
+
+        debugf("printed2\n");
+        // stored column-major in memory
+        for (int i=0;i<4;i++) { // rows
+            for (int j=0;j<4;j++) { // columns
+                debugf("%f ", trform->mtx[j*4+i]);
+            }
+            debugf("\n");
+        }
     }
 
     if (config_enable_culling) {

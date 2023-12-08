@@ -587,7 +587,7 @@ void print_matrix(const matrix_t *matrix)
 {
     for (int row = 0; row < 4; row++) {
         for (int col = 0; col < 4; col++) {
-            debugf("%f ", matrix->m[row][col]);
+            debugf("%f ", matrix->m[col][row]);
         }
         debugf("\n");
     }

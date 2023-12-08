@@ -5,6 +5,7 @@
 #include "cpumath.h"
 #include "transforms.h" // for vertex_t
 #include "profiler.h"
+#include "defer.h"
 
 #include <malloc.h>
 #include <memory.h>
@@ -36,18 +37,6 @@ const float inv_subpixel_scale = 1.0f / SUBPIXEL_SCALE;
 
 #define DUMP_WHEN_Z_OVERFLOWS 1
 #define SCREENSPACE_BIAS (-0.50f) // an empirical bias for (x,y) screenspace coordinates to make them cover OpenGL drawn pixels
-
-// Rasky's "defer statement" implementation.
-#define PPCAT2(n,x) n ## x
-#define PPCAT(n,x) PPCAT2(n,x)
-
-// DEFER(stmt): execute "stmt" statement when the current lexical block exits.
-// This is useful in tests to execute cleanup functions even if the test fails
-// through ASSERT macros.
-#define DEFER2(stmt, counter) \
-    void PPCAT(__cleanup, counter) (int* __u) { stmt; } \
-    int PPCAT(__var, counter) __attribute__((unused, cleanup(PPCAT(__cleanup, counter ))));
-#define DEFER(stmt) DEFER2(stmt, __COUNTER__)
 
 bool g_verbose_setup = false;
 bool g_measure_error = false;
@@ -1125,5 +1114,78 @@ bool occ_hull_from_flat_mesh(const occ_mesh_t* mesh_in, occ_hull_t* hull_out)
         }
     }
 
+    return true;
+}
+
+// struct shadow_mesh {
+//     float verts[MESH_MAX_VERTICES][3];
+//     uint16_t indices[MESH_MAX_INDICES];
+//     int num_vertices;
+//     int num_indices;
+// };
+
+#include "../../src/model64_internal.h"
+
+static bool model_to_occ_mesh(model64_t* model, mesh_t* mesh_in, occ_mesh_t* mesh_out)
+{
+    bool verbose = true;
+
+    primitive_t* prim = &mesh_in->primitives[0];
+    attribute_t* attr = &prim->position;
+
+    if (verbose) {
+        debugf("Num primitives: %lu\n", mesh_in->num_primitives);
+        debugf("Num vertices: %lu\n", prim->num_vertices);
+        debugf("Num indices: %lu\n", prim->num_indices);
+
+        debugf("Primitive 0 pos attribute:\nsize=%lu, type=%lu, stride=%lu, pointer=%p\n",
+               attr->size,
+               attr->type,
+               attr->stride,
+               attr->pointer);
+    }
+    assert(mesh_in->num_primitives == 1 && "we can handle only a single primitive per mesh");
+
+    assert(prim->position.type == GL_HALF_FIXED_N64);
+
+    int bits = prim->vertex_precision;
+    float scale = 1.0f / (1 << bits);
+    if (verbose) debugf("position bits: %d, scale: %f\n", bits, scale);
+
+    attribute_t* position = &prim->position;
+    assert(position->size == 3);
+
+    typedef int16_t u_int16_t __attribute__((aligned(1)));
+
+    mesh_out->num_vertices = prim->num_vertices;
+    mesh_out->vertices = malloc(mesh_out->num_vertices * sizeof(mesh_out->vertices[0]));
+
+    for (uint32_t vertex_id=0; vertex_id < prim->num_vertices; vertex_id++) {
+        u_int16_t* pos = (u_int16_t*)(position->pointer + position->stride * vertex_id);
+        float f[3] = {scale * pos[0], scale * pos[1], scale * pos[2]};
+
+        memset(&mesh_out->vertices[vertex_id], 0, sizeof(mesh_out->vertices[0]));
+        mesh_out->vertices[vertex_id].position[0] = f[0];
+        mesh_out->vertices[vertex_id].position[1] = f[1];
+        mesh_out->vertices[vertex_id].position[2] = f[2];
+    }
+
+    mesh_out->num_indices = prim->num_indices;
+    mesh_out->indices = malloc(mesh_out->num_indices * sizeof(uint16_t));
+
+    uint16_t* prim_indices = (uint16_t*)prim->indices;
+    assert(prim->index_type == 0x1403); // GL_UNSIGNED_SHORT
+
+    for (uint32_t i=0;i<prim->num_indices;i++) {
+        mesh_out->indices[i] = prim_indices[i];
+    }
+
+    if (verbose) {
+        debugf("index buffer:\n");
+        for (int i = 0; i < mesh_out->num_indices; i++) {
+            debugf("%d, ", mesh_out->indices[i]);
+        }
+        debugf("\n");
+    }
     return true;
 }
