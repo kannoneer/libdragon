@@ -6,6 +6,9 @@
 #include <math.h>
 #include <rspq_profile.h>
 
+#include <model64.h>
+#include "../../src/model64_internal.h"
+
 #include "camera.h"
 #include "cube.h"
 #include "decal.h"
@@ -22,8 +25,8 @@
 
 #define SCREEN_WIDTH (320)
 #define SCREEN_HEIGHT (240)
-#define CULL_W (SCREEN_WIDTH / 4)
-#define CULL_H (SCREEN_HEIGHT / 4)
+#define CULL_W (SCREEN_WIDTH / 8)
+#define CULL_H (SCREEN_HEIGHT / 8)
 
 static occ_culler_t *culler;
 static occ_hull_t cube_hull;
@@ -36,7 +39,7 @@ enum camera_mode_enum {
 static uint32_t animation = 0;
 static uint32_t texture_index = 0;
 static camera_t camera;
-static fps_camera_t fps_camera;
+static fps_camera_t fps_camera = {.pos = {4.071973f, 0.000000f, 7.972688f}, .angle = 4.129455f};
 int g_camera_mode = CAM_SPIN;
 matrix_t g_view;
 static surface_t zbuffer;
@@ -50,7 +53,8 @@ static uint64_t g_num_frames = 0;
 
 static GLuint textures[4];
 
-static const GLfloat environment_color[] = {0.1f, 0.5f, 0.5f, 1.f};
+// static const GLfloat environment_color[] = {0.1f, 0.5f, 0.5f, 1.f};
+static const GLfloat environment_color[] = {1.0f, 1.0f, 1.0f, 1.f};
 
 static bool config_show_wireframe = true;
 static bool config_enable_culling = true;
@@ -145,7 +149,7 @@ void setup()
 
     float aspect_ratio = (float)display_get_width() / (float)display_get_height();
     float near_plane = 1.0f;
-    float far_plane = 100.0f;
+    float far_plane = 50.0f;
 
     glMatrixMode(GL_PROJECTION);
     computeProjectionMatrix(&g_projection, 80.f, aspect_ratio, near_plane, far_plane);
@@ -335,7 +339,7 @@ void render_door_scene(surface_t* disp)
 
 #define BIG_SCENE_NUM_CUBES (100)
 
-struct
+struct big_scene_s
 {
     occ_target_t targets[BIG_SCENE_NUM_CUBES];
 } big_scene = {};
@@ -345,9 +349,9 @@ struct {
     int num_max;
 } scene_stats;
 
+
 void setup_big_scene()
 {
-    // memset(&big_scene, 0, sizeof(big_scene));
 }
 
 void render_big_scene(surface_t* disp)
@@ -456,7 +460,7 @@ void render_big_scene(surface_t* disp)
 
             if (visible) {
                 // also draw to software zbuffer
-                occ_draw_hull(culler, sw_zbuffer, &cube_hull, xform);
+                occ_draw_hull(culler, sw_zbuffer, &cube_hull, xform, NULL);
             }
             if (visible) {
                 scene_stats.num_drawn++;
@@ -477,17 +481,63 @@ void render_big_scene(surface_t* disp)
 }
 
 #define CITY_SCENE_NUM_HOUSES (40)
+#define CITY_SCENE_MAX_OCCLUDERS (10)
+#define CITY_SCENE_MAX_NODES (50)
 
-struct
+struct city_scene_s
 {
     occ_target_t targets[CITY_SCENE_NUM_HOUSES];
     struct {
         int num_drawn;
     } stats;
+
+    model64_t *mdl_room;
+    uint32_t num_nodes;
+    uint32_t num_occluders;
+    model64_node_t* nodes[CITY_SCENE_MAX_NODES];
+    model64_node_t* occluders[CITY_SCENE_MAX_OCCLUDERS];
 } city_scene = {};
 
 void setup_city_scene()
 {
+    struct city_scene_s* s = &city_scene;
+
+    model64_t* model = model64_load("rom://room1.model64");
+    if (!model) {
+        debugf("Couldn't load model!\n");
+        return;
+    }
+    assert(model);
+    s->mdl_room = model;
+    uint32_t mesh_count = model64_get_mesh_count(model);
+    uint32_t node_count = model64_get_node_count(model);
+
+    debugf("Mesh Count: %lu, Node Count: %lu\n", mesh_count, node_count);
+
+    for (uint32_t i=0;i<node_count;i++){ 
+        model64_node_t* node = model64_get_node(model, i);
+        if (node->name == NULL || node->mesh == NULL) {
+            debugf("Skipping node %lu name=%s, mesh=%p\n", i, node->name, node->mesh);
+            continue;
+        }
+        debugf("%lu node=%p, name=%s\n", i, node, node->name);
+        if (strstr(node->name, "occluder") != NULL) {
+            debugf("occluder found\n");
+            if (s->num_occluders >= CITY_SCENE_MAX_OCCLUDERS) {
+                debugf("Error: max occluders reached\n");
+                break;
+            }
+            s->occluders[s->num_occluders++] = node;
+        } else {
+            if (s->num_nodes >= CITY_SCENE_MAX_NODES) {
+                debugf("Error: max nodes reached\n");
+                break;
+            }
+            s->nodes[s->num_nodes++] = node;
+            debugf("wrote node node=%p", s->nodes[s->num_nodes - 1]);
+        }
+    }
+    debugf("num_nodes: %lu, num_occluders: %lu\n", s->num_nodes, s->num_occluders);
 }
 
 void render_city_scene(surface_t* disp)
@@ -507,7 +557,7 @@ void render_city_scene(surface_t* disp)
     const int num_cubes = CITY_SCENE_NUM_HOUSES;
     matrix_t cube_xforms[num_cubes];
     float cube_z_dists[num_cubes];
-    int cube_order[num_cubes];
+    (void)cube_z_dists;
 
     const int COLS = 8;
     const float marg = 16.0f;
@@ -541,8 +591,25 @@ void render_city_scene(surface_t* disp)
         matrix_mult_full(&cube_xforms[i], &translate, &temp);
     }
 
+    GLfloat mat_diffuse[] = 
+    {
+        1.0f, 1.0f, 1.0f, 1.0f,
+        1.0f, 0.0f, 0.0f, 1.0f,
+        0.0f, 1.0f, 0.0f, 1.0f,
+        0.0f, 0.0f, 1.0f, 1.0f,
+    };
+
+    // model64_draw(city_scene.mdl_room);
+    for (uint32_t i=0;i<city_scene.num_nodes;i++) {
+        debugf("drawing %lu, mdl=%p, node=%p\n", i, city_scene.mdl_room, city_scene.nodes[i]);
+        glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &mat_diffuse[4*(i%4)]);
+        model64_draw_node(city_scene.mdl_room, city_scene.nodes[i]);
+    }
+
     if (config_enable_culling) {
+        #if 0
         // sort cubes by viewspace z
+        int cube_order[num_cubes];
 
         int compare(const void *a, const void *b)
         {
@@ -568,8 +635,23 @@ void render_city_scene(surface_t* disp)
 
         // draw from front to back
 
+        int occluders_left = 10;
+
+        for (int order_i = 0; order_i < num_cubes; order_i++) {
+            int idx = cube_order[order_i];
+            if (cube_z_dists[idx] > 0) {
+                matrix_t *xform = &cube_xforms[idx];
+                occ_raster_query_result_t result = {};
+                occ_draw_hull(culler, sw_zbuffer, &cube_hull, xform, &result);
+                if (result.num_tris_drawn > 0) {
+                    if (--occluders_left == 0) break;
+                }
+            }
+        }
+
         scene_stats.num_drawn = 0;
         scene_stats.num_max = CITY_SCENE_NUM_HOUSES;
+
         for (int order_i = 0; order_i < num_cubes; order_i++) {
             int idx = cube_order[order_i];
             // debugf("order_i =%d, idx= %d, dist = %f\n", order_i, idx, cube_z_dists[idx]);
@@ -602,13 +684,11 @@ void render_city_scene(surface_t* disp)
             }
 
             if (visible) {
-                // also draw to software zbuffer
-                occ_draw_hull(culler, sw_zbuffer, &cube_hull, xform);
-            }
-            if (visible) {
                 scene_stats.num_drawn++;
             }
         }
+        #endif
+
     } else {
         scene_stats.num_drawn = 0;
         for (int idx = 0; idx < num_cubes; idx++) {
@@ -682,7 +762,7 @@ void render_single_cube_scene(surface_t*)
     glPopMatrix();
 
     //occ_draw_mesh(culler, sw_zbuffer, &cube_hull.mesh, &xform);
-    occ_draw_hull(culler, sw_zbuffer, &cube_hull, &xform);
+    occ_draw_hull(culler, sw_zbuffer, &cube_hull, &xform, NULL);
     (void)target_single_cube;
     //occ_check_target_visible(culler, sw_zbuffer, &cube_hull, &xform, &target_single_cube, NULL);
     glDisable(GL_TEXTURE_2D);
@@ -836,6 +916,7 @@ int main()
 
     setup();
     setup_big_scene();
+    setup_city_scene();
 
     joypad_init();
 
@@ -907,6 +988,8 @@ int main()
                 fps_camera.pos[2] += mdelta * y * sin(fps_camera.angle);
                 fps_camera.angle = fmodf(fps_camera.angle + adelta * x, 2 * M_PI);
             }
+            debugf("fps_camera.pos = {%f, %f, %f}, fps_camera.angle = %f\n", 
+                fps_camera.pos[0], fps_camera.pos[1], fps_camera.pos[2], fps_camera.angle);
         }
 
         render(delta);

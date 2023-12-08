@@ -704,9 +704,9 @@ void occ_draw_mesh(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t *mesh
         /* query_result = */ NULL);
 }
 
-void occ_draw_hull(occ_culler_t *occ, surface_t *zbuffer, const occ_hull_t* hull, const matrix_t *model_xform)
+void occ_draw_hull(occ_culler_t *occ, surface_t *zbuffer, const occ_hull_t* hull, const matrix_t *model_xform, occ_raster_query_result_t* query)
 {
-	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, &hull->mesh, hull->tri_normals, hull->neighbors, NULL, OCC_RASTER_FLAGS_DRAW, NULL);
+	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, &hull->mesh, hull->tri_normals, hull->neighbors, NULL, OCC_RASTER_FLAGS_DRAW, query);
 }
 
 static vec2f rotate_xy_coords_45deg(float x, float y) {
