@@ -238,6 +238,15 @@ void draw_tri(
     vec2 v1 = {SUBPIXEL_SCALE * (v1f.x+SCREENSPACE_BIAS) + 0.5f, SUBPIXEL_SCALE * (v1f.y+SCREENSPACE_BIAS) + 0.5f};
     vec2 v2 = {SUBPIXEL_SCALE * (v2f.x+SCREENSPACE_BIAS) + 0.5f, SUBPIXEL_SCALE * (v2f.y+SCREENSPACE_BIAS) + 0.5f};
 
+    int area2x = -orient2d_subpixel(v0, v1, v2);
+    if (area2x < 0) {
+        if (flags & RASTER_FLAG_BACKFACE_CULL) {
+            return;
+        } else {
+            SWAP(v1, v2);
+            SWAP(Z1f, Z2f);
+        }
+    }
     vec2 minb = {
         (min(v0.x, min(v1.x, v2.x)) >> SUBPIXEL_BITS),
         (min(v0.y, min(v1.y, v2.y)) >> SUBPIXEL_BITS)
@@ -261,7 +270,6 @@ void draw_tri(
     int A12 = -(v1.y - v2.y), B12 = -(v2.x - v1.x);
     int A20 = -(v2.y - v0.y), B20 = -(v0.x - v2.x);
 
-    int area2x = -orient2d_subpixel(v0, v1, v2);
 
     if ((flags & RASTER_FLAG_BACKFACE_CULL) && area2x <= 0) return;
 
