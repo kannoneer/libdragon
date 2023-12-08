@@ -70,6 +70,11 @@ enum {
 typedef uint32_t occ_raster_flags_t;
 
 enum {
+    OCCLUDER_TWO_SIDED = 1,
+};
+typedef uint32_t occ_occluder_flags_t;
+
+enum {
     CLIP_ACTION_REJECT = 0,
     CLIP_ACTION_DO_IT = 1
 };
@@ -693,9 +698,11 @@ void occ_draw_mesh(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t *mesh
         /* query_result = */ NULL);
 }
 
-void occ_draw_hull(occ_culler_t *occ, surface_t *zbuffer, const occ_hull_t* hull, const matrix_t *model_xform, occ_raster_query_result_t* query)
+void occ_draw_hull(occ_culler_t *occ, surface_t *zbuffer, const occ_hull_t* hull, const matrix_t *model_xform, occ_raster_query_result_t* query, occ_occluder_flags_t flags)
 {
-	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, &hull->mesh, hull->tri_normals, hull->neighbors, NULL, OCC_RASTER_FLAGS_DRAW, query);
+    occ_raster_flags_t raster_flags = OCC_RASTER_FLAGS_DRAW;
+    if (flags & OCCLUDER_TWO_SIDED) raster_flags &= ~RASTER_FLAG_BACKFACE_CULL;
+	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, &hull->mesh, hull->tri_normals, hull->neighbors, NULL, raster_flags, query);
 }
 
 static vec2f rotate_xy_coords_45deg(float x, float y) {

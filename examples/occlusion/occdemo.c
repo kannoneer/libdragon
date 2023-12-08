@@ -460,7 +460,7 @@ void render_big_scene(surface_t* disp)
 
             if (visible) {
                 // also draw to software zbuffer
-                occ_draw_hull(culler, sw_zbuffer, &cube_hull, xform, NULL);
+                occ_draw_hull(culler, sw_zbuffer, &cube_hull, xform, NULL, 0);
             }
             if (visible) {
                 scene_stats.num_drawn++;
@@ -480,6 +480,15 @@ void render_big_scene(surface_t* disp)
     glDisable(GL_LIGHTING);
 }
 
+static void copy_to_matrix(const float* in, matrix_t* out) {
+    // matrix_t is in column-major order with m[col][row]
+
+    for (int i = 0; i < 16; ++i) {
+        out->m[i / 4][i % 4] = in[i];
+    }
+}
+
+
 #define CITY_SCENE_NUM_HOUSES (40)
 #define CITY_SCENE_MAX_OCCLUDERS (10)
 #define CITY_SCENE_MAX_NODES (50)
@@ -496,7 +505,9 @@ struct city_scene_s
     uint32_t num_occluders;
     model64_node_t* nodes[CITY_SCENE_MAX_NODES];
     model64_node_t* occluders[CITY_SCENE_MAX_OCCLUDERS];
-    occ_mesh_t* occ_meshes[CITY_SCENE_MAX_OCCLUDERS];
+    occ_mesh_t occ_meshes[CITY_SCENE_MAX_OCCLUDERS];
+    occ_hull_t occ_hulls[CITY_SCENE_MAX_OCCLUDERS];
+    matrix_t occluder_xforms[CITY_SCENE_MAX_OCCLUDERS];
 } city_scene = {};
 
 void setup_city_scene()
@@ -529,7 +540,12 @@ void setup_city_scene()
                 debugf("Error: max occluders reached\n");
                 break;
             }
-            s->occluders[s->num_occluders++] = node;
+            copy_to_matrix(&model->transforms[i].world_mtx[0], &city_scene.occluder_xforms[s->num_occluders]);
+
+            print_matrix(&city_scene.occluder_xforms[s->num_occluders]);
+
+            s->occluders[s->num_occluders] = node;
+            s->num_occluders++;
         } else {
             if (s->num_nodes >= CITY_SCENE_MAX_NODES) {
                 debugf("Error: max nodes reached\n");
@@ -543,21 +559,17 @@ void setup_city_scene()
     debugf("num_nodes: %lu, num_occluders: %lu\n", s->num_nodes, s->num_occluders);
 
     for (uint32_t i=0;i<city_scene.num_occluders;i++) {
-        occ_mesh_t* mp = malloc(sizeof(occ_mesh_t));
-        city_scene.occ_meshes[i] = mp;
-        bool success = model_to_occ_mesh(model, s->occluders[i]->mesh, mp);
+        bool success = model_to_occ_mesh(model, s->occluders[i]->mesh, &city_scene.occ_meshes[i]);
         if (!success) {
             debugf("conversion of occluder %lu failed\n", i);
             assert(success);
         }
-    }
-}
+        success = occ_hull_from_flat_mesh(&city_scene.occ_meshes[i], &city_scene.occ_hulls[i]);
+        if (!success) {
+            debugf("conversion of hull %lu failed\n", i);
+            assert(success);
+        }
 
-void copy_to_matrix(const float* in, matrix_t* out) {
-    // matrix_t is in column-major order with m[col][row]
-
-    for (int i = 0; i < 16; ++i) {
-        out->m[i / 4][i % 4] = in[i];
     }
 }
 
@@ -635,9 +647,6 @@ void render_city_scene(surface_t* disp)
         node_transform_t* trform = &node->transform;
         //matrix_t* mat = (matrix_t*)trform;
         //debugf("printed1\n");
-        matrix_t mat;
-        copy_to_matrix(&trform->mtx[0], &mat);
-        print_matrix(&mat);
 
         debugf("printed2\n");
         // stored column-major in memory
@@ -647,6 +656,9 @@ void render_city_scene(surface_t* disp)
             }
             debugf("\n");
         }
+
+        occ_raster_query_result_t result = {};
+        occ_draw_hull(culler, sw_zbuffer, &city_scene.occ_hulls[i], &city_scene.occluder_xforms[i], &result, OCCLUDER_TWO_SIDED);
     }
 
     if (config_enable_culling) {
@@ -694,6 +706,7 @@ void render_city_scene(surface_t* disp)
 
         scene_stats.num_drawn = 0;
         scene_stats.num_max = CITY_SCENE_NUM_HOUSES;
+        ad
 
         for (int order_i = 0; order_i < num_cubes; order_i++) {
             int idx = cube_order[order_i];
@@ -805,7 +818,7 @@ void render_single_cube_scene(surface_t*)
     glPopMatrix();
 
     //occ_draw_mesh(culler, sw_zbuffer, &cube_hull.mesh, &xform);
-    occ_draw_hull(culler, sw_zbuffer, &cube_hull, &xform, NULL);
+    occ_draw_hull(culler, sw_zbuffer, &cube_hull, &xform, NULL, 0);
     (void)target_single_cube;
     //occ_check_target_visible(culler, sw_zbuffer, &cube_hull, &xform, &target_single_cube, NULL);
     glDisable(GL_TEXTURE_2D);
