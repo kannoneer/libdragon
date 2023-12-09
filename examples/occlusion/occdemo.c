@@ -685,12 +685,6 @@ void render_city_scene(surface_t* disp)
     scene_stats.num_drawn = 0;
     scene_stats.num_max = 0;
 
-    if (config_show_wireframe) {
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_ONE, GL_ONE);
-            glDisable(GL_DEPTH_TEST);
-    }
-
     for (uint32_t i = 0; i < city_scene.num_nodes; i++) {
         bool visible = true;
         if (config_enable_culling && city_scene.node_should_test[i]) {
@@ -707,14 +701,38 @@ void render_city_scene(surface_t* disp)
             glCallList(city_scene.node_dplists[i]);
             scene_stats.num_drawn++;
         } else if (config_show_wireframe) {
+            //glPushMatrix();
+            //glMultMatrixf(&city_scene.node_xforms[i].m[0][0]);
+            //draw_unit_cube();
+            //glPopMatrix();
             // glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &mat_diffuse[4*(i%4)]);
             // glCallList(city_scene.node_dplists[i]);
         }
-
         scene_stats.num_max++;
     }
 
+    //if (config_show_wireframe) {
+    //}
+
     if (config_show_wireframe) {
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ONE);
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_TEXTURE_2D);
+
+        GLfloat white[4] = {0.2f, 0.2f, 0.2f, 0.2f};
+
+        glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &white[0]);
+
+        for (uint32_t i = 0; i < city_scene.num_nodes; i++) {
+            if (city_scene.targets[i].last_visible_frame == culler->frame) {
+                glPushMatrix();
+                glMultMatrixf(&city_scene.node_xforms[i].m[0][0]);
+                draw_unit_cube();
+                glPopMatrix();
+            }
+        }
+
         glEnable(GL_DEPTH_TEST);
         glDisable(GL_BLEND);
     }
@@ -803,9 +821,9 @@ void render(double delta)
     occ_clear_zbuffer(sw_zbuffer);
     
     if (config_top_down_view || config_show_wireframe) {
-        glDisable(GL_FOG);
+        //glDisable(GL_FOG);
     } else {
-        glEnable(GL_FOG);
+        //glEnable(GL_FOG);
     }
 
     glMatrixMode(GL_MODELVIEW);

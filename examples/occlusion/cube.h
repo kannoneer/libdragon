@@ -125,6 +125,26 @@ void draw_cube()
     glDisableClientState(GL_COLOR_ARRAY);
 }
 
+void draw_unit_cube()
+{
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    glEnableClientState(GL_NORMAL_ARRAY);
+    glEnableClientState(GL_COLOR_ARRAY);
+
+    glVertexPointer(3, GL_FLOAT, sizeof(vertex_t), (void*)(0*sizeof(float) + (void*)unit_cube_vertices));
+    glTexCoordPointer(2, GL_FLOAT, sizeof(vertex_t), (void*)(3*sizeof(float) + (void*)unit_cube_vertices));
+    glNormalPointer(GL_FLOAT, sizeof(vertex_t), (void*)(5*sizeof(float) + (void*)unit_cube_vertices));
+    glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(vertex_t), (void*)(8*sizeof(float) + (void*)unit_cube_vertices));
+
+    glDrawElements(GL_TRIANGLES, sizeof(unit_cube_indices) / sizeof(uint16_t), GL_UNSIGNED_SHORT, unit_cube_indices);
+
+    glDisableClientState(GL_VERTEX_ARRAY);
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    glDisableClientState(GL_NORMAL_ARRAY);
+    glDisableClientState(GL_COLOR_ARRAY);
+}
+
 void setup_cube()
 {
     cube_list = glGenLists(1);
@@ -201,5 +221,7 @@ void render_cube()
 
     //glPopMatrix();
 }
+
+
 
 #endif
