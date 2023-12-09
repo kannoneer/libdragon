@@ -1235,9 +1235,9 @@ uint32_t uncompress_model64_verts(primitive_t* prim, vertex_t* vertices_out) {
     return vertex_id;
 }
 
-static float compute_mesh_max_radius(mesh_t* mesh_in)
+static bool compute_mesh_bounds(mesh_t* mesh_in, float* out_radius, float* out_minp, float* out_maxp)
 {
-    bool verbose = true;
+    bool verbose = false;
 
     primitive_t* prim = &mesh_in->primitives[0];
     attribute_t* attr = &prim->position;
@@ -1247,7 +1247,7 @@ static float compute_mesh_max_radius(mesh_t* mesh_in)
         debugf("Num vertices: %lu\n", prim->num_vertices);
         debugf("Num indices: %lu\n", prim->num_indices);
 
-        debugf("Primitive 0 pos attribute:\nsize=%lu, type=%lu, stride=%lu, pointer=%p\n",
+        debugf("Primitive 0 pos attribute: size=%lu, type=%lu, stride=%lu, pointer=%p\n",
                attr->size,
                attr->type,
                attr->stride,
@@ -1266,13 +1266,23 @@ static float compute_mesh_max_radius(mesh_t* mesh_in)
     }
 
     float max_radius = 0.0;
+    for (int j = 0; j < 3; j++) {
+        out_minp[j] = __FLT_MAX__;
+        out_maxp[j] = -__FLT_MAX__;
+    }
 
     for (uint32_t i=0;i<count;i++) {
         float* p = &vertices[i].position[0];
         float radius = sqrtf(p[0]*p[0] + p[1]*p[1] + p[2]*p[2]);
+        for (int j=0;j<3;j++) {
+            out_minp[j] = min(out_minp[j], p[j]);
+            out_maxp[j] = max(out_maxp[j], p[j]);
+        }
 
         max_radius = max(radius, max_radius);
     }
 
-    return max_radius;
+    *out_radius = max_radius;
+
+    return true;
 }
