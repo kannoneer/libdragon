@@ -942,7 +942,7 @@ occ_target_t* target, occ_raster_query_result_t *out_result)
     }
 
     if (force_rough_only) {
-        return pass;
+        goto finish;
     }
 
     pass = occ_check_hull_visible_precise(occ, zbuffer, hull, model_xform, target, out_result);
@@ -951,6 +951,7 @@ occ_target_t* target, occ_raster_query_result_t *out_result)
         debugf("tris drawn: %d, last_visible = %d\n", out_result->num_tris_drawn, target->last_visible_idx);
     }
 
+    finish:
     if (pass) {
         target->last_visible_frame = occ->frame;
     } else {
