@@ -44,6 +44,7 @@ bool g_verbose_raster = false; // print depth at vertex pixels
 bool g_verbose_early_out = false; // print coordinates of pixels that pass the depth test
 bool g_verbose_visibility_tracking = false; // debug prints of last visible tri tracking
 bool g_octagon_test = false; // intersect screenspace box with a 45 degree rotated box to get a stricter octagon test
+bool g_draw_queries_hack = false; // render also queried objects to the depth buffer
 bool config_shrink_silhouettes = true; // detect edges with flipped viewspace Z signs in each neighbor and add inner conservative flags
 bool config_discard_based_on_tr_code = true;
 bool config_inflate_rough_bounds = true;
@@ -893,7 +894,12 @@ bool occ_check_hull_visible_precise(occ_culler_t *occ, surface_t *zbuffer, const
                                     occ_target_t *target, occ_raster_query_result_t *out_result)
 {
     occ_raster_query_result_t result = {};
-    occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, &hull->mesh, NULL, NULL, target, OCC_RASTER_FLAGS_QUERY, &result);
+    uint32_t flags = OCC_RASTER_FLAGS_QUERY;
+    if (g_draw_queries_hack) {
+        flags &= ~RASTER_FLAG_EARLY_OUT;
+        flags |= RASTER_FLAG_WRITE_DEPTH;
+    }
+    occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, &hull->mesh, NULL, NULL, target, flags, &result);
 
     if (out_result) {
         *out_result = result;
