@@ -57,14 +57,14 @@ static uint64_t g_num_frames = 0;
 static GLuint textures[4];
 
 // static const GLfloat environment_color[] = {0.1f, 0.5f, 0.5f, 1.f};
-static const GLfloat environment_color[] = {1.0f, 1.0f, 1.0f, 1.f};
+static const GLfloat environment_color[] = {0.85f, 0.85f, 1.0f, 1.f};
 
 static bool config_show_wireframe = true;
 static bool config_enable_culling = true;
 static int config_depth_view_mode = 1;
 static bool config_conservative = true;
 static bool config_top_down_view = false;
-static float config_far_plane = 25.f;
+static float config_far_plane = 50.f;
 
 static const GLfloat light_pos[8][4] = {
     {1, 0, 0, 0},
@@ -78,7 +78,7 @@ static const GLfloat light_pos[8][4] = {
 };
 
 static const GLfloat light_diffuse[8][4] = {
-    {1.0f, 0.0f, 0.0f, 1.0f},
+    {1.0f, 1.0f, 1.0f, 1.0f},
     {0.0f, 1.0f, 0.0f, 1.0f},
     {0.0f, 0.0f, 1.0f, 1.0f},
     {1.0f, 1.0f, 0.0f, 1.0f},
@@ -93,7 +93,7 @@ enum Fonts {
 };
 
 static const char *texture_path[4] = {
-    "rom:/circle0.sprite",
+    "rom:/rock_tile.sprite",
     "rom:/diamond0.sprite",
     "rom:/pentagon0.sprite",
     "rom:/triangle0.sprite",
@@ -168,7 +168,7 @@ void setup()
 
     float light_radius = 10.0f;
 
-    for (uint32_t i = 0; i < 8; i++) {
+    for (uint32_t i = 0; i < 0; i++) {
         glEnable(GL_LIGHT0 + i);
         glLightfv(GL_LIGHT0 + i, GL_DIFFUSE, light_diffuse[i]);
         glLightf(GL_LIGHT0 + i, GL_LINEAR_ATTENUATION, 2.0f / light_radius);
@@ -178,8 +178,8 @@ void setup()
     GLfloat mat_diffuse[] = {1.0f, 1.0f, 1.0f, 1.0f};
     glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, mat_diffuse);
 
-    glFogf(GL_FOG_START, 5);
-    glFogf(GL_FOG_END, 20);
+    glFogf(GL_FOG_START, 1);
+    glFogf(GL_FOG_END, far_plane);
     glFogfv(GL_FOG_COLOR, environment_color);
 
     glEnable(GL_MULTISAMPLE_ARB);
@@ -604,7 +604,6 @@ void setup_city_scene()
         model64_draw_node(city_scene.mdl_room, node);
         glEndList();
 
-        //occ_hull_t* hullp = &city_scene.occ_hulls[i];
         float max_radius = 0.0f;
         float minp[3] = {0.f};
         float maxp[3] = {0.f};
@@ -616,7 +615,7 @@ void setup_city_scene()
             minp[0], minp[1],minp[2],
             maxp[0], maxp[1],maxp[2]
         );
-        // unit cube is [-1, 1] so we need to scale only by 1/2 of the AABB axes to get that size
+        // unit cube is [-1, 1]^3 so we need to scale only by 1/2 of the AABB axes to get that size
         float scale[3] = {0.5f * (maxp[0] - minp[0]), 0.5f * (maxp[1] - minp[1]), 0.5f * (maxp[2] - minp[2])};
         // compute midpoint
         float mid[3] = {0.5f * (maxp[0] + minp[0]), 0.5f * (maxp[1] + minp[1]), 0.5f * (maxp[2] + minp[2])};
@@ -802,6 +801,12 @@ void render(double delta)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     occ_next_frame(culler);
     occ_clear_zbuffer(sw_zbuffer);
+    
+    if (config_top_down_view || config_show_wireframe) {
+        glDisable(GL_FOG);
+    } else {
+        glEnable(GL_FOG);
+    }
 
     glMatrixMode(GL_MODELVIEW);
 
@@ -813,11 +818,14 @@ void render(double delta)
     else {
         assert(!"unknown camera mode");
     }
+
     // matrix_t mvp;
     // matrix_mult_full(&mvp, &g_projection, &g_view);
 
     occ_set_view_and_projection(culler, &g_view, &g_projection);
     glLoadMatrixf(&g_view.m[0][0]);
+
+    glLightfv(GL_LIGHT0, GL_POSITION, &fps_camera.pos[0]);
 
     if (config_top_down_view) {
         matrix_t new_view;
@@ -967,6 +975,11 @@ int main()
             debugf("%ld\n", animation);
         }
 
+        if (pressed.l) {
+            config_top_down_view = !config_top_down_view;
+            debugf("top down view: %d\n", config_top_down_view);
+        }
+
         if (pressed.r) {
             config_show_wireframe = !config_show_wireframe;
         }
@@ -981,8 +994,6 @@ int main()
             config_depth_view_mode = (config_depth_view_mode + 1) % 3;
         }
 
-        //config_top_down_view = !config_top_down_view;
-        //debugf("top down view: %d\n", config_top_down_view);
         //config_conservative = !config_conservative;
         //debugf("conservative rasterization: %s\n", config_conservative ? "ON" : "OFF");
 
@@ -997,17 +1008,17 @@ int main()
             }
         }
         else if (g_camera_mode == CAM_FPS) {
-            float adelta = 0.05f;
-            float mdelta = 0.3f;
+            float adelta = 0.075f;
+            float mdelta = 0.20f;
             if (fabsf(mag) > 0.01f) {
                 fps_camera.pos[0] += mdelta * y * cos(fps_camera.angle);
                 fps_camera.pos[2] += mdelta * y * sin(fps_camera.angle);
-                fps_camera.angle = fmodf(fps_camera.angle + adelta * x, 2 * M_PI);
+                fps_camera.pos[0] += mdelta * x * cos(fps_camera.angle + M_PI_2);
+                fps_camera.pos[2] += mdelta * x * sin(fps_camera.angle + M_PI_2);
             }
 
             if (fabsf(inputs.cstick_x) > 0.01f) {
-                fps_camera.pos[0] += mdelta * 0.015f * inputs.cstick_x * cos(fps_camera.angle + M_PI_2);
-                fps_camera.pos[2] += mdelta * 0.015f * inputs.cstick_x * sin(fps_camera.angle + M_PI_2);
+                fps_camera.angle = fmodf(fps_camera.angle + adelta * inputs.cstick_x/127.f, 2 * M_PI);
             }
             // if (inputs.cstick_x) {
             //     fps_camera.pos[0] += mdelta * cos(fps_camera.angle + M_PI_2);
