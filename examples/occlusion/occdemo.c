@@ -599,13 +599,32 @@ void setup_city_scene()
         glEndList();
 
         //occ_hull_t* hullp = &city_scene.occ_hulls[i];
-        float max_radius = compute_mesh_max_radius(node->mesh);
+        float max_radius = 0.0f;
+        float minp[3] = {0.f};
+        float maxp[3] = {0.f};
+
+        bool bounds_ok = compute_mesh_bounds(node->mesh, &max_radius, &minp[0], &maxp[0]);
         const float HACK_scale = 0.75f;
         max_radius *= HACK_scale;
-        debugf("[node %lu] max_radius=%f\n", i, max_radius);
-        matrix_t scaler = cpu_glScalef(max_radius, max_radius, max_radius);
+        debugf("[node %lu] OK: %d, max_radius=%f, min=(%.3f, %.3f, %.3f), max=(%.3f, %.3f, %.3f)\n", i, bounds_ok, max_radius,
+            minp[0], minp[1],minp[2],
+            maxp[0], maxp[1],maxp[2]
+        );
+        // unit cube is [-1, 1] so we need to scale only by 1/2 of the AABB axes to get that size
+        float scale[3] = {0.5f * (maxp[0] - minp[0]), 0.5f * (maxp[1] - minp[1]), 0.5f * (maxp[2] - minp[2])};
+        // compute midpoint
+        float mid[3] = {0.5f * (maxp[0] + minp[0]), 0.5f * (maxp[1] + minp[1]), 0.5f * (maxp[2] + minp[2])};
+        debugf("[node %lu] scale: (%.3f, %.3f, %.3f), mid: (%.3f, %.3f, %.3f)\n",
+            i,
+            scale[0], scale[1], scale[2],
+            mid[0], mid[1], mid[2]
+        );
+        matrix_t temp = cpu_glScalef(scale[0], scale[1], scale[2]);
         matrix_t old = city_scene.node_xforms[i];
-        matrix_mult_full(&city_scene.node_xforms[i], &old, &scaler);
+        matrix_mult_full(&city_scene.node_xforms[i], &old, &temp);
+        old = city_scene.node_xforms[i];
+        temp = cpu_glTranslatef(mid[0], mid[1], mid[2]);
+        matrix_mult_full(&city_scene.node_xforms[i], &old, &temp);
     }
 
     debugf("num_nodes: %lu, num_occluders: %lu\n", s->num_nodes, s->num_occluders);
