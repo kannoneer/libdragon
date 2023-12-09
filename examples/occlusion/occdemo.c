@@ -41,7 +41,8 @@ static uint32_t animation = 0;
 static uint32_t texture_index = 0;
 static camera_t camera;
 //static fps_camera_t fps_camera = {.pos = {4.071973f, 0.000000f, 7.972688f}, .angle = 4.129455f};
-static fps_camera_t fps_camera = {.pos={-6.411684, 0.000000, -4.664800}, .angle = 0.500546};
+//static fps_camera_t fps_camera = {.pos={-6.411684, 0.000000, -4.664800}, .angle = 0.500546};
+static fps_camera_t fps_camera = {.pos={6.752933f, 0.000000f, -0.804996f}, .angle = -0.711265f};
 
 int g_camera_mode = CAM_SPIN;
 matrix_t g_view;
@@ -691,6 +692,7 @@ void render_city_scene(surface_t* disp)
     for (uint32_t i = 0; i < city_scene.num_nodes; i++) {
         bool visible = true;
         if (config_enable_culling && city_scene.node_should_test[i]) {
+            debugf("testing node '%s'\n", city_scene.node_names[i]);
             occ_raster_query_result_t result = {};
             //occ_draw_hull(culler, sw_zbuffer, &unit_cube_hull, &city_scene.node_xforms[i], &result, 0);
             visible = occ_check_target_visible(culler, sw_zbuffer, &unit_cube_hull, &city_scene.node_xforms[i], &city_scene.targets[i], &result);
@@ -1045,7 +1047,7 @@ int main()
             //     fps_camera.pos[0] += mdelta * cos(fps_camera.angle + M_PI_2);
             //     fps_camera.pos[2] += mdelta * sin(fps_camera.angle + M_PI_2);
             // }
-            debugf("fps_camera.pos = {%f, %f, %f}, fps_camera.angle = %f\n", 
+            debugf("fps_camera = {.pos = {%ff, %ff, %ff}, .angle = %ff}\n", 
                 fps_camera.pos[0], fps_camera.pos[1], fps_camera.pos[2], fps_camera.angle);
         }
 
