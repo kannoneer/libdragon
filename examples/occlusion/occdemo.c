@@ -552,7 +552,13 @@ void setup_city_scene()
             debugf("Skipping node %lu name=%s, mesh=%p\n", i, node->name, node->mesh);
             continue;
         }
+        if (strstr(node->name, "cell") != NULL) {
+            debugf("skipping cell '%s'\n", node->name);
+            continue;
+        }
+
         debugf("%lu node=%p, name=%s\n", i, node, node->name);
+
         if (strstr(node->name, "occluder") != NULL) {
             debugf("occluder found\n");
             if (s->num_occluders >= CITY_SCENE_MAX_OCCLUDERS) {
@@ -571,7 +577,7 @@ void setup_city_scene()
                 break;
             }
 
-            if (strstr(node->name, "Suzanne") != NULL) {
+            if (strstr(node->name, "detail") != NULL) {
                 city_scene.node_should_test[s->num_nodes] = true;
             }
             copy_to_matrix(&model->transforms[i].world_mtx[0], &city_scene.node_xforms[s->num_nodes]);
