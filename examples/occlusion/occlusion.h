@@ -125,6 +125,10 @@ typedef struct occ_mesh_s {
     uint32_t num_indices;
 } occ_mesh_t;
 
+typedef struct occ_aabb_s {
+    float lo[3]; // minimum
+    float hi[3]; // maximum
+} occ_aabb_t;
 #define OCC_NO_EDGE_NEIGHBOR 0xffff
 
 typedef struct occ_hull_s {
@@ -1241,7 +1245,7 @@ uint32_t uncompress_model64_verts(primitive_t* prim, vertex_t* vertices_out) {
     return vertex_id;
 }
 
-static bool compute_mesh_bounds(mesh_t* mesh_in, float* out_radius, float* out_minp, float* out_maxp)
+static bool compute_mesh_bounds(mesh_t* mesh_in, float* out_radius, occ_aabb_t* out_aabb)
 {
     bool verbose = false;
 
@@ -1273,16 +1277,16 @@ static bool compute_mesh_bounds(mesh_t* mesh_in, float* out_radius, float* out_m
 
     float max_radius = 0.0;
     for (int j = 0; j < 3; j++) {
-        out_minp[j] = __FLT_MAX__;
-        out_maxp[j] = -__FLT_MAX__;
+        out_aabb->lo[j] = __FLT_MAX__;
+        out_aabb->hi[j] = -__FLT_MAX__;
     }
 
     for (uint32_t i=0;i<count;i++) {
         float* p = &vertices[i].position[0];
         float radius = sqrtf(p[0]*p[0] + p[1]*p[1] + p[2]*p[2]);
         for (int j=0;j<3;j++) {
-            out_minp[j] = min(out_minp[j], p[j]);
-            out_maxp[j] = max(out_maxp[j], p[j]);
+            out_aabb->lo[j] = min(out_aabb->lo[j], p[j]);
+            out_aabb->hi[j] = max(out_aabb->hi[j], p[j]);
         }
 
         max_radius = max(radius, max_radius);

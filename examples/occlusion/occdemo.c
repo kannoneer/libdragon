@@ -521,6 +521,7 @@ struct city_scene_s
     GLuint node_dplists[CITY_SCENE_MAX_NODES];
     matrix_t node_xforms[CITY_SCENE_MAX_NODES];
     bool node_should_test[CITY_SCENE_MAX_NODES];
+    const char* node_names[CITY_SCENE_MAX_NODES];
 
     model64_node_t* occluders[CITY_SCENE_MAX_OCCLUDERS];
     occ_mesh_t occ_meshes[CITY_SCENE_MAX_OCCLUDERS];
@@ -582,6 +583,7 @@ void setup_city_scene()
             }
             copy_to_matrix(&model->transforms[i].world_mtx[0], &city_scene.node_xforms[s->num_nodes]);
             s->nodes[s->num_nodes] = node;
+            city_scene.node_names[s->num_nodes] = node->name;
             s->num_nodes++;
             debugf("wrote node node=%p", s->nodes[s->num_nodes - 1]);
         }
@@ -605,12 +607,13 @@ void setup_city_scene()
         glEndList();
 
         float max_radius = 0.0f;
-        float minp[3] = {0.f};
-        float maxp[3] = {0.f};
 
-        bool bounds_ok = compute_mesh_bounds(node->mesh, &max_radius, &minp[0], &maxp[0]);
+        occ_aabb_t aabb={};
+        bool bounds_ok = compute_mesh_bounds(node->mesh, &max_radius, &aabb);
         const float HACK_scale = 0.75f;
         max_radius *= HACK_scale;
+        const float* minp = &aabb.lo[0];
+        const float* maxp = &aabb.hi[0];
         debugf("[node %lu] OK: %d, max_radius=%f, min=(%.3f, %.3f, %.3f), max=(%.3f, %.3f, %.3f)\n", i, bounds_ok, max_radius,
             minp[0], minp[1],minp[2],
             maxp[0], maxp[1],maxp[2]
