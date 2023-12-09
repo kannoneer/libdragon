@@ -48,6 +48,7 @@ bool g_draw_queries_hack = false; // render also queried objects to the depth bu
 bool config_shrink_silhouettes = true; // detect edges with flipped viewspace Z signs in each neighbor and add inner conservative flags
 bool config_discard_based_on_tr_code = true;
 bool config_inflate_rough_bounds = true;
+bool config_report_near_clip_as_visible  = true; // if queried polygons clip the near plane, always report them as visible
 
 enum {
     RASTER_FLAG_BACKFACE_CULL = 1,
@@ -629,13 +630,15 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         const bool clips_near = (verts[0].tr_code | verts[1].tr_code | verts[2].tr_code) & (1 << NEAR_PLANE_INDEX);
         const bool clips_far = (verts[0].tr_code | verts[1].tr_code | verts[2].tr_code) & (1 << FAR_PLANE_INDEX);
 
-        // If we are drawing for a precise query and we hit a near clip: report as visible
-        if (clips_near && (flags & RASTER_FLAG_REPORT_VISIBILITY) && !(flags & RASTER_FLAG_WRITE_DEPTH)) {
-            assert(query_result && "must pass in a non-NULL query_result if asking for a visibility result");
-            if (query_result) {
-                query_result->visible = true;
-                query_result->num_tris_drawn = num_tris_drawn;
-                return;
+        if (config_report_near_clip_as_visible) {
+            // If we are drawing for a precise query and we hit a near clip: report as visible
+            if (clips_near && (flags & RASTER_FLAG_REPORT_VISIBILITY) && !(flags & RASTER_FLAG_WRITE_DEPTH)) {
+                assert(query_result && "must pass in a non-NULL query_result if asking for a visibility result");
+                if (query_result) {
+                    query_result->visible = true;
+                    query_result->num_tris_drawn = num_tris_drawn;
+                    return;
+                }
             }
         }
 
