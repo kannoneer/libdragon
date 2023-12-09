@@ -624,6 +624,16 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         const bool clips_near = (verts[0].tr_code | verts[1].tr_code | verts[2].tr_code) & (1 << NEAR_PLANE_INDEX);
         const bool clips_far = (verts[0].tr_code | verts[1].tr_code | verts[2].tr_code) & (1 << FAR_PLANE_INDEX);
 
+        // If we are drawing for a precise query and we hit a near clip: report as visible
+        if (clips_near && (flags & RASTER_FLAG_REPORT_VISIBILITY) && !(flags & RASTER_FLAG_WRITE_DEPTH)) {
+            assert(query_result && "must pass in a non-NULL query_result if asking for a visibility result");
+            if (query_result) {
+                query_result->visible = true;
+                query_result->num_tris_drawn = num_tris_drawn;
+                return;
+            }
+        }
+
         if (clips_near) {
             if (config_near_clipping_action == CLIP_ACTION_REJECT) {
                 continue;
@@ -831,12 +841,15 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
         vert.screen_pos[0] += SCREENSPACE_BIAS;
         vert.screen_pos[1] += SCREENSPACE_BIAS;
         prof_end(REGION_TRANSFORM);
-        if (vert.depth < 0.f) return true; // HACK: any vertex behind camera makes the object visible
-        minZ = min(minZ, vert.depth);
-        minX = min(minX, vert.screen_pos[0]);
-        maxX = max(maxX, vert.screen_pos[0]);
-        minY = min(minY, vert.screen_pos[1]);
-        maxY = max(maxY, vert.screen_pos[1]);
+        //if (vert.depth < 0.f) return true; // HACK: any vertex behind camera makes the object visible
+
+        if (vert.depth > 0.f) {
+            minZ = min(minZ, vert.depth);
+            minX = min(minX, vert.screen_pos[0]);
+            maxX = max(maxX, vert.screen_pos[0]);
+            minY = min(minY, vert.screen_pos[1]);
+            maxY = max(maxY, vert.screen_pos[1]);
+        }
 
         if (g_octagon_test) {
             vec2f pr = rotate_xy_coords_45deg(vert.screen_pos[0], vert.screen_pos[1]);
