@@ -60,7 +60,7 @@ static GLuint textures[4];
 // static const GLfloat environment_color[] = {0.1f, 0.5f, 0.5f, 1.f};
 static const GLfloat environment_color[] = {0.85f, 0.85f, 1.0f, 1.f};
 
-static bool config_show_wireframe = true;
+static bool config_show_wireframe = false;
 static bool config_enable_culling = true;
 static int config_depth_view_mode = 1;
 static bool config_conservative = true;
@@ -503,10 +503,162 @@ static void copy_to_matrix(const float* in, matrix_t* out) {
     }
 }
 
+enum BvhFlags {
+    BVH_FLAG_LEFT_CHILD = 1,
+    BVH_FLAG_RIGHT_CHILD = 2,
+};
+
+typedef struct bvh_node_s {
+    float pos[3];
+    float radius_sqr;
+    uint8_t flags;
+    uint16_t idx; // inner node: right child, leaf node: Node* index in array
+} bvh_node_t;
+
+typedef struct sphere_bvh_s {
+    bvh_node_t* nodes; // owned by this struct
+    uint32_t num_nodes;
+} sphere_bvh_t;
+
+void bvh_free(sphere_bvh_t* bvh) {
+    if (bvh->nodes) free(bvh->nodes);
+}
+
+void bvh_print_node(bvh_node_t* n) {
+    if (n->flags == 0) {
+        debugf("leaf (0x%x): ", n->flags);
+    } else {
+        debugf("inner (0x%x): ", n->flags);
+    }
+    debugf("(%f, %f, %f), rad^2=%f, idx=%u\n", n->pos[0], n->pos[1], n->pos[2], n->radius_sqr, n->idx);
+}
+
+bool bvh_validate(const sphere_bvh_t* bvh) {
+    // TODO check parent bounds always contain all children
+    if (!bvh->nodes) return false;
+    if (bvh->num_nodes == 0) return false;
+    return true;
+}
+
+bool bvh_build(float* origins, float* radiuses, uint32_t num, sphere_bvh_t* out_bvh)
+{
+    sphere_bvh_t bvh = {};
+
+    // the number of nodes for a full binary tree with 'num' leaves
+    const uint32_t max_nodes = 2 * num - 1;
+    debugf("max_nodes: %lu\n", max_nodes);
+    // temporary array where we add nodes as we go and truncate at the end
+    bvh_node_t* nodes = malloc(max_nodes * sizeof(bvh_node_t));
+    // references to origins[] and radiuses[]
+    uint32_t* inds = malloc(max_nodes * sizeof(uint32_t));
+    // start at identity mapping that gets permuted by sorting of recursive subranges
+    for (uint32_t i=0;i<num;i++) {
+        inds[i] = i;
+    }
+
+    DEFER(free(nodes));
+    DEFER(free(inds));
+
+    bvh.num_nodes = 0;
+
+    uint32_t bvh_build_range(uint32_t start, uint32_t num) {
+        debugf("[%lu,num=%lu] node=%lu\n", start, num, bvh.num_nodes);
+        assert(num > 0);
+        assert(num != UINT32_MAX);
+
+        uint32_t n_id = bvh.num_nodes++;
+        assert(n_id <= max_nodes);
+
+        bvh_node_t* n = &nodes[n_id];
+        *n = (bvh_node_t){};
+
+        bool is_leaf = num == 1;
+        if (is_leaf) {
+            uint32_t idx = inds[start];
+            n->pos[0] = origins[idx*3+0];
+            n->pos[1] = origins[idx*3+1];
+            n->pos[2] = origins[idx*3+2];
+            n->radius_sqr = radiuses[idx] * radiuses[idx];
+            n->flags = 0;
+            n->idx = idx; // represents an index to data array
+            debugf("  ");
+            bvh_print_node(n);
+        } else {
+            // fit a sphere to 'num' smaller spheres
+            // first compute origin
+            float pos[3] = {0.0f, 0.0f, 0.0f};
+            int count = 0;
+            for (uint32_t i = start; i < start + num; i++) {
+                float* p = &origins[3*i];
+                pos[0] += p[0];
+                pos[1] += p[1];
+                pos[2] += p[2];
+                count++;
+            }
+
+            float denom = 1.0f/(float)count;
+            pos[0] *= denom;
+            pos[1] *= denom;
+            pos[2] *= denom;
+
+            // then compute max radius that holds all spheres inside
+            float max_radius = 0.0f;
+            for (uint32_t i = start; i < start + num; i++) {
+                float* p = &origins[3*i];
+                float r = radiuses[i];
+                float delta[3] = {p[0] - pos[0], p[1] - pos[1], p[2] - pos[2]};
+                float dist = sqrtf(delta[0]*delta[0] + delta[1]*delta[1] + delta[2]*delta[2]);
+                max_radius = max(max_radius, dist + r); // must contain sphere origin + its farthest point
+            }
+
+            n->pos[0] = pos[0];
+            n->pos[1] = pos[1];
+            n->pos[2] = pos[2];
+            n->radius_sqr = max_radius * max_radius;
+            n->flags = 0;
+
+            uint32_t split = start + num/2;
+            uint32_t left_num = split - start;
+            uint32_t right_num = num - left_num;
+
+            if (left_num > 0) {
+                n->flags |= BVH_FLAG_LEFT_CHILD;
+            }
+            if (right_num > 0) {
+                n->flags |= BVH_FLAG_RIGHT_CHILD;
+            }
+
+            if (left_num > 0) {
+                uint32_t left_id = bvh_build_range(start, left_num);
+                assert(left_id == n_id + 1);
+            }
+            if (right_num > 0) {
+                // represents an index to nodes[] array
+                n->idx = bvh_build_range(split, right_num);
+            }
+
+            debugf("  ");
+            debugf("   (n_id=%lu)", n_id);
+            bvh_print_node(n);
+        }
+
+        return n_id;
+    }
+
+    bvh_build_range(0, num);
+
+    const uint32_t size =  bvh.num_nodes * sizeof(bvh_node_t);
+    bvh.nodes = calloc(size, 1); // calloc so that any padding bytes become zero, good for serialization
+    memcpy(bvh.nodes, nodes, size);
+
+    *out_bvh = bvh;
+    return true;
+}
 
 // #define CITY_SCENE_NUM_HOUSES (40)
 #define CITY_SCENE_MAX_OCCLUDERS (10)
 #define CITY_SCENE_MAX_NODES (50)
+#define CITY_SCENE_MAX_BVH_SIZE (200)
 
 struct city_scene_s
 {
@@ -528,8 +680,10 @@ struct city_scene_s
     occ_mesh_t occ_meshes[CITY_SCENE_MAX_OCCLUDERS];
     occ_hull_t occ_hulls[CITY_SCENE_MAX_OCCLUDERS];
     matrix_t occluder_xforms[CITY_SCENE_MAX_OCCLUDERS];
-} city_scene = {};
 
+    sphere_bvh_t bvh;
+    matrix_t bvh_xforms[CITY_SCENE_MAX_BVH_SIZE];
+} city_scene = {};
 
 void setup_city_scene()
 {
@@ -598,6 +752,11 @@ void setup_city_scene()
         0.0f, 0.0f, 1.0f, 1.0f,
     };
 
+    float* origins = malloc(city_scene.num_nodes * sizeof(float) * 3);
+    float* radiuses = malloc(city_scene.num_nodes * sizeof(float));
+    DEFER(free(origins));
+    DEFER(free(radiuses));
+
     for (uint32_t i=0;i<city_scene.num_nodes;i++) {
         GLuint list = glGenLists(1);
         glNewList(list, GL_COMPILE);
@@ -607,18 +766,23 @@ void setup_city_scene()
         model64_draw_node(city_scene.mdl_room, node);
         glEndList();
 
-        float max_radius = 0.0f;
+        float obj_radius = 0.0f;
+        float world_radius = 0.0f;
 
-        occ_aabb_t aabb={};
-        bool bounds_ok = compute_mesh_bounds(node->mesh, &max_radius, &aabb);
-        const float HACK_scale = 0.75f;
-        max_radius *= HACK_scale;
-        const float* minp = &aabb.lo[0];
-        const float* maxp = &aabb.hi[0];
-        debugf("[node %lu] OK: %d, max_radius=%f, min=(%.3f, %.3f, %.3f), max=(%.3f, %.3f, %.3f)\n", i, bounds_ok, max_radius,
-            minp[0], minp[1],minp[2],
-            maxp[0], maxp[1],maxp[2]
+        occ_aabb_t obj_aabb={};
+        occ_aabb_t world_aabb={};
+        bool bounds_ok = compute_mesh_bounds(node->mesh, &city_scene.node_xforms[i], &obj_radius, &obj_aabb, &world_radius, &world_aabb);
+        debugf("[node %lu] OK: %d, obj_radius=%f, min=(%.3f, %.3f, %.3f), max=(%.3f, %.3f, %.3f)\n", i, bounds_ok, obj_radius,
+            obj_aabb.lo[0], obj_aabb.lo[1], obj_aabb.lo[2],
+            obj_aabb.hi[0], obj_aabb.hi[1], obj_aabb.hi[2]
         );
+        debugf("[node %lu] OK: %d, world_radius=%f, min=(%.3f, %.3f, %.3f), max=(%.3f, %.3f, %.3f)\n", i, bounds_ok, world_radius,
+            world_aabb.lo[0], world_aabb.lo[1], world_aabb.lo[2],
+            world_aabb.hi[0], world_aabb.hi[1], world_aabb.hi[2]
+        );
+
+        const float* minp = &obj_aabb.lo[0];
+        const float* maxp = &obj_aabb.hi[0];
         // unit cube is [-1, 1]^3 so we need to scale only by 1/2 of the AABB axes to get that size
         float scale[3] = {0.5f * (maxp[0] - minp[0]), 0.5f * (maxp[1] - minp[1]), 0.5f * (maxp[2] - minp[2])};
         // compute midpoint
@@ -628,6 +792,18 @@ void setup_city_scene()
             scale[0], scale[1], scale[2],
             mid[0], mid[1], mid[2]
         );
+
+        debugf("matrix %lu\n", i);
+        print_matrix(&city_scene.node_xforms[i]);
+        float* orig = &origins[3*i];
+        float* fourth_column = &city_scene.node_xforms[i].m[3][0];
+        debugf("fourth column: %f, %f, %f, %f\n", fourth_column[0], fourth_column[1],fourth_column[2],fourth_column[3]);
+        orig[0] = fourth_column[0];
+        orig[1] = fourth_column[1];
+        orig[2] = fourth_column[2];
+        radiuses[i] = world_radius;
+
+
         matrix_t temp = cpu_glScalef(scale[0], scale[1], scale[2]);
         matrix_t old = city_scene.node_xforms[i];
         matrix_mult_full(&city_scene.node_xforms[i], &old, &temp);
@@ -652,6 +828,45 @@ void setup_city_scene()
         }
     }
 
+    debugf("input origins and rads:\n");
+    for (uint32_t i = 0; i < city_scene.num_nodes; i++) {
+        float r = radiuses[i];
+        float* p = &origins[3*i];
+
+        debugf("[%li] (%f, %f, %f), radius=%f\n", i, p[0], p[1], p[2], r);
+    }
+
+    sphere_bvh_t bvh = {};
+    bool success = bvh_build(origins, radiuses, city_scene.num_nodes, &bvh);
+    if (!success) {
+        debugf("BVH building failed\n");
+        return;
+    }
+    debugf("bvh.num_nodes=%lu\n", bvh.num_nodes);
+    bool ok = bvh_validate(&bvh);
+    assert(bvh.num_nodes < CITY_SCENE_MAX_BVH_SIZE);
+    city_scene.bvh = bvh;
+    assert(ok);
+
+    debugf("creating node matrices\n");
+    for (uint32_t i = 0; i < bvh.num_nodes; i++) {
+        bvh_node_t* n = &bvh.nodes[i];
+        float r = sqrtf(n->radius_sqr);
+
+        debugf("[%li] pos=(%f, %f, %f), r=%f\n", i, n->pos[0], n->pos[1], n->pos[2], r);
+
+        matrix_t scale = cpu_glScalef(r, r, r);
+        matrix_t translate = cpu_glTranslatef(n->pos[0], n->pos[1], n->pos[2]);
+        matrix_mult_full(&city_scene.bvh_xforms[i], &translate, &scale);
+    }
+    
+}
+
+void render_posed_unit_cube(matrix_t* mtx) {
+    glPushMatrix();
+    glMultMatrixf(&mtx->m[0][0]);
+    draw_unit_cube();
+    glPopMatrix();
 }
 
 void render_city_scene(surface_t* disp)
@@ -671,6 +886,7 @@ void render_city_scene(surface_t* disp)
 
     if (config_enable_culling) {
         for (uint32_t i = 0; i < city_scene.num_occluders; i++) {
+            debugf("drawing occluder %lu\n", i);
             occ_raster_query_result_t result = {};
             occ_draw_hull(culler, sw_zbuffer, &city_scene.occ_hulls[i], &city_scene.occluder_xforms[i], &result, OCCLUDER_TWO_SIDED);
         }
@@ -690,6 +906,8 @@ void render_city_scene(surface_t* disp)
     scene_stats.num_max = 0;
 
     for (uint32_t i = 0; i < city_scene.num_nodes; i++) {
+        //if (strcmp(city_scene.node_names[i], "room1 detail")) continue; // HACK skip other nodes
+
         bool visible = true;
         if (config_enable_culling && city_scene.node_should_test[i]) {
             debugf("testing node '%s'\n", city_scene.node_names[i]);
@@ -731,11 +949,30 @@ void render_city_scene(surface_t* disp)
 
         for (uint32_t i = 0; i < city_scene.num_nodes; i++) {
             if (city_scene.targets[i].last_visible_frame == culler->frame) {
-                glPushMatrix();
-                glMultMatrixf(&city_scene.node_xforms[i].m[0][0]);
-                draw_unit_cube();
-                glPopMatrix();
+                render_posed_unit_cube(&city_scene.node_xforms[i]);
+                // glPushMatrix();
+                // glMultMatrixf(&city_scene.node_xforms[i].m[0][0]);
+                // draw_unit_cube();
+                // glPopMatrix();
             }
+        }
+
+        glEnable(GL_DEPTH_TEST);
+        glDisable(GL_BLEND);
+    }
+
+    {
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ONE);
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_TEXTURE_2D);
+
+        GLfloat red[4] = {0.2f, 0.1f, 0.1f, 0.2f};
+
+        glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &red[0]);
+
+        for (uint32_t i=0;i<city_scene.bvh.num_nodes;i++) {
+            render_posed_unit_cube(&city_scene.bvh_xforms[i]);
         }
 
         glEnable(GL_DEPTH_TEST);

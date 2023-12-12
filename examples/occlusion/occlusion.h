@@ -1249,7 +1249,9 @@ uint32_t uncompress_model64_verts(primitive_t* prim, vertex_t* vertices_out) {
     return vertex_id;
 }
 
-static bool compute_mesh_bounds(mesh_t* mesh_in, float* out_radius, occ_aabb_t* out_aabb)
+static bool compute_mesh_bounds(mesh_t* mesh_in, const matrix_t* to_world,
+    float* out_obj_radius, occ_aabb_t* out_obj_aabb,
+    float* out_world_radius, occ_aabb_t* out_world_aabb)
 {
     bool verbose = false;
 
@@ -1279,24 +1281,39 @@ static bool compute_mesh_bounds(mesh_t* mesh_in, float* out_radius, occ_aabb_t* 
         return 0.0f;
     }
 
-    float max_radius = 0.0;
+    float max_obj_radius = 0.0f;
+    float max_world_radius = 0.0f;
+
     for (int j = 0; j < 3; j++) {
-        out_aabb->lo[j] = __FLT_MAX__;
-        out_aabb->hi[j] = -__FLT_MAX__;
+        out_obj_aabb->lo[j] = __FLT_MAX__;
+        out_obj_aabb->hi[j] = -__FLT_MAX__;
+        out_world_aabb->lo[j] = __FLT_MAX__;
+        out_world_aabb->hi[j] = -__FLT_MAX__;
     }
 
-    for (uint32_t i=0;i<count;i++) {
+    for (uint32_t i = 0; i < count; i++) {
         float* p = &vertices[i].position[0];
-        float radius = sqrtf(p[0]*p[0] + p[1]*p[1] + p[2]*p[2]);
+        float v[4] = {p[0], p[1], p[2], 1.0f};
+        float world[4];
+
+        matrix_mult(&world[0], to_world, &v[0]);
+
+        float obj_radius = sqrtf(p[0]*p[0] + p[1]*p[1] + p[2]*p[2]);
+        float world_radius = sqrtf(world[0]*world[0] + world[1]*world[1] + world[2]*world[2]);
+
         for (int j=0;j<3;j++) {
-            out_aabb->lo[j] = min(out_aabb->lo[j], p[j]);
-            out_aabb->hi[j] = max(out_aabb->hi[j], p[j]);
+            out_obj_aabb->lo[j] = min(out_obj_aabb->lo[j], p[j]);
+            out_obj_aabb->hi[j] = max(out_obj_aabb->hi[j], p[j]);
+            out_world_aabb->lo[j] = min(out_world_aabb->lo[j], world[j]);
+            out_world_aabb->hi[j] = max(out_world_aabb->hi[j], world[j]);
         }
 
-        max_radius = max(radius, max_radius);
+        max_obj_radius = max(obj_radius, max_obj_radius);
+        max_world_radius = max(world_radius, max_world_radius);
     }
 
-    *out_radius = max_radius;
+    *out_obj_radius = max_obj_radius;
+    *out_world_radius = max_world_radius;
 
     return true;
 }
