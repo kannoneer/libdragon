@@ -1162,7 +1162,7 @@ bool occ_hull_from_flat_mesh(const occ_mesh_t* mesh_in, occ_hull_t* hull_out)
 
 static bool model_to_occ_mesh(model64_t* model, mesh_t* mesh_in, occ_mesh_t* mesh_out)
 {
-    bool verbose = true;
+    bool verbose = false;
 
     primitive_t* prim = &mesh_in->primitives[0];
     attribute_t* attr = &prim->position;
@@ -1249,9 +1249,21 @@ uint32_t uncompress_model64_verts(primitive_t* prim, vertex_t* vertices_out) {
     return vertex_id;
 }
 
+void aabb_get_size(occ_aabb_t* box, float* size) {
+    size[0] = box->hi[0] - box->lo[0];
+    size[1] = box->hi[1] - box->lo[1];
+    size[2] = box->hi[2] - box->lo[2];
+}
+
+void aabb_get_center(occ_aabb_t* box, float* center) {
+    center[0] = 0.5f * (box->lo[0] + box->hi[0]);
+    center[1] = 0.5f * (box->lo[1] + box->hi[1]);
+    center[2] = 0.5f * (box->lo[2] + box->hi[2]);
+}
+
 static bool compute_mesh_bounds(mesh_t* mesh_in, const matrix_t* to_world,
     float* out_obj_radius, occ_aabb_t* out_obj_aabb,
-    float* out_world_radius, occ_aabb_t* out_world_aabb)
+    float* out_world_radius, occ_aabb_t* out_world_aabb, float* out_world_center)
 {
     bool verbose = false;
 
@@ -1282,7 +1294,6 @@ static bool compute_mesh_bounds(mesh_t* mesh_in, const matrix_t* to_world,
     }
 
     float max_obj_radius = 0.0f;
-    float max_world_radius = 0.0f;
 
     for (int j = 0; j < 3; j++) {
         out_obj_aabb->lo[j] = __FLT_MAX__;
@@ -1299,21 +1310,53 @@ static bool compute_mesh_bounds(mesh_t* mesh_in, const matrix_t* to_world,
         matrix_mult(&world[0], to_world, &v[0]);
 
         float obj_radius = sqrtf(p[0]*p[0] + p[1]*p[1] + p[2]*p[2]);
-        float world_radius = sqrtf(world[0]*world[0] + world[1]*world[1] + world[2]*world[2]);
+
 
         for (int j=0;j<3;j++) {
             out_obj_aabb->lo[j] = min(out_obj_aabb->lo[j], p[j]);
             out_obj_aabb->hi[j] = max(out_obj_aabb->hi[j], p[j]);
+        }
+
+        max_obj_radius = max(obj_radius, max_obj_radius);
+    }
+
+    float obj_center[4];
+    aabb_get_center(out_obj_aabb, &obj_center[0]);
+    obj_center[3] = 1.0f;
+
+    float center[4];
+    matrix_mult(&center[0], to_world, &obj_center[0]);
+
+    float max_world_radius = 0.0f;
+
+    for (uint32_t i = 0; i < count; i++) {
+        float* p = &vertices[i].position[0];
+        float v[4] = {p[0], p[1], p[2], 1.0f};
+        float world[4];
+
+        matrix_mult(&world[0], to_world, &v[0]);
+        // world is now a vertex in world coordinates
+        // compute vector 'diff' from world centroid to vertex
+        float diff[3] = {
+            world[0] - center[0],
+            world[1] - center[1],
+            world[2] - center[2]};
+
+        float world_radius = sqrtf(diff[0]*diff[0] + diff[1]*diff[1] + diff[2]*diff[2]);
+
+        for (int j=0;j<3;j++) {
             out_world_aabb->lo[j] = min(out_world_aabb->lo[j], world[j]);
             out_world_aabb->hi[j] = max(out_world_aabb->hi[j], world[j]);
         }
 
-        max_obj_radius = max(obj_radius, max_obj_radius);
         max_world_radius = max(world_radius, max_world_radius);
     }
 
     *out_obj_radius = max_obj_radius;
     *out_world_radius = max_world_radius;
+    for (int j=0;j<3;j++) {
+        out_world_center[j] = center[j];
+    }
 
     return true;
 }

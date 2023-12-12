@@ -42,8 +42,8 @@ static uint32_t texture_index = 0;
 static camera_t camera;
 //static fps_camera_t fps_camera = {.pos = {4.071973f, 0.000000f, 7.972688f}, .angle = 4.129455f};
 //static fps_camera_t fps_camera = {.pos={-6.411684, 0.000000, -4.664800}, .angle = 0.500546};
-static fps_camera_t fps_camera = {.pos={6.752933f, 0.000000f, -0.804996f}, .angle = -0.711265f};
-
+// static fps_camera_t fps_camera = {.pos={6.752933f, 0.000000f, -0.804996f}, .angle = -0.711265f};
+static fps_camera_t fps_camera = {.pos = {6.752933f, 0.000000f, -0.804996f}, .angle = -0.127801f};
 int g_camera_mode = CAM_SPIN;
 matrix_t g_view;
 static surface_t zbuffer;
@@ -60,8 +60,8 @@ static GLuint textures[4];
 // static const GLfloat environment_color[] = {0.1f, 0.5f, 0.5f, 1.f};
 static const GLfloat environment_color[] = {0.85f, 0.85f, 1.0f, 1.f};
 
+static bool config_enable_culling = false;
 static bool config_show_wireframe = false;
-static bool config_enable_culling = true;
 static int config_depth_view_mode = 1;
 static bool config_conservative = true;
 static bool config_top_down_view = false;
@@ -587,19 +587,54 @@ bool bvh_build(float* origins, float* radiuses, uint32_t num, sphere_bvh_t* out_
             // fit a sphere to 'num' smaller spheres
             // first compute origin
             float pos[3] = {0.0f, 0.0f, 0.0f};
+            float mins[3] = {__FLT_MAX__, __FLT_MAX__, __FLT_MAX__};
+            float maxs[3] = {-__FLT_MAX__, -__FLT_MAX__, -__FLT_MAX__};
+
             int count = 0;
             for (uint32_t i = start; i < start + num; i++) {
                 float* p = &origins[3*i];
-                pos[0] += p[0];
-                pos[1] += p[1];
-                pos[2] += p[2];
-                count++;
+                for (uint32_t j = 0; j < 3; j++) {
+                    pos[j] += p[j];
+                    mins[j] = min(mins[j], p[j]);
+                    maxs[j] = max(maxs[j], p[j]);
+                    count++;
+                }
             }
 
             float denom = 1.0f/(float)count;
             pos[0] *= denom;
             pos[1] *= denom;
             pos[2] *= denom;
+
+            float dims[3] = {maxs[0] - mins[0], maxs[1] - mins[1], maxs[2] - mins[2]};
+            int axis = 0;
+            if (dims[0] < dims[1]) {
+                axis = 1;
+            }
+            if (dims[1] < dims[2] && dims[0] < dims[2]) {
+                axis = 2;
+            }
+
+            debugf("dims: (%f, %f, %f) --> axis=%d\n", dims[0], dims[1], dims[2], axis);
+
+
+            int compare(const void *a, const void *b)
+            {
+                float fa = origins[3 * (*(int *)a) + axis];
+                float fb = origins[3 * (*(int *)b) + axis];
+                // debugf("%f < %f\n", fa, fb);
+                if (fa < fb) {
+                    return -1;
+                }
+                else if (fa > fb) {
+                    return 1;
+                }
+                else {
+                    return 0;
+                }
+            }
+
+            qsort(&inds[start], num, sizeof(inds[0]), compare);
 
             // then compute max radius that holds all spheres inside
             float max_radius = 0.0f;
@@ -771,14 +806,16 @@ void setup_city_scene()
 
         occ_aabb_t obj_aabb={};
         occ_aabb_t world_aabb={};
-        bool bounds_ok = compute_mesh_bounds(node->mesh, &city_scene.node_xforms[i], &obj_radius, &obj_aabb, &world_radius, &world_aabb);
+        float world_center[3]={};
+        bool bounds_ok = compute_mesh_bounds(node->mesh, &city_scene.node_xforms[i], &obj_radius, &obj_aabb, &world_radius, &world_aabb, &world_center[0]);
         debugf("[node %lu] OK: %d, obj_radius=%f, min=(%.3f, %.3f, %.3f), max=(%.3f, %.3f, %.3f)\n", i, bounds_ok, obj_radius,
             obj_aabb.lo[0], obj_aabb.lo[1], obj_aabb.lo[2],
             obj_aabb.hi[0], obj_aabb.hi[1], obj_aabb.hi[2]
         );
-        debugf("[node %lu] OK: %d, world_radius=%f, min=(%.3f, %.3f, %.3f), max=(%.3f, %.3f, %.3f)\n", i, bounds_ok, world_radius,
+        debugf("[node %lu] OK: %d, world_radius=%f, min=(%.3f, %.3f, %.3f), max=(%.3f, %.3f, %.3f), center=(%f, %f, %f)\n", i, bounds_ok, world_radius,
             world_aabb.lo[0], world_aabb.lo[1], world_aabb.lo[2],
-            world_aabb.hi[0], world_aabb.hi[1], world_aabb.hi[2]
+            world_aabb.hi[0], world_aabb.hi[1], world_aabb.hi[2],
+world_center[0], world_center[1],world_center[2]
         );
 
         const float* minp = &obj_aabb.lo[0];
@@ -796,13 +833,12 @@ void setup_city_scene()
         debugf("matrix %lu\n", i);
         print_matrix(&city_scene.node_xforms[i]);
         float* orig = &origins[3*i];
-        float* fourth_column = &city_scene.node_xforms[i].m[3][0];
-        debugf("fourth column: %f, %f, %f, %f\n", fourth_column[0], fourth_column[1],fourth_column[2],fourth_column[3]);
-        orig[0] = fourth_column[0];
-        orig[1] = fourth_column[1];
-        orig[2] = fourth_column[2];
+        //float* fourth_column = &city_scene.node_xforms[i].m[3][0];
+        //debugf("fourth column: %f, %f, %f, %f\n", fourth_column[0], fourth_column[1],fourth_column[2],fourth_column[3]);
+        orig[0] = world_center[0];
+        orig[1] = world_center[1];
+        orig[2] = world_center[2];
         radiuses[i] = world_radius;
-
 
         matrix_t temp = cpu_glScalef(scale[0], scale[1], scale[2]);
         matrix_t old = city_scene.node_xforms[i];
@@ -967,12 +1003,37 @@ void render_city_scene(surface_t* disp)
         glDisable(GL_DEPTH_TEST);
         glDisable(GL_TEXTURE_2D);
 
-        GLfloat red[4] = {0.2f, 0.1f, 0.1f, 0.2f};
+        GLfloat red[4] = {0.2f, 0.1f, 0.1f, 0.1f};
 
         glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &red[0]);
 
         for (uint32_t i=0;i<city_scene.bvh.num_nodes;i++) {
-            render_posed_unit_cube(&city_scene.bvh_xforms[i]);
+            bvh_node_t* n = &city_scene.bvh.nodes[i];
+            bool is_leaf = n->flags == 0;
+            debugf("[bvh node=%lu] is_leaf=%d\n", i, is_leaf);
+            float diff[3]={
+                fps_camera.pos[0] - n->pos[0],
+                fps_camera.pos[1] - n->pos[1],
+                fps_camera.pos[2] - n->pos[2],
+            };
+            float d = diff[0]*diff[0] + diff[1]*diff[1] + diff[2]*diff[2];
+            //render_posed_unit_cube(&city_scene.bvh_xforms[i]);
+            float dist = d - n->radius_sqr;
+            bool clips = dist < 1.0f;
+            //bool near = !inside && dist < 2.0f*2.0f;
+
+            if (!is_leaf) continue;
+
+            glPushMatrix();
+            glMultMatrixf(&city_scene.bvh_xforms[i].m[0][0]);
+            if (clips) {
+            glCullFace(GL_FRONT);
+            } else {
+            glCullFace(GL_BACK);
+            }
+            draw_sphere();
+            glPopMatrix();
+            glCullFace(GL_BACK);
         }
 
         glEnable(GL_DEPTH_TEST);
