@@ -7,6 +7,7 @@
 #include "cpu_3d.h"
 #include "profiler.h"
 #include "defer.h"
+#include "frustum.h"
 
 #include <malloc.h>
 #include <memory.h>
@@ -84,14 +85,13 @@ typedef struct occ_culler_s {
     matrix_t view_matrix;
     uint32_t frame;
 
-    struct {
-        float left[4];
-        float right[4];
-        float top[4];
-        float bottom[4];
-        float near[4];
-        float far[4];
-    } clip_planes;
+    plane_t clip_planes[6]; // left, right, top, bottom, near, far
+        // float left[4];
+        // float right[4];
+        // float top[4];
+        // float bottom[4];
+        // float near[4];
+        // float far[4];
 } occ_culler_t;
 
 typedef struct occ_result_box_s {
@@ -194,29 +194,6 @@ occ_target_t* target, occ_raster_query_result_t *out_result);
 
 
 bool occ_hull_from_flat_mesh(const occ_mesh_t* mesh_in, occ_hull_t* hull_out);
-
-// Frustum culling
-
-void normalize_plane(float* plane);
-
-// Plane normals will point inside the frustum.
-void extract_planes_from_projmat(
-    const float mat[4][4],
-    float left[4], float right[4],
-    float bottom[4], float top[4],
-    float near[4], float far[4]);
-
-void print_clip_plane(float* p);
-
-enum plane_test_result_e {
-    RESULT_OUTSIDE = -1,
-    RESULT_INTERSECTS = 0,
-    RESULT_INSIDE = 1,
-};
-
-typedef int plane_test_result_t;
-plane_test_result_t test_plane_sphere(float* plane, float* p, float radius_sqr);
-bool is_sphere_inside_frustum(occ_culler_t *culler, float* pos, float radius_sqr);
 
 // model64 interop
 
