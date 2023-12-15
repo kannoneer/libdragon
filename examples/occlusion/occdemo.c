@@ -818,7 +818,7 @@ void render_city_scene(surface_t* disp)
             bvh_node_t* n = &city_scene.bvh.nodes[i];
             bool is_leaf = n->flags == 0;
 
-            plane_test_result_t in_frustum = is_sphere_inside_frustum(&culler->clip_planes[0], n->pos, n->radius_sqr);
+            plane_side_t in_frustum = is_sphere_inside_frustum(&culler->clip_planes[0], n->pos, n->radius_sqr);
             //if (!in_frustum) {
             //    debugf("[bvh node=%lu] frustum culling node\n", i);
             //}
@@ -836,7 +836,7 @@ void render_city_scene(surface_t* disp)
             //bool near = !inside && dist < 2.0f*2.0f;
 
             if (!is_leaf) continue;
-            if (in_frustum == RESULT_OUTSIDE) continue;
+            if (in_frustum == SIDE_OUT) continue;
 
 
             glPushMatrix();

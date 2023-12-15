@@ -14,14 +14,14 @@ void extract_planes_from_projmat(
 
 void print_clip_plane(float* p);
 
-enum plane_test_result_e {
-    RESULT_OUTSIDE = -1,
-    RESULT_INTERSECTS = 0,
-    RESULT_INSIDE = 1,
+enum plane_side_e {
+    SIDE_OUT = -1,
+    SIDE_INTERSECTS = 0,
+    SIDE_IN = 1,
 };
 
-typedef int plane_test_result_t;
-plane_test_result_t test_plane_sphere(float* plane, float* p, float radius_sqr);
-plane_test_result_t is_sphere_inside_frustum(plane_t* planes, float* pos, float radius_sqr);
+typedef int plane_side_t;
+plane_side_t test_plane_sphere(float* plane, float* p, float radius_sqr);
+plane_side_t is_sphere_inside_frustum(plane_t* planes, float* pos, float radius_sqr);
 
 #endif

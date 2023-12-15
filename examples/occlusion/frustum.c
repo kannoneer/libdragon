@@ -40,27 +40,27 @@ void print_clip_plane(float* p) {
     debugf("(%f, %f, %f, %f)\n", p[0], p[1], p[2], p[3]);
 }
 
-plane_test_result_t test_plane_sphere(float* plane, float* p, float radius_sqr) {
+plane_side_t test_plane_sphere(float* plane, float* p, float radius_sqr) {
     float dist = plane[0] * p[0] + plane[1] * p[1] + plane[2] * p[2] + plane[3];
     float dist_sqr = dist * dist;
     //debugf("dist: %f, dist_sqr: %f vs radius_sqr=%f\n", dist, dist_sqr, radius_sqr);
     if (dist_sqr < radius_sqr) {
-        return RESULT_INTERSECTS;
+        return SIDE_INTERSECTS;
     }
     if (dist > 0) {
-        return RESULT_INSIDE;
+        return SIDE_IN;
     }
 
-    return RESULT_OUTSIDE;
+    return SIDE_OUT;
 }
 
-plane_test_result_t is_sphere_inside_frustum(plane_t* planes, float* pos, float radius_sqr)
+plane_side_t is_sphere_inside_frustum(plane_t* planes, float* pos, float radius_sqr)
 {
-    plane_test_result_t all = RESULT_INSIDE;
+    plane_side_t all = SIDE_IN;
 
     for (int i=0;i<6;i++) {
-        plane_test_result_t result = test_plane_sphere(planes[i], pos, radius_sqr);
-        if (result == RESULT_OUTSIDE) return result;
+        plane_side_t result = test_plane_sphere(planes[i], pos, radius_sqr);
+        if (result == SIDE_OUT) return result;
         if (result < all) all = result;
     }
 
