@@ -945,8 +945,9 @@ void render_city_scene(surface_t* disp)
         //if (strcmp(city_scene.node_names[i], "room1 detail")) continue; // HACK skip other nodes
 
         bool visible = true;
+
         if (config_enable_culling && city_scene.node_should_test[i]) {
-            debugf("testing node '%s'\n", city_scene.node_names[i]);
+            debugf("occlusion testing node '%s'\n", city_scene.node_names[i]);
             occ_raster_query_result_t result = {};
             //occ_draw_hull(culler, sw_zbuffer, &unit_cube_hull, &city_scene.node_xforms[i], &result, 0);
             visible = occ_check_target_visible(culler, sw_zbuffer, &unit_cube_hull, &city_scene.node_xforms[i], &city_scene.targets[i], &result);
@@ -1010,7 +1011,13 @@ void render_city_scene(surface_t* disp)
         for (uint32_t i=0;i<city_scene.bvh.num_nodes;i++) {
             bvh_node_t* n = &city_scene.bvh.nodes[i];
             bool is_leaf = n->flags == 0;
-            debugf("[bvh node=%lu] is_leaf=%d\n", i, is_leaf);
+
+            bool in_frustum = is_sphere_inside_frustum(culler, n->pos, n->radius_sqr);
+            //if (!in_frustum) {
+            //    debugf("[bvh node=%lu] frustum culling node\n", i);
+            //}
+
+            debugf("[bvh node=%lu] is_leaf=%d, in_frustum=%d\n", i, is_leaf, in_frustum);
             float diff[3]={
                 fps_camera.pos[0] - n->pos[0],
                 fps_camera.pos[1] - n->pos[1],
@@ -1023,6 +1030,8 @@ void render_city_scene(surface_t* disp)
             //bool near = !inside && dist < 2.0f*2.0f;
 
             if (!is_leaf) continue;
+            if (!in_frustum) continue;
+
 
             glPushMatrix();
             glMultMatrixf(&city_scene.bvh_xforms[i].m[0][0]);

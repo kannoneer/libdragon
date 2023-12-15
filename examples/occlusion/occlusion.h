@@ -99,6 +99,15 @@ typedef struct occ_culler_s {
     matrix_t mvp;
     matrix_t view_matrix;
     uint32_t frame;
+
+    struct {
+        float left[4];
+        float right[4];
+        float top[4];
+        float bottom[4];
+        float near[4];
+        float far[4];
+    } clip_planes;
 } occ_culler_t;
 
 typedef struct occ_result_box_s {
@@ -166,11 +175,101 @@ void occ_free(occ_culler_t *culler)
     free(culler);
 }
 
+void normalize_plane(float* plane) {
+    float scaler = 1.0f/sqrtf(plane[0]*plane[0] + plane[1]*plane[1] + plane[2]*plane[2]);
+    plane[0] *= scaler;
+    plane[1] *= scaler;
+    plane[2] *= scaler;
+    plane[3] *= scaler;
+}
+
+// The Gribb-Hartmann method, see https://stackoverflow.com/a/34960913
+// and https://www8.cs.umu.se/kurser/5DV051/HT12/lab/plane_extraction.pdf
+// Plane normals will point inside the frustum.
+void extract_planes_from_projmat(
+    const float mat[4][4],
+    float left[4], float right[4],
+    float bottom[4], float top[4],
+    float near[4], float far[4])
+{
+    for (int i = 4; i--; ) { left[i]   = mat[i][3] + mat[i][0]; }
+    for (int i = 4; i--; ) { right[i]  = mat[i][3] - mat[i][0]; }
+    for (int i = 4; i--; ) { bottom[i] = mat[i][3] + mat[i][1]; }
+    for (int i = 4; i--; ) { top[i]    = mat[i][3] - mat[i][1]; }
+    for (int i = 4; i--; ) { near[i]   = mat[i][3] + mat[i][2]; }
+    for (int i = 4; i--; ) { far[i]    = mat[i][3] - mat[i][2]; }
+    normalize_plane(&left[0]);
+    normalize_plane(&right[0]);
+    normalize_plane(&bottom[0]);
+    normalize_plane(&top[0]);
+    normalize_plane(&near[0]);
+    normalize_plane(&far[0]);
+}
+
+void print_clip_plane(float* p) {
+    debugf("(%f, %f, %f, %f)\n", p[0], p[1], p[2], p[3]);
+}
+
+enum plane_test_result_e {
+    RESULT_OUTSIDE = -1,
+    RESULT_INTERSECTS = 0,
+    RESULT_INSIDE = 1,
+};
+
+typedef int plane_test_result_t;
+
+plane_test_result_t test_plane_sphere(float* plane, float* p, float radius_sqr) {
+    float dist = plane[0] * p[0] + plane[1] * p[1] + plane[2] * p[2] + plane[3];
+    float dist_sqr = dist * dist;
+    debugf("dist: %f, dist_sqr: %f vs radius_sqr=%f\n", dist, dist_sqr, radius_sqr);
+    if (dist_sqr < radius_sqr) {
+        return RESULT_INTERSECTS;
+    }
+    if (dist > 0) {
+        return RESULT_INSIDE;
+    }
+
+    return RESULT_OUTSIDE;
+}
+
+bool is_sphere_inside_frustum(occ_culler_t *culler, float* pos, float radius_sqr) {
+    if (test_plane_sphere(&culler->clip_planes.left[0], pos, radius_sqr) == RESULT_OUTSIDE) return false;
+    if (test_plane_sphere(&culler->clip_planes.right[0], pos, radius_sqr) == RESULT_OUTSIDE) return false;
+    if (test_plane_sphere(&culler->clip_planes.bottom[0], pos, radius_sqr) == RESULT_OUTSIDE) return false;
+    if (test_plane_sphere(&culler->clip_planes.top[0], pos, radius_sqr) == RESULT_OUTSIDE) return false;
+    if (test_plane_sphere(&culler->clip_planes.near[0], pos, radius_sqr) == RESULT_OUTSIDE) return false;
+    if (test_plane_sphere(&culler->clip_planes.far[0], pos, radius_sqr) == RESULT_OUTSIDE) return false;
+    return true;
+}
+
 void occ_set_view_and_projection(occ_culler_t *culler, matrix_t *view, matrix_t *proj)
 {
     culler->view_matrix = *view;
     culler->proj = *proj;
+    // 'mvp' is actually just 'view projection' matrix here AKA view-to-clip
     matrix_mult_full(&culler->mvp, proj, view);
+
+    extract_planes_from_projmat(culler->mvp.m,
+        culler->clip_planes.left,
+        culler->clip_planes.right,
+        culler->clip_planes.bottom,
+        culler->clip_planes.top,
+        culler->clip_planes.near,
+        culler->clip_planes.far);
+    
+    debugf("left plane: ");
+    print_clip_plane(culler->clip_planes.left);
+    debugf("right plane: ");
+    print_clip_plane(culler->clip_planes.right);
+    debugf("near plane: ");
+    print_clip_plane(culler->clip_planes.near);
+
+    //float pos[3] = {0.0f, 0.0f, 0.0f};
+    //float r = 1.0f;
+    //float radius_sqr = r*r;
+    //plane_test_result_t result = test_plane_sphere(&culler->clip_planes.near[0], &pos[0], radius_sqr);
+    //debugf("result: %d\n", result);
+    //while (true) {}
 }
 
 void occ_next_frame(occ_culler_t *culler)
