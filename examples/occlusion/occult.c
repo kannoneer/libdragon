@@ -563,10 +563,10 @@ void draw_tri(
 
                             while (true) {}; // HACK
                         }
+                    }
 
-                        if (flags & RASTER_FLAG_EARLY_OUT) {
-                            return;
-                        }
+                    if (flags & RASTER_FLAG_EARLY_OUT) {
+                        return;
                     }
                 }
 
