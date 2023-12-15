@@ -45,7 +45,7 @@ void bvh_free(sphere_bvh_t* bvh) {
     if (bvh->nodes) free(bvh->nodes);
 }
 
-void bvh_print_node(bvh_node_t* n) {
+void bvh_print_node(const bvh_node_t* n) {
     if (n->flags == 0) {
         debugf("leaf (0x%x): ", n->flags);
     } else {
@@ -209,4 +209,27 @@ bool bvh_build(float* origins, float* radiuses, uint32_t num, sphere_bvh_t* out_
 
     *out_bvh = bvh;
     return true;
+}
+
+uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const plane_t* planes, uint16_t* out_data_inds, uint32_t max_data_inds)
+{
+    uint32_t num = 0;
+    assert(max_data_inds > 0);
+
+    for (uint32_t i = 0; i < bvh->num_nodes; i++) {
+        bvh_node_t* n = &bvh->nodes[i];
+        bool is_leaf = n->flags == 0;
+        if (!is_leaf) continue;
+
+        bool in_frustum = SIDE_OUT != is_sphere_inside_frustum(planes, n->pos, n->radius_sqr);
+
+        if (in_frustum) {
+            out_data_inds[num++] = n->idx;
+            if (num >= max_data_inds) {
+                break;
+            }
+        }
+    }
+
+    return num;
 }

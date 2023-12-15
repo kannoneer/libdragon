@@ -21,7 +21,7 @@ enum plane_side_e {
 };
 
 typedef int plane_side_t;
-plane_side_t test_plane_sphere(float* plane, float* p, float radius_sqr);
-plane_side_t is_sphere_inside_frustum(plane_t* planes, float* pos, float radius_sqr);
+plane_side_t test_plane_sphere(const float* plane, const float* p, const float radius_sqr);
+plane_side_t is_sphere_inside_frustum(const plane_t* planes, const float* pos, const float radius_sqr);
 
 #endif

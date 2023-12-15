@@ -747,6 +747,18 @@ void render_city_scene(surface_t* disp)
     scene_stats.num_drawn = 0;
     scene_stats.num_max = 0;
 
+    static uint16_t data_inds[CITY_SCENE_MAX_NODES]; // references Node* elements
+    uint32_t num_visible = bvh_find_visible(&city_scene.bvh, culler->clip_planes, data_inds, sizeof(data_inds) / sizeof(data_inds[0]));
+    for (uint32_t i = 0; i < num_visible; i++) {
+        uint16_t idx = data_inds[i];
+        debugf("[%lu] = %d\n", i, idx);
+
+        glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &mat_diffuse[4*(idx%4)]);
+        glCallList(city_scene.node_dplists[idx]);
+        scene_stats.num_drawn++;
+    }
+
+    #if 0
     for (uint32_t i = 0; i < city_scene.num_nodes; i++) {
         //if (strcmp(city_scene.node_names[i], "room1 detail")) continue; // HACK skip other nodes
 
@@ -776,6 +788,7 @@ void render_city_scene(surface_t* disp)
         }
         scene_stats.num_max++;
     }
+    #endif
 
     //if (config_show_wireframe) {
     //}
@@ -814,6 +827,8 @@ void render_city_scene(surface_t* disp)
 
         glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &red[0]);
 
+
+#if 0
         for (uint32_t i=0;i<city_scene.bvh.num_nodes;i++) {
             bvh_node_t* n = &city_scene.bvh.nodes[i];
             bool is_leaf = n->flags == 0;
@@ -838,7 +853,6 @@ void render_city_scene(surface_t* disp)
             if (!is_leaf) continue;
             if (in_frustum == SIDE_OUT) continue;
 
-
             glPushMatrix();
             glMultMatrixf(&city_scene.bvh_xforms[i].m[0][0]);
             if (clips) {
@@ -850,6 +864,7 @@ void render_city_scene(surface_t* disp)
             glPopMatrix();
             glCullFace(GL_BACK);
         }
+        #endif
 
         glEnable(GL_DEPTH_TEST);
         glDisable(GL_BLEND);

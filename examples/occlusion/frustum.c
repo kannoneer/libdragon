@@ -40,7 +40,7 @@ void print_clip_plane(float* p) {
     debugf("(%f, %f, %f, %f)\n", p[0], p[1], p[2], p[3]);
 }
 
-plane_side_t test_plane_sphere(float* plane, float* p, float radius_sqr) {
+plane_side_t test_plane_sphere(const float* plane, const float* p, const float radius_sqr) {
     float dist = plane[0] * p[0] + plane[1] * p[1] + plane[2] * p[2] + plane[3];
     float dist_sqr = dist * dist;
     //debugf("dist: %f, dist_sqr: %f vs radius_sqr=%f\n", dist, dist_sqr, radius_sqr);
@@ -54,7 +54,7 @@ plane_side_t test_plane_sphere(float* plane, float* p, float radius_sqr) {
     return SIDE_OUT;
 }
 
-plane_side_t is_sphere_inside_frustum(plane_t* planes, float* pos, float radius_sqr)
+plane_side_t is_sphere_inside_frustum(const plane_t* planes, const float* pos, const float radius_sqr)
 {
     plane_side_t all = SIDE_IN;
 
