@@ -221,7 +221,7 @@ typedef int plane_test_result_t;
 plane_test_result_t test_plane_sphere(float* plane, float* p, float radius_sqr) {
     float dist = plane[0] * p[0] + plane[1] * p[1] + plane[2] * p[2] + plane[3];
     float dist_sqr = dist * dist;
-    debugf("dist: %f, dist_sqr: %f vs radius_sqr=%f\n", dist, dist_sqr, radius_sqr);
+    //debugf("dist: %f, dist_sqr: %f vs radius_sqr=%f\n", dist, dist_sqr, radius_sqr);
     if (dist_sqr < radius_sqr) {
         return RESULT_INTERSECTS;
     }
@@ -256,20 +256,6 @@ void occ_set_view_and_projection(occ_culler_t *culler, matrix_t *view, matrix_t 
         culler->clip_planes.top,
         culler->clip_planes.near,
         culler->clip_planes.far);
-    
-    debugf("left plane: ");
-    print_clip_plane(culler->clip_planes.left);
-    debugf("right plane: ");
-    print_clip_plane(culler->clip_planes.right);
-    debugf("near plane: ");
-    print_clip_plane(culler->clip_planes.near);
-
-    //float pos[3] = {0.0f, 0.0f, 0.0f};
-    //float r = 1.0f;
-    //float radius_sqr = r*r;
-    //plane_test_result_t result = test_plane_sphere(&culler->clip_planes.near[0], &pos[0], radius_sqr);
-    //debugf("result: %d\n", result);
-    //while (true) {}
 }
 
 void occ_next_frame(occ_culler_t *culler)
