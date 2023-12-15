@@ -1,9 +1,14 @@
 // occult
-// Z-Buffer Renderer and Occlusion Tester Library
+// A Z-Buffer Renderer and Occlusion Tester Library
 //
 
+#include <assert.h>
+#include <math.h>
+#include <stdlib.h>
+
 #include "cpumath.h"
-#include "transforms.h" // for vertex_t
+#include "transforms.h" 
+#include "vertex.h" // for vertex_t
 #include "profiler.h"
 #include "defer.h"
 
@@ -45,6 +50,7 @@ bool g_verbose_early_out = false; // print coordinates of pixels that pass the d
 bool g_verbose_visibility_tracking = false; // debug prints of last visible tri tracking
 bool g_octagon_test = false; // intersect screenspace box with a 45 degree rotated box to get a stricter octagon test
 bool g_draw_queries_hack = false; // render also queried objects to the depth buffer
+
 bool config_shrink_silhouettes = true; // detect edges with flipped viewspace Z signs in each neighbor and add inner conservative flags
 bool config_discard_based_on_tr_code = true;
 bool config_inflate_rough_bounds = true;
@@ -286,7 +292,7 @@ bool isTopLeftEdge(vec2 a, vec2 b)
     return false;
 }
 
-static int orient2d_subpixel(vec2 a, vec2 b, vec2 c)
+int orient2d_subpixel(vec2 a, vec2 b, vec2 c)
 {
     // We multiply two I.F fixed point numbers resulting in (I-F).2F format,
     // so we shift by F to the right to get the the result in I.F format again.
@@ -299,7 +305,7 @@ vec2 get_edge_normal(vec2 a, vec2 b)
 	return (vec2){ b.y - a.y, -(b.x - a.x) };
 }
 
-static int compute_conservative_edge_bias(vec2 a, vec2 b, bool shrink)
+int compute_conservative_edge_bias(vec2 a, vec2 b, bool shrink)
 {
     // See Tomas Akenine-Möller and Timo Aila, "A Simple Algorithm for Conservative and Tiled Rasterization", 2005.
     vec2 n = get_edge_normal(a, b);            // normal points inside the triangle, or the left of line segment 'ab'
@@ -584,7 +590,7 @@ void draw_tri(
 #define OCC_MAX_MESH_VERTEX_COUNT (24) // enough for a cube with duplicated verts
 #define OCC_MAX_MESH_INDEX_COUNT (30)
 
-static float matrix_mult_z_only(const matrix_t *m, const float *v)
+float matrix_mult_z_only(const matrix_t *m, const float *v)
 {
     return m->m[0][2] * v[0] + m->m[1][2] * v[1] + m->m[2][2] * v[2] + m->m[3][2] * v[3];
 }
@@ -814,7 +820,7 @@ void occ_draw_hull(occ_culler_t *occ, surface_t *zbuffer, const occ_hull_t* hull
 	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, &hull->mesh, hull->tri_normals, hull->neighbors, NULL, raster_flags, query);
 }
 
-static vec2f rotate_xy_coords_45deg(float x, float y) {
+vec2f rotate_xy_coords_45deg(float x, float y) {
     //  [ b.x ] = [ +1 -1 ] [ x ]
     //  [ b.y ]   [ -1 -1 ] [ y ]
     return (vec2f){x - y, -x - y};
@@ -825,14 +831,11 @@ typedef struct occ_box2df_s {
     vec2f hi; // exclusive
 } occ_box2df_t;
 
-static bool occ_box2df_inside(occ_box2df_t* box, vec2f* p) {
+bool occ_box2df_inside(occ_box2df_t* box, vec2f* p) {
     if (p->x < box->lo.x || p->x >= box->hi.x) return false;
     if (p->y < box->lo.y || p->y >= box->hi.y) return false;
     return true;
 }
-
-int g_num_checked = 0;
-static vec2 g_checked_pixels[320*240];
 
 // [minX, maxX), [minY, maxY), i.e. upper bounds are exclusive.
 bool occ_check_pixel_box_visible(occ_culler_t *occ, surface_t *zbuffer,
@@ -846,7 +849,6 @@ bool occ_check_pixel_box_visible(occ_culler_t *occ, surface_t *zbuffer,
     if (maxX > zbuffer->width - 1) maxX = zbuffer->width - 1;
     if (maxY > zbuffer->height - 1) maxY = zbuffer->height - 1;
 
-    g_num_checked = 0;
 
     if (out_box) {
         out_box->minX = minX;
@@ -866,7 +868,6 @@ bool occ_check_pixel_box_visible(occ_culler_t *occ, surface_t *zbuffer,
                     continue;
                 }
             }
-            g_checked_pixels[g_num_checked++] = (vec2){x,y};
             u_uint16_t *buf = ZBUFFER_UINT_PTR_AT(zbuffer, x, y);
             if (depth <= *buf) {
                 if (out_box) {
@@ -1245,7 +1246,7 @@ bool occ_hull_from_flat_mesh(const occ_mesh_t* mesh_in, occ_hull_t* hull_out)
 
 #include "../../src/model64_internal.h"
 
-static bool model_to_occ_mesh(model64_t* model, mesh_t* mesh_in, occ_mesh_t* mesh_out)
+bool model_to_occ_mesh(model64_t* model, mesh_t* mesh_in, occ_mesh_t* mesh_out)
 {
     bool verbose = false;
 
@@ -1346,7 +1347,7 @@ void aabb_get_center(occ_aabb_t* box, float* center) {
     center[2] = 0.5f * (box->lo[2] + box->hi[2]);
 }
 
-static bool compute_mesh_bounds(mesh_t* mesh_in, const matrix_t* to_world,
+bool compute_mesh_bounds(mesh_t* mesh_in, const matrix_t* to_world,
     float* out_obj_radius, occ_aabb_t* out_obj_aabb,
     float* out_world_radius, occ_aabb_t* out_world_aabb, float* out_world_center)
 {

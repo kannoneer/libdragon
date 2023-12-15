@@ -3,6 +3,8 @@
 #include <math.h>
 #include <stdint.h>
 
+#include <GL/gl.h>
+
 #define CLIPPING_PLANE_COUNT  6
 #define CLIPPING_CACHE_SIZE   9
 #define CLIPPING_PLANE_SIZE   8
@@ -267,7 +269,7 @@ void matrix_mult_full(matrix_t *d, const matrix_t *l, const matrix_t *r)
     matrix_mult(d->m[3], l, r->m[3]);
 }
 
-static void cpu_vertex_pre_tr(cpu_vtx_t *v, matrix_t *mvp)
+void cpu_vertex_pre_tr(cpu_vtx_t *v, matrix_t *mvp)
 {
     // gl_vtx_t *v = &state.vertex_cache[cache_index];
     // memcpy(&v->obj_attributes, &state.current_attributes, sizeof(gl_obj_attributes_t));

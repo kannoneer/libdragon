@@ -17,7 +17,7 @@
 #include "skinned.h"
 #include "sphere.h"
 
-#include "occlusion.h"
+#include "occult.h"
 #include "bvh.h"
 
 // Set this to 1 to enable rdpq debug output.
