@@ -7,7 +7,7 @@
 #include <stdlib.h>
 
 #include "cpumath.h"
-#include "transforms.h" 
+#include "cpu_3d.h" 
 #include "vertex.h" // for vertex_t
 #include "profiler.h"
 #include "defer.h"
@@ -89,7 +89,7 @@ enum {
 
 typedef uint32_t occ_clip_action_t;
 
-occ_clip_action_t config_near_clipping_action = CLIP_ACTION_DO_IT;
+occ_clip_action_t g_near_clipping_action = CLIP_ACTION_DO_IT;
 
 #define OCC_RASTER_FLAGS_DRAW  (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_WRITE_DEPTH |RASTER_FLAG_ROUND_DEPTH_UP | RASTER_FLAG_DISCARD_FAR)
 #define OCC_RASTER_FLAGS_QUERY (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_EARLY_OUT | RASTER_FLAG_REPORT_VISIBILITY | RASTER_FLAG_EXPAND_EDGE_01 | RASTER_FLAG_EXPAND_EDGE_12 | RASTER_FLAG_EXPAND_EDGE_20)
@@ -734,9 +734,9 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         }
 
         if (clips_near) {
-            if (config_near_clipping_action == CLIP_ACTION_REJECT) {
+            if (g_near_clipping_action == CLIP_ACTION_REJECT) {
                 continue;
-            } else if (config_near_clipping_action == CLIP_ACTION_DO_IT) {
+            } else if (g_near_clipping_action == CLIP_ACTION_DO_IT) {
                 // tr_code   = clip against screen bounds, used for rejection
                 // clip_code = clipped against guard bands, used for actual clipping
                 //
@@ -748,7 +748,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
 
                 cpu_gl_clip_triangle(&verts[0], &verts[1], &verts[2], (1 << NEAR_PLANE_INDEX), clipping_cache, &clipping_list);
             } else {
-                debugf("Invalid clip action %lu\n", config_near_clipping_action);
+                debugf("Invalid clip action %lu\n", g_near_clipping_action);
                 assert(false);
             }
         }

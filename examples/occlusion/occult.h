@@ -3,7 +3,7 @@
 //
 
 #include "cpumath.h"
-#include "transforms.h" // for vertex_t
+#include "cpu_3d.h"
 #include "profiler.h"
 #include "defer.h"
 
@@ -21,7 +21,6 @@
 #endif
 
 #define SUBPIXEL_SCALE (1 << SUBPIXEL_BITS)
-const float inv_subpixel_scale = 1.0f / SUBPIXEL_SCALE;
 
 #define DELTA_BITS (24) // It seems 24 bits give about 1/8 mean per-pixel error of 16 bits deltas.
 #define DELTA_SCALE (1<<DELTA_BITS)
@@ -68,15 +67,6 @@ enum {
     OCCLUDER_TWO_SIDED = 1,
 };
 typedef uint32_t occ_occluder_flags_t;
-
-enum {
-    CLIP_ACTION_REJECT = 0,
-    CLIP_ACTION_DO_IT = 1
-};
-
-typedef uint32_t occ_clip_action_t;
-
-occ_clip_action_t config_near_clipping_action = CLIP_ACTION_DO_IT;
 
 #define OCC_RASTER_FLAGS_DRAW  (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_WRITE_DEPTH |RASTER_FLAG_ROUND_DEPTH_UP | RASTER_FLAG_DISCARD_FAR)
 #define OCC_RASTER_FLAGS_QUERY (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_EARLY_OUT | RASTER_FLAG_REPORT_VISIBILITY | RASTER_FLAG_EXPAND_EDGE_01 | RASTER_FLAG_EXPAND_EDGE_12 | RASTER_FLAG_EXPAND_EDGE_20)
@@ -148,44 +138,10 @@ typedef struct occ_target_s {
 } occ_target_t;
 
 occ_culler_t *occ_alloc();
-
-
 void occ_set_viewport(occ_culler_t *culler, int x, int y, int width, int height);
-
-
 void occ_free(occ_culler_t *culler);
-
-void normalize_plane(float* plane);
-
-// The Gribb-Hartmann method, see https://stackoverflow.com/a/34960913
-// and https://www8.cs.umu.se/kurser/5DV051/HT12/lab/plane_extraction.pdf
-// Plane normals will point inside the frustum.
-void extract_planes_from_projmat(
-    const float mat[4][4],
-    float left[4], float right[4],
-    float bottom[4], float top[4],
-    float near[4], float far[4]);
-
-void print_clip_plane(float* p) {
-    debugf("(%f, %f, %f, %f)\n", p[0], p[1], p[2], p[3]);
-}
-
-enum plane_test_result_e {
-    RESULT_OUTSIDE = -1,
-    RESULT_INTERSECTS = 0,
-    RESULT_INSIDE = 1,
-};
-
-typedef int plane_test_result_t;
-plane_test_result_t test_plane_sphere(float* plane, float* p, float radius_sqr);
-bool is_sphere_inside_frustum(occ_culler_t *culler, float* pos, float radius_sqr);
-
-
 void occ_set_view_and_projection(occ_culler_t *culler, matrix_t *view, matrix_t *proj);
-
-
 void occ_next_frame(occ_culler_t *culler);
-
 void occ_clear_zbuffer(surface_t *zbuffer);
 
 void draw_tri(
@@ -238,7 +194,30 @@ occ_target_t* target, occ_raster_query_result_t *out_result);
 
 bool occ_hull_from_flat_mesh(const occ_mesh_t* mesh_in, occ_hull_t* hull_out);
 
+// Frustum culling
 
+void normalize_plane(float* plane);
+
+// Plane normals will point inside the frustum.
+void extract_planes_from_projmat(
+    const float mat[4][4],
+    float left[4], float right[4],
+    float bottom[4], float top[4],
+    float near[4], float far[4]);
+
+void print_clip_plane(float* p);
+
+enum plane_test_result_e {
+    RESULT_OUTSIDE = -1,
+    RESULT_INTERSECTS = 0,
+    RESULT_INSIDE = 1,
+};
+
+typedef int plane_test_result_t;
+plane_test_result_t test_plane_sphere(float* plane, float* p, float radius_sqr);
+bool is_sphere_inside_frustum(occ_culler_t *culler, float* pos, float radius_sqr);
+
+// model64 interop
 
 #include "../../src/model64_internal.h"
 

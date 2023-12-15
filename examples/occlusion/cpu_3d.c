@@ -1,14 +1,12 @@
-#ifndef TRANSFORMS_H_
-#define TRANSFORMS_H_
+// Contents mostly copied from libdragon's cpu_pipeline.c
+
+#include "cpumath.h"
+#include "cpu_3d.h"
+
 #include <math.h>
 #include <stdint.h>
 
 #include <GL/gl.h>
-
-#define CLIPPING_PLANE_COUNT  6
-#define CLIPPING_CACHE_SIZE   9
-#define CLIPPING_PLANE_SIZE   8
-#define GUARD_BAND_FACTOR (4)
 
 static const float clip_planes[CLIPPING_PLANE_COUNT][4] = {
     { 1, 0, 0, GUARD_BAND_FACTOR },
@@ -18,41 +16,6 @@ static const float clip_planes[CLIPPING_PLANE_COUNT][4] = {
     { 0, 1, 0, -GUARD_BAND_FACTOR },
     { 0, 0, 1, -1 },
 };
-
-typedef struct {
-    float m[4][4];
-} matrix_t;
-
-typedef struct {
-    float scale[3];
-    float offset[3];
-} viewport_t;
-
-typedef struct {
-    float position[4];
-    // float color[4];
-    // float texcoord[4];
-    // float normal[3];
-    // GLubyte mtx_index[VERTEX_UNIT_COUNT];
-} obj_attributes_t;
-
-typedef struct {
-    float screen_pos[2];
-    float depth;
-    // float shade[4];
-    // float texcoord[2];
-    float inv_w;
-    float cs_pos[4];
-    obj_attributes_t obj_attributes;
-    uint8_t clip_code;
-    uint8_t tr_code;
-    uint8_t t_l_applied;
-} cpu_vtx_t;
-
-typedef struct {
-    cpu_vtx_t *vertices[CLIPPING_PLANE_COUNT + 3];
-    uint32_t count;
-} cpu_clipping_list_t;
 
 typedef struct {
     // Pipeline state
@@ -192,7 +155,7 @@ void cpu_glDepthRange(double n, double f)
     state.current_viewport.offset[2] = n + (f - n) * 0.5f;
 }
 
-static void cpu_vertex_calc_screenspace(cpu_vtx_t *v)
+void cpu_vertex_calc_screenspace(cpu_vtx_t *v)
 {
     v->inv_w = v->cs_pos[3] != 0.0f ? 1.0f / v->cs_pos[3] : 0x7FFF;
 
@@ -227,17 +190,17 @@ static void cpu_vertex_calc_screenspace(cpu_vtx_t *v)
     // debugf("%s v->depth = %f * %f + %f = %f + %f = %f\n", __FUNCTION__, da, db, state.current_viewport.offset[2], dc, state.current_viewport.offset[2], v->depth);
 }
 
-static float cpu_dot_product4(const float *a, const float *b)
+float cpu_dot_product4(const float *a, const float *b)
 {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
 }
 
-static float cpu_lerp(float a, float b, float t)
+float cpu_lerp(float a, float b, float t)
 {
     return a + (b - a) * t;
 }
 
-static uint8_t cpu_get_clip_codes(float *pos, float *ref)
+uint8_t cpu_get_clip_codes(float *pos, float *ref)
 {
     // This corresponds to vcl + vch on RSP
     uint8_t codes = 0;
@@ -252,7 +215,7 @@ static uint8_t cpu_get_clip_codes(float *pos, float *ref)
     return codes;
 }
 
-static void matrix_mult(float *d, const matrix_t *m, const float *v)
+void matrix_mult(float *d, const matrix_t *m, const float *v)
 {
     d[0] = m->m[0][0] * v[0] + m->m[1][0] * v[1] + m->m[2][0] * v[2] + m->m[3][0] * v[3];
     d[1] = m->m[0][1] * v[0] + m->m[1][1] * v[1] + m->m[2][1] * v[2] + m->m[3][1] * v[3];
@@ -295,7 +258,7 @@ void cpu_vertex_pre_tr(cpu_vtx_t *v, matrix_t *mvp)
     v->t_l_applied = false;
 }
 
-static void cpu_gl_vertex_calc_clip_code(cpu_vtx_t *v)
+void cpu_gl_vertex_calc_clip_code(cpu_vtx_t *v)
 {
     GLfloat clip_ref[] = { 
         v->cs_pos[3] * GUARD_BAND_FACTOR,
@@ -306,7 +269,7 @@ static void cpu_gl_vertex_calc_clip_code(cpu_vtx_t *v)
     v->clip_code = cpu_get_clip_codes(v->cs_pos, clip_ref);
 }
 
-static void cpu_intersect_line_plane(cpu_vtx_t *intersection, const cpu_vtx_t *p0, const cpu_vtx_t *p1, const float *clip_plane)
+void cpu_intersect_line_plane(cpu_vtx_t *intersection, const cpu_vtx_t *p0, const cpu_vtx_t *p1, const float *clip_plane)
 {
     float d0 = cpu_dot_product4(p0->cs_pos, clip_plane);
     float d1 = cpu_dot_product4(p1->cs_pos, clip_plane);
@@ -498,7 +461,7 @@ matrix_t cpu_glLoadIdentity(void)
 
 // Reimplementations taken from src/GL/lighting.c and src/GL/glu.c
 
-static void computeProjectionMatrix(matrix_t *proj, float fovy, float aspect, float zNear, float zFar)
+void computeProjectionMatrix(matrix_t *proj, float fovy, float aspect, float zNear, float zFar)
 {
     float sine, cotangent, deltaZ;
     float radians = fovy / 2 * (float)M_PI / 180;
@@ -518,17 +481,17 @@ static void computeProjectionMatrix(matrix_t *proj, float fovy, float aspect, fl
     proj->m[3][3] = 0;
 }
 
-static float cpu_gl_mag2(const GLfloat *v)
+float cpu_gl_mag2(const GLfloat *v)
 {
     return v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
 }
 
-static float cpu_gl_mag(const GLfloat *v)
+float cpu_gl_mag(const GLfloat *v)
 {
     return sqrtf(cpu_gl_mag2(v));
 }
 
-static void cpu_gl_normalize(GLfloat *d, const GLfloat *v)
+void cpu_gl_normalize(GLfloat *d, const GLfloat *v)
 {
     float inv_mag = 1.0f / cpu_gl_mag(v);
 
@@ -537,19 +500,19 @@ static void cpu_gl_normalize(GLfloat *d, const GLfloat *v)
     d[2] = v[2] * inv_mag;
 }
 
-static void cpu_gl_cross(GLfloat *p, const GLfloat *a, const GLfloat *b)
+void cpu_gl_cross(GLfloat *p, const GLfloat *a, const GLfloat *b)
 {
     p[0] = (a[1] * b[2] - a[2] * b[1]);
     p[1] = (a[2] * b[0] - a[0] * b[2]);
     p[2] = (a[0] * b[1] - a[1] * b[0]);
 };
 
-static float cpu_dot_product3(const float *a, const float *b)
+float cpu_dot_product3(const float *a, const float *b)
 {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 
-static void cpu_gluLookAt(matrix_t *m, float eyex, float eyey, float eyez,
+void cpu_gluLookAt(matrix_t *m, float eyex, float eyey, float eyez,
                           float centerx, float centery, float centerz,
                           float upx, float upy, float upz)
 {
@@ -595,4 +558,3 @@ void print_matrix(const matrix_t *matrix)
         debugf("\n");
     }
 }
-#endif
