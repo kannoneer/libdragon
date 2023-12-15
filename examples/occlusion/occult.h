@@ -1,7 +1,8 @@
 // occult
-// A Z-Buffer Renderer and Occlusion Tester Library
+// Z-Buffer Renderer and Occlusion Tester Library
 //
 
+#include "vertex.h"
 #include "cpumath.h"
 #include "cpu_3d.h"
 #include "profiler.h"
