@@ -48,7 +48,7 @@ bool g_draw_queries_hack = false; // render also queried objects to the depth bu
 bool config_shrink_silhouettes = true; // detect edges with flipped viewspace Z signs in each neighbor and add inner conservative flags
 bool config_discard_based_on_tr_code = true;
 bool config_inflate_rough_bounds = true;
-bool config_report_near_clip_as_visible  = true; // if queried polygons clip the near plane, always report them as visible
+bool config_report_near_clip_as_visible  = false; // if queried polygons clip the near plane, always report them as visible
 
 enum {
     RASTER_FLAG_BACKFACE_CULL = 1,
@@ -95,6 +95,7 @@ typedef struct occ_culler_s {
         int width;
         int height;
     } viewport;
+
     matrix_t proj;
     matrix_t mvp;
     matrix_t view_matrix;
@@ -624,6 +625,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
     cpu_vtx_t all_verts[OCC_MAX_MESH_VERTEX_COUNT] = {0};
     bool tri_faces_camera[OCC_MAX_MESH_INDEX_COUNT];
 
+    debugf("tri_normals: %p\n", tri_normals);
     if (tri_normals) {
         int num_tris = mesh->num_indices/3;
         for (int i = 0; i < num_tris; i++) {
@@ -634,6 +636,10 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         }
     }
 
+    // bool out_reaching_vertex = false;
+    // bool near_vertex = false;
+    // uint8_t out_reaching_trcode = 0;
+
     for (uint32_t i = 0; i < mesh->num_vertices; i++) {
         all_verts[i].obj_attributes.position[0] = mesh->vertices[i].position[0];
         all_verts[i].obj_attributes.position[1] = mesh->vertices[i].position[1];
@@ -642,7 +648,17 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
 
         cpu_vertex_pre_tr(&all_verts[i], mvp);
         cpu_vertex_calc_screenspace(&all_verts[i]);
+
+        if ((all_verts[i].tr_code & (1 << NEAR_PLANE_INDEX)) && (all_verts[i].tr_code & ~(1 << NEAR_PLANE_INDEX))) {
+            // out_reaching_vertex = true;
+            // out_reaching_trcode = all_verts[i].tr_code;
+        }
+        if (all_verts[i].tr_code & (1 << NEAR_PLANE_INDEX)) {
+            // near_vertex = true;
+        }
     }
+
+    // debugf("have out reaching, near vertex: %d, %d. trcode=0x%x\n", out_reaching_vertex, near_vertex, out_reaching_trcode);
 
     prof_end(REGION_TRANSFORM);
 
@@ -696,6 +712,13 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
                 continue;
             }
 
+            // if (true || !tri_faces_camera[tri_idx]) {
+            //     debugf("swapping v1 and v2\n");
+            //     cpu_vtx_t temp = verts[2];
+            //     verts[2] = verts[1];
+            //     verts[1] = temp;
+            // }
+
             if (tri_neighbors && config_shrink_silhouettes) {
                 // Silhouette edges join triangles with different view space Z signs
                 for (int j = 0; j < 3; j++) {
@@ -710,8 +733,6 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
             }
         }
 
-        const int NEAR_PLANE_INDEX = 2;
-        const int FAR_PLANE_INDEX = 5;
         const bool clips_near = (verts[0].tr_code | verts[1].tr_code | verts[2].tr_code) & (1 << NEAR_PLANE_INDEX);
         const bool clips_far = (verts[0].tr_code | verts[1].tr_code | verts[2].tr_code) & (1 << FAR_PLANE_INDEX);
 
@@ -722,10 +743,12 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
                 if (query_result) {
                     query_result->visible = true;
                     query_result->num_tris_drawn = num_tris_drawn;
-                    return;
                 }
+                return;
             }
         }
+
+        //bool clipped_against_near = false;
 
         if (clips_near) {
             if (config_near_clipping_action == CLIP_ACTION_REJECT) {
@@ -733,19 +756,62 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
             } else if (config_near_clipping_action == CLIP_ACTION_DO_IT) {
                 // tr_code   = clip against screen bounds, used for rejection
                 // clip_code = clipped against guard bands, used for actual clipping
-                //
-                // We clip only against the near plane so they are the same.
 
                 verts[0].clip_code = verts[0].tr_code;
                 verts[1].clip_code = verts[1].tr_code;
                 verts[2].clip_code = verts[2].tr_code;
 
-                cpu_gl_clip_triangle(&verts[0], &verts[1], &verts[2], (1 << NEAR_PLANE_INDEX), clipping_cache, &clipping_list);
+                // uint8_t planes = 1 << NEAR_PLANE_INDEX;
+                uint8_t planes = verts[0].clip_code | verts[1].clip_code | verts[2].clip_code;
+                uint8_t mask_out = 0;
+                cpu_gl_clip_triangle(&verts[0], &verts[1], &verts[2], planes, clipping_cache, &clipping_list, &mask_out);
+
+                // debugf("clipped against planes: 0x%x\n", mask_out);
+                if (mask_out & (1 << NEAR_PLANE_INDEX)) {
+                    // debugf("clipping result (count=%lu):\n", clipping_list.count);
+                    for (uint32_t i = 0; i < clipping_list.count; i++) {
+                        // clipping_list.vertices[i]->cs_pos[
+                        // debugf("XXX clipping_list[%lu].cs_pos = {%f, %f, %f, %f}\n", i, clipping_list.vertices[i]->cs_pos[0], clipping_list.vertices[i]->cs_pos[1],
+                        //        clipping_list.vertices[i]->cs_pos[2], clipping_list.vertices[i]->cs_pos[3]);
+
+                        // float* cs = &clipping_list.vertices[i]->cs_pos[0];
+
+                        // if (fabs(cs[2] - (-1.0f)) < 1e-3f && fabs(cs[3] - (1.0f)) < 1e-3f) {
+                        //     // debugf(" --> clipped near\n");
+                        //     //clipped_against_near = true;
+                        //     break;
+                        // }
+                    }
+
+                    if (clipping_list.count > 0) {
+                    for (uint32_t i=0;i<clipping_list.count;i++) {
+                    }
+                        //debugf("HALT\n");
+                        //while(true) {};
+                    }
+
+                }
+
+                //verts[0].clip_code &= ~(1 << NEAR_PLANE_INDEX);
+                //verts[1].clip_code &= ~(1 << NEAR_PLANE_INDEX);
+                //verts[2].clip_code &= ~(1 << NEAR_PLANE_INDEX);
+                //cpu_gl_clip_triangle(&verts[0], &verts[1], &verts[2], 0xff, clipping_cache, &clipping_list);
+                //cpu_gl_clip_triangle(&verts[0], &verts[1], &verts[2], (1 << NEAR_PLANE_INDEX), clipping_cache, &clipping_list);
             } else {
                 debugf("Invalid clip action %lu\n", config_near_clipping_action);
                 assert(false);
             }
         }
+
+        // if (clipped_against_near && (flags & RASTER_FLAG_REPORT_VISIBILITY) && !(flags & RASTER_FLAG_WRITE_DEPTH)) {
+        //     assert(query_result && "must pass in a non-NULL query_result if asking for a visibility result");
+        //     debugf("trivial visibility accept after query clipped near plane\n");
+        //     if (query_result) {
+        //         query_result->visible = true;
+        //         query_result->num_tris_drawn = num_tris_drawn;
+        //     }
+        //     return;
+        // }
 
         if (clips_far && (flags & RASTER_FLAG_DISCARD_FAR)) {
             // Reject triangles that touch the far clip plane when rendering occluders. We can't store their farthest depth anyway.
@@ -920,6 +986,7 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
     float maxY = -__FLT_MAX__;
 
     occ_box2df_t oct_box = {{__FLT_MAX__, __FLT_MAX__}, {-__FLT_MAX__, -__FLT_MAX__}};
+    uint8_t tr_codes = 0;
 
     for (int iv = 0; iv < mesh->num_vertices; iv++) {
         prof_begin(REGION_TRANSFORM);
@@ -930,6 +997,7 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
         vert.obj_attributes.position[3] = 1.0f;
 
         cpu_vertex_pre_tr(&vert, mvp);
+        tr_codes |= vert.tr_code;
         cpu_vertex_calc_screenspace(&vert);
         vert.screen_pos[0] += SCREENSPACE_BIAS;
         vert.screen_pos[1] += SCREENSPACE_BIAS;
@@ -951,6 +1019,10 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
             oct_box.hi.x = max(oct_box.hi.x, pr.x);
             oct_box.hi.y = max(oct_box.hi.y, pr.y);
         }
+    }
+
+    if (tr_codes & (1 << NEAR_PLANE_INDEX)) {
+        debugf("camera may be inside\n");
     }
 
     if (config_inflate_rough_bounds) {

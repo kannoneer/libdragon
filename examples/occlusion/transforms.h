@@ -6,7 +6,8 @@
 #define CLIPPING_PLANE_COUNT  6
 #define CLIPPING_CACHE_SIZE   9
 #define CLIPPING_PLANE_SIZE   8
-#define GUARD_BAND_FACTOR (4)
+//#define GUARD_BAND_FACTOR (4)
+#define GUARD_BAND_FACTOR (1) // HACK
 
 static const float clip_planes[CLIPPING_PLANE_COUNT][4] = {
     { 1, 0, 0, GUARD_BAND_FACTOR },
@@ -16,6 +17,9 @@ static const float clip_planes[CLIPPING_PLANE_COUNT][4] = {
     { 0, 1, 0, -GUARD_BAND_FACTOR },
     { 0, 0, 1, -1 },
 };
+
+const int NEAR_PLANE_INDEX = 2;
+const int FAR_PLANE_INDEX = 5;
 
 typedef struct {
     float m[4][4];
@@ -269,20 +273,7 @@ void matrix_mult_full(matrix_t *d, const matrix_t *l, const matrix_t *r)
 
 static void cpu_vertex_pre_tr(cpu_vtx_t *v, matrix_t *mvp)
 {
-    // gl_vtx_t *v = &state.vertex_cache[cache_index];
-    // memcpy(&v->obj_attributes, &state.current_attributes, sizeof(gl_obj_attributes_t));
-
-    // gl_matrix_target_t* mtx_target = gl_get_matrix_target(v->obj_attributes.mtx_index[0]);
     matrix_mult(v->cs_pos, mvp, v->obj_attributes.position);
-
-#if 0
-    debugf("VTX ID: %d\n", id);
-    debugf("     OBJ: %8.2f %8.2f %8.2f %8.2f\n", v->obj_pos[0], v->obj_pos[1],v->obj_pos[2], v->obj_pos[3]);
-    debugf("          [%08lx %08lx %08lx %08lx]\n",
-        fx16(OBJ_SCALE*v->obj_pos[0]), fx16(OBJ_SCALE*v->obj_pos[1]), fx16(OBJ_SCALE*v->obj_pos[2]), fx16(OBJ_SCALE*v->obj_pos[3]));
-    debugf("   CSPOS: %8.2f %8.2f %8.2f %8.2f\n", v->cs_pos[0], v->cs_pos[1], v->cs_pos[2], v->cs_pos[3]);
-    debugf("          [%08lx %08lx %08lx %08lx]\n", fx16(OBJ_SCALE*v->cs_pos[0]), fx16(OBJ_SCALE*v->cs_pos[1]), fx16(OBJ_SCALE*v->cs_pos[2]), fx16(OBJ_SCALE*v->cs_pos[3]));
-#endif
 
     float tr_ref[] = {
         v->cs_pos[3],
@@ -311,6 +302,8 @@ static void cpu_intersect_line_plane(cpu_vtx_t *intersection, const cpu_vtx_t *p
     
     float a = d0 / (d0 - d1);
 
+    // debugf("  p0->cs_pos[0]=%f, p1->cs_pos[0]=%f\n", p0->cs_pos[0], p1->cs_pos[0]);
+    // debugf("  d0: %f, d1: %f, a: %f\n", d0, d1, a);
     assertf(a >= 0.f && a <= 1.f, "invalid a: %f", a);
 
     intersection->cs_pos[0] = cpu_lerp(p0->cs_pos[0], p1->cs_pos[0], a);
@@ -333,7 +326,7 @@ static void cpu_intersect_line_plane(cpu_vtx_t *intersection, const cpu_vtx_t *p
 // plane_mask:      which planes to try to clip against
 // clipping_cache:  Intersection points are stored in the clipping cache
 // out_list:        the generated polygon
-void cpu_gl_clip_triangle(cpu_vtx_t* v0, cpu_vtx_t* v1, cpu_vtx_t* v2, uint8_t plane_mask, cpu_vtx_t clipping_cache[static CLIPPING_CACHE_SIZE], cpu_clipping_list_t* final_list)
+void cpu_gl_clip_triangle(cpu_vtx_t* v0, cpu_vtx_t* v1, cpu_vtx_t* v2, uint8_t plane_mask, cpu_vtx_t clipping_cache[static CLIPPING_CACHE_SIZE], cpu_clipping_list_t* final_list, uint8_t* out_plane_mask)
 {
     uint8_t any_clip = v0->clip_code | v1->clip_code | v2->clip_code;
 
@@ -359,14 +352,30 @@ void cpu_gl_clip_triangle(cpu_vtx_t* v0, cpu_vtx_t* v1, cpu_vtx_t* v2, uint8_t p
     out_list->vertices[2] = v2;
     out_list->count = 3;
 
-    for (uint32_t c = 0; c < CLIPPING_PLANE_COUNT; c++)
+    // debugf("begin clipping v0=%p, v1=%p, v2=%p\n", v0, v1, v2);
+
+    // debugf("v0->cs_pos: %f, %f, %f, %f, clip_code: 0x%x\n", v0->cs_pos[0], v0->cs_pos[1], v0->cs_pos[2], v0->cs_pos[3], v0->clip_code);
+    // debugf("v1->cs_pos: %f, %f, %f, %f, clip_code: 0x%x\n", v1->cs_pos[0], v1->cs_pos[1], v1->cs_pos[2], v1->cs_pos[3], v1->clip_code);
+    // debugf("v2->cs_pos: %f, %f, %f, %f, clip_code: 0x%x\n", v2->cs_pos[0], v2->cs_pos[1], v2->cs_pos[2], v2->cs_pos[3], v2->clip_code);
+
+    *out_plane_mask = 0;
+
+    // NEAR_PLANE_INDEX==2
+    //uint32_t clip_order[6] = {0,1,3,4,NEAR_PLANE_INDEX,FAR_PLANE_INDEX};
+    uint32_t clip_order[6] = {0,1,2,3,4,5};
+
+    for (uint32_t c_idx = 0; c_idx < sizeof(clip_order)/sizeof(clip_order[0]); c_idx++)
     {
+        uint32_t c = clip_order[c_idx];
+
         // If nothing clips this plane, skip it entirely
         if ((any_clip & (1<<c)) == 0) {
             continue;
         }
 
         const float *clip_plane = clip_planes[c];
+
+        // debugf("[c=%lu, c_idx=%lu] plane=(%.3f, %.3f, %.3f, %.3f)\n", c, c_idx, clip_plane[0], clip_plane[1], clip_plane[2], clip_plane[3]);
 
         SWAP(in_list, out_list);
         out_list->count = 0;
@@ -380,6 +389,21 @@ void cpu_gl_clip_triangle(cpu_vtx_t* v0, cpu_vtx_t* v1, cpu_vtx_t* v2, uint8_t p
 
             bool cur_inside = (cur_point->clip_code & (1<<c)) == 0;
             bool prev_inside = (prev_point->clip_code & (1<<c)) == 0;
+
+            // debugf("  [i=%lu] cur_inside=%d, prev_inside=%d\n", i, cur_inside, prev_inside);
+            // debugf("  [c=%lu,i=%lu] in list XY: [",c,i);
+            // for (uint32_t j =0 ; j < in_list->count; j++) {
+            //     cpu_vtx_t* v = in_list->vertices[j];
+            //     debugf("(%f, %f), ", v->cs_pos[0], v->cs_pos[1]);
+            // }
+            // debugf("]\n");
+
+            // debugf("  [c=%lu,i=%lu] in list XYZW: [",c,i);
+            // for (uint32_t j =0 ; j < in_list->count; j++) {
+            //     cpu_vtx_t* v = in_list->vertices[j];
+            //     debugf("(%f, %f, %f, %f), ", v->cs_pos[0], v->cs_pos[1], v->cs_pos[2], v->cs_pos[3]);
+            // }
+            // debugf("]\n");
 
             if (cur_inside ^ prev_inside) {
                 cpu_vtx_t *intersection = NULL;
@@ -404,10 +428,16 @@ void cpu_gl_clip_triangle(cpu_vtx_t* v0, cpu_vtx_t* v1, cpu_vtx_t* v2, uint8_t p
                     SWAP(p0, p1);
                 }
 
+                // debugf("  p0->cs_pos:           %f, %f, %f, %f, clip_code: 0x%x\n", p0->cs_pos[0], p0->cs_pos[1], p0->cs_pos[2], p0->cs_pos[3], p0->clip_code);
+                // debugf("  p1->cs_pos:           %f, %f, %f, %f, clip_code: 0x%x\n", p1->cs_pos[0], p1->cs_pos[1], p1->cs_pos[2], p1->cs_pos[3], p1->clip_code);
+
+
                 cpu_intersect_line_plane(intersection, p0, p1, clip_plane);
+                // debugf("  intersection->cs_pos: %f, %f, %f, %f, clip_code: 0x%x\n", intersection->cs_pos[0], intersection->cs_pos[1], intersection->cs_pos[2], intersection->cs_pos[3], intersection->clip_code);
 
                 out_list->vertices[out_list->count] = intersection;
                 out_list->count++;
+                *out_plane_mask |= 1 << c; // report that vertices were clipped against this plane
             }
 
             if (cur_inside) {
@@ -420,6 +450,7 @@ void cpu_gl_clip_triangle(cpu_vtx_t* v0, cpu_vtx_t* v1, cpu_vtx_t* v2, uint8_t p
                     cache_used &= ~(1<<diff);
                 }
             }
+
         }
     }
 

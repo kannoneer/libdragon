@@ -44,7 +44,6 @@ static camera_t camera;
 //static fps_camera_t fps_camera = {.pos={-6.411684, 0.000000, -4.664800}, .angle = 0.500546};
 // static fps_camera_t fps_camera = {.pos={6.752933f, 0.000000f, -0.804996f}, .angle = -0.711265f};
 static fps_camera_t fps_camera = {.pos = {6.752933f, 0.000000f, -0.804996f}, .angle = -0.127801f, .pitch=0.0f};
-static fps_camera_t fps_camera = {.pos = {6.752933f, 0.000000f, -0.804996f}, .angle = -0.127801f};
 int g_camera_mode = CAM_SPIN;
 matrix_t g_view;
 static surface_t zbuffer;
@@ -116,6 +115,8 @@ void compute_camera_matrix(matrix_t *matrix, const camera_t *camera)
 
 void compute_fps_camera_matrix(matrix_t *matrix, const fps_camera_t *camera)
 {
+    //float yawx = cos(camera->angle)
+    //camera->pitch += 0.1f;
     cpu_gluLookAt(matrix,
         camera->pos[0], camera->pos[1], camera->pos[2],
         camera->pos[0] + cos(camera->angle),
@@ -693,6 +694,8 @@ bool bvh_build(float* origins, float* radiuses, uint32_t num, sphere_bvh_t* out_
     return true;
 }
 
+//model64_t *mdl_sphere;
+
 // #define CITY_SCENE_NUM_HOUSES (40)
 #define CITY_SCENE_MAX_OCCLUDERS (10)
 #define CITY_SCENE_MAX_NODES (50)
@@ -898,7 +901,8 @@ world_center[0], world_center[1],world_center[2]
         matrix_t translate = cpu_glTranslatef(n->pos[0], n->pos[1], n->pos[2]);
         matrix_mult_full(&city_scene.bvh_xforms[i], &translate, &scale);
     }
-    
+
+    // while(true){};
 }
 
 void render_posed_unit_cube(matrix_t* mtx) {
@@ -956,10 +960,10 @@ void render_city_scene(surface_t* disp)
             visible = occ_check_target_visible(culler, sw_zbuffer, &unit_cube_hull, &city_scene.node_xforms[i], &city_scene.targets[i], &result);
         }
 
-        debugf("%lu visible=%d\n", i, visible);
+        // debugf("%lu visible=%d\n", i, visible);
 
         if (visible) {
-            debugf("drawing %lu, mdl=%p, node=%p\n", i, city_scene.mdl_room, city_scene.nodes[i]);
+            // debugf("drawing %lu, mdl=%p, node=%p\n", i, city_scene.mdl_room, city_scene.nodes[i]);
             glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &mat_diffuse[4*(i%4)]);
             glCallList(city_scene.node_dplists[i]);
             scene_stats.num_drawn++;
@@ -1020,7 +1024,7 @@ void render_city_scene(surface_t* disp)
             //    debugf("[bvh node=%lu] frustum culling node\n", i);
             //}
 
-            debugf("[bvh node=%lu] is_leaf=%d, in_frustum=%d\n", i, is_leaf, in_frustum);
+            //debugf("[bvh node=%lu] is_leaf=%d, in_frustum=%d\n", i, is_leaf, in_frustum);
             float diff[3]={
                 fps_camera.pos[0] - n->pos[0],
                 fps_camera.pos[1] - n->pos[1],
@@ -1146,6 +1150,7 @@ void render(double delta)
     if (g_camera_mode == CAM_SPIN) {
         compute_camera_matrix(&g_view, &camera);
     } else if (g_camera_mode == CAM_FPS) {
+
         compute_fps_camera_matrix(&g_view, &fps_camera);
     }
     else {
@@ -1294,6 +1299,7 @@ int main()
         joypad_poll();
         joypad_buttons_t pressed = joypad_get_buttons_pressed(JOYPAD_PORT_1);
         joypad_inputs_t inputs = joypad_get_inputs(JOYPAD_PORT_1);
+        //joypad_buttons_t mouse_pressed = joypad_get_buttons_pressed(JOYPAD_PORT_2);
         joypad_inputs_t mouse_inputs = joypad_get_inputs(JOYPAD_PORT_2);
         prof_next_frame();
 
@@ -1354,6 +1360,7 @@ int main()
             if (fabsf(inputs.cstick_x) > 0.01f) {
                 fps_camera.angle = fmodf(fps_camera.angle + adelta * inputs.cstick_x/127.f, 2 * M_PI);
             }
+
             const float mouse_sens = 2.0f;
 
             //if (fabsf(mouse_inputs.cstick_x) > 0.01f) {
