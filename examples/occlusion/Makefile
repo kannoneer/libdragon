@@ -1,7 +1,7 @@
 BUILD_DIR=build
 include $(N64_INST)/include/n64.mk
 
-src = occdemo.c
+src = occdemo.c bvh.c
 assets_png = $(wildcard assets/*.png)
 assets_ttf = $(wildcard assets/*.ttf)
 
