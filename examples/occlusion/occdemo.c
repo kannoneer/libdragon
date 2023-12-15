@@ -40,11 +40,7 @@ enum camera_mode_enum {
 static uint32_t animation = 0;
 static uint32_t texture_index = 0;
 static camera_t camera;
-//static fps_camera_t fps_camera = {.pos = {4.071973f, 0.000000f, 7.972688f}, .angle = 4.129455f};
-//static fps_camera_t fps_camera = {.pos={-6.411684, 0.000000, -4.664800}, .angle = 0.500546};
-// static fps_camera_t fps_camera = {.pos={6.752933f, 0.000000f, -0.804996f}, .angle = -0.711265f};
 static fps_camera_t fps_camera = {.pos = {6.752933f, 0.000000f, -0.804996f}, .angle = -0.127801f, .pitch=0.0f};
-static fps_camera_t fps_camera = {.pos = {6.752933f, 0.000000f, -0.804996f}, .angle = -0.127801f};
 int g_camera_mode = CAM_SPIN;
 matrix_t g_view;
 static surface_t zbuffer;
@@ -52,13 +48,11 @@ static surface_t sw_zbuffer_array[2];
 static surface_t *sw_zbuffer;
 
 static matrix_t g_projection;
-// static matrix_t g_cube_xform;
 
 static uint64_t g_num_frames = 0;
 
 static GLuint textures[4];
 
-// static const GLfloat environment_color[] = {0.1f, 0.5f, 0.5f, 1.f};
 static const GLfloat environment_color[] = {0.85f, 0.85f, 1.0f, 1.f};
 
 static bool config_enable_culling = false;
@@ -693,7 +687,6 @@ bool bvh_build(float* origins, float* radiuses, uint32_t num, sphere_bvh_t* out_
     return true;
 }
 
-// #define CITY_SCENE_NUM_HOUSES (40)
 #define CITY_SCENE_MAX_OCCLUDERS (10)
 #define CITY_SCENE_MAX_NODES (50)
 #define CITY_SCENE_MAX_BVH_SIZE (200)
@@ -760,8 +753,6 @@ void setup_city_scene()
                 break;
             }
             copy_to_matrix(&model->transforms[i].world_mtx[0], &city_scene.occluder_xforms[s->num_occluders]);
-
-            //print_matrix(&city_scene.occluder_xforms[s->num_occluders]);
 
             s->occluders[s->num_occluders] = node;
             s->num_occluders++;
@@ -836,8 +827,6 @@ world_center[0], world_center[1],world_center[2]
         debugf("matrix %lu\n", i);
         print_matrix(&city_scene.node_xforms[i]);
         float* orig = &origins[3*i];
-        //float* fourth_column = &city_scene.node_xforms[i].m[3][0];
-        //debugf("fourth column: %f, %f, %f, %f\n", fourth_column[0], fourth_column[1],fourth_column[2],fourth_column[3]);
         orig[0] = world_center[0];
         orig[1] = world_center[1];
         orig[2] = world_center[2];
@@ -1328,9 +1317,6 @@ int main()
             config_depth_view_mode = (config_depth_view_mode + 1) % 3;
         }
 
-        //config_conservative = !config_conservative;
-        //debugf("conservative rasterization: %s\n", config_conservative ? "ON" : "OFF");
-
         float y = inputs.stick_y / 128.f;
         float x = inputs.stick_x / 128.f;
         float mag = x * x + y * y;
@@ -1354,21 +1340,10 @@ int main()
             if (fabsf(inputs.cstick_x) > 0.01f) {
                 fps_camera.angle = fmodf(fps_camera.angle + adelta * inputs.cstick_x/127.f, 2 * M_PI);
             }
-            const float mouse_sens = 2.0f;
 
-            //if (fabsf(mouse_inputs.cstick_x) > 0.01f) {
-               //fps_camera.angle = fmodf(fps_camera.angle + adelta * mouse_inputs.analog_l/127.f, 2 * M_PI);
-               fps_camera.angle = fmodf(fps_camera.angle + mouse_sens * adelta * mouse_inputs.stick_x/127.f, 2 * M_PI);
-               fps_camera.pitch = fmodf(fps_camera.pitch + mouse_sens * adelta * mouse_inputs.stick_y/127.f, 2 * M_PI);
-               debugf("mouse: (%d, %d)\n", mouse_inputs.stick_x, mouse_inputs.stick_y);
-               //fps_camera.angle = fmodf(fps_camera.angle + adelta * mouse_inputs.cstick_x/127.f, 2 * M_PI);
-            //}
-            // if (inputs.cstick_x) {
-            //     fps_camera.pos[0] += mdelta * cos(fps_camera.angle + M_PI_2);
-            //     fps_camera.pos[2] += mdelta * sin(fps_camera.angle + M_PI_2);
-            // }
-            debugf("fps_camera = {.pos = {%ff, %ff, %ff}, .angle = %ff, .pitch = %ff}\n", 
-                fps_camera.pos[0], fps_camera.pos[1], fps_camera.pos[2], fps_camera.angle, fps_camera.pitch);
+            const float mouse_sens = 2.0f;
+            fps_camera.angle = fmodf(fps_camera.angle + mouse_sens * adelta * mouse_inputs.stick_x / 127.f, 2 * M_PI);
+            fps_camera.pitch = fmodf(fps_camera.pitch + mouse_sens * adelta * mouse_inputs.stick_y / 127.f, 2 * M_PI);
         }
 
         render(delta);
@@ -1387,6 +1362,5 @@ int main()
         prof_reset_stats();
 
         g_num_frames++;
-        // debugf("camera.distance=%f; camera.rotation=%f;\n", camera.distance, camera.rotation);
     }
 }
