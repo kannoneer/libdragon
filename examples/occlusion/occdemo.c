@@ -43,6 +43,7 @@ static camera_t camera;
 //static fps_camera_t fps_camera = {.pos = {4.071973f, 0.000000f, 7.972688f}, .angle = 4.129455f};
 //static fps_camera_t fps_camera = {.pos={-6.411684, 0.000000, -4.664800}, .angle = 0.500546};
 // static fps_camera_t fps_camera = {.pos={6.752933f, 0.000000f, -0.804996f}, .angle = -0.711265f};
+static fps_camera_t fps_camera = {.pos = {6.752933f, 0.000000f, -0.804996f}, .angle = -0.127801f, .pitch=0.0f};
 static fps_camera_t fps_camera = {.pos = {6.752933f, 0.000000f, -0.804996f}, .angle = -0.127801f};
 int g_camera_mode = CAM_SPIN;
 matrix_t g_view;
@@ -117,7 +118,9 @@ void compute_fps_camera_matrix(matrix_t *matrix, const fps_camera_t *camera)
 {
     cpu_gluLookAt(matrix,
         camera->pos[0], camera->pos[1], camera->pos[2],
-        camera->pos[0] + cos(camera->angle), camera->pos[1], camera->pos[2] + sin(camera->angle),
+        camera->pos[0] + cos(camera->angle),
+        camera->pos[1] + sin(camera->pitch),
+        camera->pos[2] + sin(camera->angle) * cos(camera->pitch), //camera->pos[2] + sin(camera->angle),
         0, 1, 0);
 }
 
@@ -1291,6 +1294,7 @@ int main()
         joypad_poll();
         joypad_buttons_t pressed = joypad_get_buttons_pressed(JOYPAD_PORT_1);
         joypad_inputs_t inputs = joypad_get_inputs(JOYPAD_PORT_1);
+        joypad_inputs_t mouse_inputs = joypad_get_inputs(JOYPAD_PORT_2);
         prof_next_frame();
 
         if (pressed.a) {
@@ -1350,12 +1354,21 @@ int main()
             if (fabsf(inputs.cstick_x) > 0.01f) {
                 fps_camera.angle = fmodf(fps_camera.angle + adelta * inputs.cstick_x/127.f, 2 * M_PI);
             }
+            const float mouse_sens = 2.0f;
+
+            //if (fabsf(mouse_inputs.cstick_x) > 0.01f) {
+               //fps_camera.angle = fmodf(fps_camera.angle + adelta * mouse_inputs.analog_l/127.f, 2 * M_PI);
+               fps_camera.angle = fmodf(fps_camera.angle + mouse_sens * adelta * mouse_inputs.stick_x/127.f, 2 * M_PI);
+               fps_camera.pitch = fmodf(fps_camera.pitch + mouse_sens * adelta * mouse_inputs.stick_y/127.f, 2 * M_PI);
+               debugf("mouse: (%d, %d)\n", mouse_inputs.stick_x, mouse_inputs.stick_y);
+               //fps_camera.angle = fmodf(fps_camera.angle + adelta * mouse_inputs.cstick_x/127.f, 2 * M_PI);
+            //}
             // if (inputs.cstick_x) {
             //     fps_camera.pos[0] += mdelta * cos(fps_camera.angle + M_PI_2);
             //     fps_camera.pos[2] += mdelta * sin(fps_camera.angle + M_PI_2);
             // }
-            debugf("fps_camera = {.pos = {%ff, %ff, %ff}, .angle = %ff}\n", 
-                fps_camera.pos[0], fps_camera.pos[1], fps_camera.pos[2], fps_camera.angle);
+            debugf("fps_camera = {.pos = {%ff, %ff, %ff}, .angle = %ff, .pitch = %ff}\n", 
+                fps_camera.pos[0], fps_camera.pos[1], fps_camera.pos[2], fps_camera.angle, fps_camera.pitch);
         }
 
         render(delta);

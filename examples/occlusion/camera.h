@@ -9,6 +9,7 @@ typedef struct {
 typedef struct {
     float pos[3];
     float angle;
+    float pitch;
 } fps_camera_t;
 
 void camera_transform(const camera_t *camera)
