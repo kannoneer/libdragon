@@ -246,7 +246,16 @@ const static bool measure_perf = true;
 
 #include <timer.h>
 
-uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const float* camera_pos, const plane_t* planes, uint16_t* out_data_inds, uint32_t max_data_inds)
+static float squared_distance(const float* a, const float* b) {
+    float diff[3] = {
+        b[0] - a[0],
+        b[1] - a[1],
+        b[2] - a[2],
+    };
+    return diff[0]*diff[0] + diff[1]*diff[1] + diff[2]*diff[2];
+}
+
+uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const float* camera_pos, const plane_t* planes, cull_result_t* out_data_inds, uint32_t max_data_inds)
 {
     uint32_t num = 0;
     assert(max_data_inds > 0);
@@ -264,7 +273,14 @@ uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const float* camera_pos, cons
 
     void find(uint32_t i) {
         bvh_node_t* n = &bvh->nodes[i];
-        bool in_frustum = SIDE_OUT != is_sphere_inside_frustum(planes, n->pos, n->radius_sqr);
+
+        bool camera_is_inside = squared_distance(camera_pos, n->pos) < n->radius_sqr;
+        bool visible = camera_is_inside;
+
+        if (!visible) {
+            bool in_frustum = SIDE_OUT != is_sphere_inside_frustum(planes, n->pos, n->radius_sqr);
+            visible = in_frustum;
+        }
 
         if (measure_perf) {
             perf.num_tests++;
@@ -275,13 +291,15 @@ uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const float* camera_pos, cons
             }
         }
 
-        if (false && !in_frustum) {
+        if (!visible) {
             return;
         }
 
         if (bvh_node_is_leaf(n)) {
             if (num < max_data_inds) {
-                out_data_inds[num++] = n->idx;
+                uint16_t flags = 0;
+                if (camera_is_inside) { flags |= VISIBLE_CAMERA_INSIDE; }
+                out_data_inds[num++] = (cull_result_t){.idx=n->idx, .flags=flags};
             } else {
                 return; // early out if output array size was reached
             }

@@ -28,6 +28,17 @@ typedef struct sphere_bvh_s {
     uint32_t num_leaves;
 } sphere_bvh_t;
 
+enum cull_flags_e {
+    VISIBLE_CAMERA_INSIDE = 1,
+};
+
+typedef uint16_t cull_flags_t;
+
+typedef struct cull_result_e {
+    uint16_t idx;
+    cull_flags_t flags;
+} cull_result_t;
+
 inline bool bvh_node_is_leaf(const bvh_node_t* n) { return (n->flags & BVH_FLAGS_CHILD_MASK) == 0; }
 inline uint32_t bvh_node_get_axis(const bvh_node_t* n) { return (n->flags & BVH_FLAGS_AXIS_MASK) >> 2; }
 
@@ -36,6 +47,6 @@ void bvh_print_node(const bvh_node_t* n);
 bool bvh_validate(const sphere_bvh_t* bvh);
 bool bvh_build(const float* origins, const float* radiuses, const aabb_t* aabbs, uint32_t num, sphere_bvh_t* out_bvh);
 
-uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const float* camera_pos, const plane_t* planes, uint16_t* out_data_inds, uint32_t max_data_inds);
+uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const float* camera_pos, const plane_t* planes, cull_result_t* out_data_inds, uint32_t max_data_inds);
 
 #endif

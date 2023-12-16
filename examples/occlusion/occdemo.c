@@ -796,12 +796,13 @@ void render_city_scene(surface_t* disp)
         //glEnable(GL_BLEND);
         //glBlendFunc(GL_ONE, GL_ONE);
 
-    static uint16_t data_inds[CITY_SCENE_MAX_NODES]; // references Node* elements
-    uint32_t num_visible = bvh_find_visible(&city_scene.bvh, culler->camera_pos, culler->clip_planes, data_inds, sizeof(data_inds) / sizeof(data_inds[0]));
+    static cull_result_t cull_results[CITY_SCENE_MAX_NODES]; // references Node* elements
+    uint32_t num_visible = bvh_find_visible(&city_scene.bvh, culler->camera_pos, culler->clip_planes, cull_results, sizeof(cull_results) / sizeof(cull_results[0]));
     for (uint32_t i = 0; i < num_visible; i++) {
-        uint16_t idx = data_inds[i];
+        uint16_t idx = cull_results[i].idx;
         debugf("[%lu] = %d\n", i, idx);
 
+        //if (!(cull_results[i].flags & VISIBLE_CAMERA_INSIDE)) continue; //HACK
         glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &mat_diffuse[4*(idx%4)]);
         glCallList(city_scene.node_dplists[idx]);
         scene_stats.num_drawn++;
@@ -916,7 +917,7 @@ void render_city_scene(surface_t* disp)
             if (in_frustum == SIDE_OUT) continue;
 
             glPushMatrix();
-            //glMultMatrixf(&city_scene.bvh_xforms[i].m[0][0]);
+            glMultMatrixf(&city_scene.bvh_xforms[i].m[0][0]);
             // if (clips) {
             // glCullFace(GL_FRONT);
             // } else {
@@ -924,9 +925,10 @@ void render_city_scene(surface_t* disp)
             // }
 
             // render_scaled_unit_cube(&city_scene.bvh_xforms[i], float scale) {
-            // draw_sphere();
+            draw_sphere();
             glPopMatrix();
-            render_aabb(&city_scene.bvh.node_aabbs[i]);
+
+            // render_aabb(&city_scene.bvh.node_aabbs[i]);
             if (!is_leaf) {
                 aabb_t planebox = city_scene.bvh.node_aabbs[i];
                 uint32_t ax = bvh_node_get_axis(n);
