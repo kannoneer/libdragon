@@ -1,25 +1,26 @@
 #ifndef FRUSTUM_H_
 #define FRUSTUM_H_
 
-void normalize_plane(float* plane);
+#define FRUSTUM_RIGHT (0)
+#define FRUSTUM_TOP (1)
+#define FRUSTUM_NEAR (2)
+#define FRUSTUM_LEFT (3)
+#define FRUSTUM_BOTTOM (4)
+#define FRUSTUM_FAR (5)
 
 typedef float plane_t[4];
-
-// TODO sync these with cpu_3d.c definitions
-#define FRUSTUM_LEFT (0)
-#define FRUSTUM_RIGHT (1)
-#define FRUSTUM_BOTTOM (2)
-#define FRUSTUM_TOP (3)
-#define FRUSTUM_NEAR (4)
-#define FRUSTUM_FAR (5)
 
 // Plane normals will point inside the frustum.
 void extract_planes_from_projmat(
     const float mat[4][4],
-    plane_t left, plane_t right,
-    plane_t bottom, plane_t top,
-    plane_t near, plane_t far);
+    plane_t right,
+    plane_t top,
+    plane_t near,
+    plane_t left,
+    plane_t bottom,
+    plane_t far);
 
+void normalize_plane(float* plane);
 void print_clip_plane(const float* p);
 
 enum plane_side_e {

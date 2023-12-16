@@ -88,13 +88,7 @@ typedef struct occ_culler_s {
     float camera_pos[3]; // extracted from view_matrix
     uint32_t frame;
 
-    plane_t clip_planes[6]; // left, right, top, bottom, near, far
-        // float left[4];
-        // float right[4];
-        // float top[4];
-        // float bottom[4];
-        // float near[4];
-        // float far[4];
+    plane_t clip_planes[6]; // right, top, near, left, bottom, far;
 } occ_culler_t;
 
 typedef struct occ_result_box_s {

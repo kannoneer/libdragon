@@ -799,8 +799,9 @@ void render_city_scene(surface_t* disp)
     static cull_result_t cull_results[CITY_SCENE_MAX_NODES]; // references Node* elements
     uint32_t num_visible = bvh_find_visible(&city_scene.bvh, culler->camera_pos, culler->clip_planes, cull_results, sizeof(cull_results) / sizeof(cull_results[0]));
     for (uint32_t i = 0; i < num_visible; i++) {
-        uint16_t idx = cull_results[i].idx;
-        debugf("[%lu] = %d\n", i, idx);
+        cull_result_t res = cull_results[i];
+        uint16_t idx = res.idx;
+        debugf("[%lu] .idx=%d, .flags=0x%x\n", i, res.idx, res.flags);
 
         //if (!(cull_results[i].flags & VISIBLE_CAMERA_INSIDE)) continue; //HACK
         glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &mat_diffuse[4*(idx%4)]);

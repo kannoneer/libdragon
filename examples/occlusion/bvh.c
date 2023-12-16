@@ -170,6 +170,7 @@ bool bvh_build(const float* origins, const float* radiuses, const aabb_t* aabbs,
             aabb_get_center(&bounds, pos);
 
             uint32_t split = start + num/2;  // median cut by default
+
             // See if there's an split index that splits the bounding box roughly in two.
             // We ignore the first and last elements because that would be a degenerate split.
             // We'll fall back to default 50/50 split if no a good one was found.

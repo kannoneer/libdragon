@@ -9,12 +9,12 @@
 #include <GL/gl.h>
 
 static const float clip_planes[CLIPPING_PLANE_COUNT][4] = {
-    { 1, 0, 0, GUARD_BAND_FACTOR },
-    { 0, 1, 0, GUARD_BAND_FACTOR },
-    { 0, 0, 1, 1 },
-    { 1, 0, 0, -GUARD_BAND_FACTOR },
-    { 0, 1, 0, -GUARD_BAND_FACTOR },
-    { 0, 0, 1, -1 },
+    { 1, 0, 0, GUARD_BAND_FACTOR },  // right
+    { 0, 1, 0, GUARD_BAND_FACTOR },  // top
+    { 0, 0, 1, 1 },                  // near
+    { 1, 0, 0, -GUARD_BAND_FACTOR }, // left
+    { 0, 1, 0, -GUARD_BAND_FACTOR }, // bottom
+    { 0, 0, 1, -1 },                 // far
 };
 
 typedef struct {

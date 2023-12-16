@@ -18,9 +18,12 @@ void normalize_plane(float* plane) {
 // Plane normals will point inside the frustum.
 void extract_planes_from_projmat(
     const float mat[4][4],
-    plane_t left, plane_t right,
-    plane_t bottom, plane_t top,
-    plane_t near, plane_t far)
+    plane_t right,
+    plane_t top,
+    plane_t near,
+    plane_t left,
+    plane_t bottom,
+    plane_t far)
 {
     for (int i = 4; i--; ) { left[i]   = mat[i][3] + mat[i][0]; }
     for (int i = 4; i--; ) { right[i]  = mat[i][3] - mat[i][0]; }
