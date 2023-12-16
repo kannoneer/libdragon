@@ -1,3 +1,5 @@
+// tests
+
 #include <GL/gl.h>
 #include <GL/gl_integration.h>
 #include <GL/glu.h>
@@ -60,6 +62,7 @@ static const GLfloat environment_color[] = {0.85f, 0.85f, 1.0f, 1.f};
 static bool config_enable_culling = true;
 static bool config_show_wireframe = false;
 static int config_depth_view_mode = 1;
+static bool config_conservative = true;
 static bool config_top_down_view = false;
 static float config_far_plane = 50.f;
 
@@ -246,6 +249,260 @@ void set_light_positions(float rotation)
     glPopMatrix();
 }
 
+static occ_target_t cube_target = {};
+
+void render_door_scene(surface_t* disp)
+{
+    long unsigned int anim_timer = g_num_frames;
+    //debugf("g_num_frames: %llu\n", g_num_frames);
+    float rotation = animation * 0.5f;
+
+    set_light_positions(rotation);
+
+    // Set some global render modes that we want to apply to all models
+    glEnable(GL_LIGHTING);
+    glEnable(GL_NORMALIZE);
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
+
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
+
+    // Draw occluders
+    
+    render_plane();
+
+    // occ_mesh_t plane_mesh = {
+    //      .vertices = plane_vertices,
+    //      .indices = plane_indices,
+    //      .num_indices = plane_index_count,
+    //      .num_vertices = plane_vertex_count
+    //  };
+
+    // occ_draw_mesh(culler, sw_zbuffer, &plane_mesh, NULL);
+
+    occ_mesh_t cube_mesh = {
+        .vertices = (vertex_t*)cube_vertices,
+        .indices = (uint16_t*)cube_indices,
+        .num_vertices = sizeof(cube_vertices) / sizeof(cube_vertices[0]),
+        .num_indices = sizeof(cube_indices) / sizeof(cube_indices[0]),
+    };
+
+    for (int i = 0; i < 3; i++) {
+        glPushMatrix();
+        matrix_t scale = cpu_glScalef(1.0f, 1.75f, 0.2f);
+        matrix_t translate = cpu_glTranslatef((-1 + i) * 8.f + 2.0f * sin(i * 1.5f + 0.05f * anim_timer), 6.0f, sin(i * 2.f));
+        matrix_t xform;
+        matrix_mult_full(&xform, &translate, &scale);
+
+        glMultMatrixf(&xform.m[0][0]);
+        render_cube();
+        occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, &xform);
+        glPopMatrix();
+    }
+
+    // We are interested in target cube's visiblity. Compute its model-to-world transform.
+
+    matrix_t cube_rotate = cpu_glRotatef(2.f * anim_timer, sqrtf(3.f), 0.0f, sqrtf(3.f));
+    //matrix_t cube_rotate = cpu_glRotatef(0.0f, 1.0f, 0.0f, 0.0f);
+    matrix_t cube_translate = cpu_glTranslatef(0.0f + 6.0f * sin(anim_timer * 0.04f), 5.0f, 7.0f);
+    matrix_t cube_xform;
+
+    matrix_mult_full(&cube_xform, &cube_translate, &cube_rotate);
+
+    // Occlusion culling
+
+    //occ_result_box_t box = {};
+    occ_raster_query_result_t raster_query = {};
+    //bool cube_visible = occ_check_target_visible(culler, sw_zbuffer, &cube_mesh, &cube_xform, &cube_target, &raster_query);
+    bool cube_visible=true;
+    (void)raster_query.depth;
+    (void)cube_target.last_visible_frame;
+    assert(false && "need to update occ check to use hull");
+    //box.hitX = raster_query.x;
+    //box.hitY = raster_query.y;
+    //box.udepth = raster_query.depth;
+    // bool cube_visible = occ_check_mesh_visible_rough(culler, sw_zbuffer, &cube_mesh, &cube_xform, &box);
+    //occ_draw_mesh(culler, sw_zbuffer, &cube_mesh, &cube_xform);
+
+	// occ_draw_indexed_mesh_flags(culler, sw_zbuffer, &cube_xform, cube_mesh.vertices, cube_mesh.indices, cube_mesh.num_indices, NULL, (OCC_RASTER_FLAGS_QUERY & (~RASTER_FLAG_EARLY_OUT)) | RASTER_FLAG_WRITE_DEPTH, NULL);
+
+    if (cube_visible || config_show_wireframe) {
+        bool wireframe = !cube_visible;
+
+        // Continue drawing other objects
+
+        if (wireframe) {
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            glDisable(GL_DEPTH_TEST);
+            glDisable(GL_LIGHTING);
+            glDisable(GL_TEXTURE_2D);
+        }
+        glPushMatrix();
+        glMultMatrixf(&cube_xform.m[0][0]);
+        render_cube();
+        glPopMatrix();
+        if (wireframe) {
+            glEnable(GL_TEXTURE_2D);
+            glEnable(GL_LIGHTING);
+            glEnable(GL_DEPTH_TEST);
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        }
+    }
+
+    // render_decal();
+    // render_skinned(&camera, animation);
+
+    glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1) % 4]);
+    // render_sphere(rotation);
+
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+    // render_primitives(rotation);
+}
+
+#define BIG_SCENE_NUM_CUBES (100)
+
+struct big_scene_s
+{
+    occ_target_t targets[BIG_SCENE_NUM_CUBES];
+} big_scene = {};
+
+struct {
+    int num_drawn;
+    int num_max;
+} scene_stats;
+
+
+void setup_big_scene()
+{
+}
+
+void render_big_scene(surface_t* disp)
+{
+    long unsigned int anim_timer = 0; //g_num_frames;
+
+    glEnable(GL_LIGHTING);
+    glEnable(GL_NORMALIZE);
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
+
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
+
+    const float wave = anim_timer * 0.2f;
+
+    const int num_cubes = BIG_SCENE_NUM_CUBES;
+    matrix_t cube_xforms[num_cubes];
+    float cube_z_dists[num_cubes];
+    int cube_order[num_cubes];
+
+    const float height = 5.0f;
+    for (int i = 0; i < num_cubes; i++) {
+        float theta = i*2.83f;
+        // float phi = i*3.1f;
+        const float r = 15.0f; //10.0f * (0.5f + .5f*sin(i));
+        vec3f pos = (vec3f){
+            r * cos(theta),
+            height + (i / (float)num_cubes - 0.5f) * 1.5f * r,
+            r * sin(theta)};
+
+        // compute viewspace z for front-to-back drawing
+        float world[4] = {pos.x, pos.y, pos.z, 1.0f};
+        float view[4] = {};
+
+        matrix_mult(&view[0], &g_view, &world[0]);
+        cube_z_dists[i] = -view[2];
+
+        matrix_t translate = cpu_glTranslatef(pos.x, pos.y, pos.z);
+        matrix_t rotate = cpu_glRotatef(i*45.f+wave, sqrtf(2)/2.f, 0.0f, sqrtf(2)/2.f);
+        matrix_t temp;
+        matrix_t scale = cpu_glScalef(1.0f, 2.0f, 1.0f);
+        matrix_mult_full(&temp, &rotate, &scale);
+        matrix_mult_full(&cube_xforms[i], &translate, &temp);
+    }
+
+    if (config_enable_culling) {
+        // sort cubes by viewspace z
+
+        int compare(const void *a, const void *b)
+        {
+            float fa = cube_z_dists[*(int *)a];
+            float fb = cube_z_dists[*(int *)b];
+            // debugf("%f < %f\n", fa, fb);
+            if (fa < fb) {
+                return -1;
+            }
+            else if (fa > fb) {
+                return 1;
+            }
+            else {
+                return 0;
+            }
+        }
+
+        for (int i = 0; i < num_cubes; i++) {
+            cube_order[i] = i;
+        }
+
+        qsort(cube_order, num_cubes, sizeof(cube_order[0]), compare);
+
+        // draw from front to back
+
+        scene_stats.num_drawn = 0;
+        scene_stats.num_max = BIG_SCENE_NUM_CUBES;
+        for (int order_i = 0; order_i < num_cubes; order_i++) {
+            int idx = cube_order[order_i];
+            // debugf("order_i =%d, idx= %d, dist = %f\n", order_i, idx, cube_z_dists[idx]);
+            // query for visibility
+            // debugf("i=%d\n", i);
+            matrix_t *xform = &cube_xforms[idx];
+            bool visible = occ_check_target_visible(culler, sw_zbuffer, &cube_hull, xform, &big_scene.targets[idx], NULL);
+
+            if (visible || config_show_wireframe) {
+                glPushMatrix();
+                glMultMatrixf(&xform->m[0][0]);
+                if (visible) {
+                    render_cube();
+                }
+                else {
+                    // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                    glDisable(GL_DEPTH_TEST);
+                    glEnable(GL_BLEND);
+                    glBlendFunc(GL_ONE, GL_ONE);
+                    glDisable(GL_LIGHTING);
+                    glDisable(GL_TEXTURE_2D);
+                    render_cube();
+                    glEnable(GL_TEXTURE_2D);
+                    glEnable(GL_LIGHTING);
+                    glDisable(GL_BLEND);
+                    glEnable(GL_DEPTH_TEST);
+                    // glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                }
+                glPopMatrix();
+            }
+
+            if (visible) {
+                // also draw to software zbuffer
+                occ_draw_hull(culler, sw_zbuffer, &cube_hull, xform, NULL, 0);
+            }
+            if (visible) {
+                scene_stats.num_drawn++;
+            }
+        }
+    } else {
+        scene_stats.num_drawn = 0;
+        for (int idx = 0; idx < num_cubes; idx++) {
+            glPushMatrix();
+            glMultMatrixf(&cube_xforms[idx].m[0][0]);
+            render_cube();
+            glPopMatrix();
+            scene_stats.num_drawn++;
+        }
+    }
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+}
 
 static void copy_to_matrix(const float* in, matrix_t* out) {
     // matrix_t is in column-major order with m[col][row]
@@ -283,11 +540,6 @@ struct city_scene_s
     sphere_bvh_t bvh;
     matrix_t bvh_xforms[CITY_SCENE_MAX_BVH_SIZE];
 } city_scene = {};
-
-struct {
-    int num_drawn;
-    int num_max;
-} scene_stats;
 
 void setup_city_scene()
 {
@@ -707,6 +959,72 @@ void render_city_scene(surface_t* disp)
     glDisable(GL_LIGHTING);
 }
 
+void render_2d_scene(surface_t*)
+{
+    vec2f a = (vec2f){10, 15};
+    vec2f b = (vec2f){15, 25};
+    vec2f c = (vec2f){35, 20};
+
+    occ_raster_query_result_t result={};
+    uint32_t flags = (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_WRITE_DEPTH |RASTER_FLAG_ROUND_DEPTH_UP | RASTER_FLAG_DISCARD_FAR);
+
+    if (config_conservative) {
+        flags |= RASTER_FLAG_SHRINK_EDGE_01;
+        flags |= RASTER_FLAG_SHRINK_EDGE_12;
+        flags |= RASTER_FLAG_SHRINK_EDGE_20;
+        // flags |= RASTER_FLAG_EXPAND_EDGE_01;
+        // flags |= RASTER_FLAG_EXPAND_EDGE_12;
+        // flags |= RASTER_FLAG_EXPAND_EDGE_20;
+    }
+
+    draw_tri(
+        a, b, c,
+        0.5f,
+        0.5f,
+        0.5f,
+        flags,
+        &result,
+        sw_zbuffer);
+}
+
+static occ_target_t target_single_cube = {0};
+
+void render_single_cube_scene(surface_t*)
+{
+    long unsigned int anim_timer = g_num_frames;
+
+    glEnable(GL_LIGHTING);
+    glEnable(GL_NORMALIZE);
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
+
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
+
+    matrix_t xform;
+
+    vec3f pos = (vec3f){0.f, 2.f, 0.f};
+
+    matrix_t translate = cpu_glTranslatef(pos.x, pos.y, pos.z);
+    matrix_t rotate = cpu_glRotatef(45.f + anim_timer*0.5f, sqrtf(2)/2.f, 0.0f, sqrtf(2)/2.f);
+    matrix_mult_full(&xform, &translate, &rotate);
+
+    // bool visible = occ_check_target_visible(culler, sw_zbuffer, &cube_hull.mesh, &xform, &cube_target, NULL);
+    // (void)visible;
+
+    glPushMatrix();
+    glMultMatrixf(&xform.m[0][0]);
+    render_cube();
+    glPopMatrix();
+
+    //occ_draw_mesh(culler, sw_zbuffer, &cube_hull.mesh, &xform);
+    //occ_draw_hull(culler, sw_zbuffer, &cube_hull, &xform, NULL, 0);
+    (void)target_single_cube;
+    //occ_check_target_visible(culler, sw_zbuffer, &cube_hull, &xform, &target_single_cube, NULL);
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+}
+
 void render(double delta)
 {
     surface_t *disp = display_get();
@@ -753,9 +1071,9 @@ void render(double delta)
 
     //render_door_scene(disp);
     //render_big_scene(disp);
-    render_city_scene(disp);
+    //render_city_scene(disp);
     //render_2d_scene(disp);
-    //render_single_cube_scene(disp);
+    render_single_cube_scene(disp);
     g_camera_mode = CAM_FPS;
     gl_context_end();
 
@@ -788,8 +1106,36 @@ void render(double delta)
         rdpq_tex_blit(sw_zbuffer, 0, 0, &params);
     }
 
+    // if (true || (g_num_frames / 2) % 2 == 0) {
+    //     rdpq_set_mode_fill(cube_visible ? (color_t){0, 255, 0, 64} : (color_t){255, 0, 0, 64});
+    //     rdpq_fill_rectangle(box.minX, box.minY, box.maxX, box.maxY);
+    // }
+
+    // debugf("octagon ratio: %f \n", g_num_checked / ((float)(box.maxX - box.minX) * (float)(box.maxY - box.minY)));
+    // for (int i=0;i<g_num_checked;i++) {
+    //     vec2 p = g_checked_pixels[i];
+    //     graphics_draw_pixel(disp, p.x, p.y, 0x0fff);
+    // }
+
     rspq_flush();
 
+    // float xscale = disp->width / (float)sw_zbuffer->width;
+    // float yscale = disp->height / (float)sw_zbuffer->height;
+    // float xvisible = xscale * box.hitX;
+    // float yvisible = yscale * box.hitY;
+
+    // if (cube_visible) {
+    //     // Draw the visible pixel to both the mini-image and the full rendering
+    //     rdpq_set_mode_fill((color_t){0, 0, 255, 255});
+    //     rdpq_fill_rectangle(box.hitX, box.hitY + 1, box.hitX, box.hitY + 1);
+    //     if (config_show_visible_point) {
+    //         rdpq_set_mode_fill((color_t){255, 255, 255, 255});
+    //         rdpq_fill_rectangle(xvisible - 1, yvisible - 1, xvisible + 2, yvisible + 2);
+    //     }
+    // }
+
+    // rdpq_text_print(NULL, FONT_SCIFI, xscale*(box.minX+box.maxX)*0.5f, yscale*(box.minY+box.maxY)*0.5f, cube_visible ? "seen" : "hidden");
+    // rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 10, cube_visible ? "cube visible" : "cube hidden");
     rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 20, config_enable_culling ? "occlusion culling: ON" : "occlusion culling: OFF");
     rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 30, config_show_wireframe ? "show culled: ON" : "show culled: OFF");
     rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 40, "visible: %d/%d objects", scene_stats.num_drawn, scene_stats.num_max);
@@ -835,7 +1181,8 @@ int main()
     occ_set_viewport(culler, 0, 0, CULL_W, CULL_H);
 
     setup();
-    setup_city_scene();
+    setup_big_scene();
+    //setup_city_scene();
 
     rspq_profile_start();
 
@@ -944,3 +1291,4 @@ int main()
         g_num_frames++;
     }
 }
+

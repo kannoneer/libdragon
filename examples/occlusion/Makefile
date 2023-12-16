@@ -1,7 +1,10 @@
 BUILD_DIR=build
 include $(N64_INST)/include/n64.mk
 
-src = occdemo.c bvh.c occult.c cpumath.c cpu_3d.c profiler.c frustum.c aabb.c
+common_src = bvh.c occult.c cpumath.c cpu_3d.c profiler.c frustum.c aabb.c
+demo_src = occdemo.c $(common_src)
+tests_src = tests.c $(common_src)
+
 assets_png = $(wildcard assets/*.png)
 assets_ttf = $(wildcard assets/*.ttf)
 
@@ -24,18 +27,23 @@ filesystem/%.sprite: assets/%.png
 	@$(N64_MKSPRITE) -f RGBA16 --compress -o "$(dir $@)" "$<"
 
 $(BUILD_DIR)/occdemo.dfs: $(assets_conv)
-$(BUILD_DIR)/occdemo.elf: $(src:%.c=$(BUILD_DIR)/%.o)
+$(BUILD_DIR)/occtests.dfs: $(assets_conv)
+$(BUILD_DIR)/occdemo.elf: $(demo_src:%.c=$(BUILD_DIR)/%.o)
+$(BUILD_DIR)/occtests.elf: $(tests_src:%.c=$(BUILD_DIR)/%.o)
 
 filesystem/FerriteCoreDX.font64: MKFONT_FLAGS+=--size 12
 
 occdemo.z64: N64_ROM_TITLE="Occlusion Demo"
 occdemo.z64: $(BUILD_DIR)/occdemo.dfs
 
+occtests.z64: N64_ROM_TITLE="Occlusion Tests"
+occtests.z64: $(BUILD_DIR)/occtests.dfs
+
 run: occdemo.z64
 	ares occdemo.z64
 
 clean:
-	rm -rf $(BUILD_DIR) filesystem/ occdemo.z64
+	rm -rf $(BUILD_DIR) filesystem/ occdemo.z64 occtests.z64
 
 -include $(wildcard $(BUILD_DIR)/*.d)
 
