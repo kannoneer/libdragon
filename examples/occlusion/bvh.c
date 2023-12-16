@@ -272,10 +272,11 @@ uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const float* camera_pos, cons
         perf.start_ticks = get_ticks();
     }
 
-    void find(uint32_t i, bool camera_inside_parent) {
+    void find(uint32_t i, bool camera_inside_parent, uint8_t plane_mask) {
         bvh_node_t* n = &bvh->nodes[i];
 
         bool camera_is_inside = false;
+        //debugf("%lu, 0x%x\n",i ,inflags);
 
         if (camera_inside_parent) {
             camera_is_inside = squared_distance(camera_pos, n->pos) < n->radius_sqr;
@@ -283,7 +284,7 @@ uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const float* camera_pos, cons
 
         bool visible = camera_is_inside;
         if (!visible) {
-            bool in_frustum = SIDE_OUT != is_sphere_inside_frustum(planes, n->pos, n->radius_sqr);
+            bool in_frustum = SIDE_OUT != is_sphere_inside_frustum(planes, n->pos, n->radius_sqr, &plane_mask);
             visible = in_frustum;
         }
 
@@ -302,7 +303,7 @@ uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const float* camera_pos, cons
 
         if (bvh_node_is_leaf(n)) {
             if (num < max_data_inds) {
-                uint16_t flags = 0;
+                uint16_t flags = plane_mask;
                 if (camera_is_inside) { flags |= VISIBLE_CAMERA_INSIDE; }
                 out_data_inds[num++] = (cull_result_t){.idx=n->idx, .flags=flags};
             } else {
@@ -318,23 +319,24 @@ uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const float* camera_pos, cons
 
             if (left_first) {
                 if (n->flags & BVH_FLAG_LEFT_CHILD) {
-                    find(i + 1, camera_is_inside);
+                    find(i + 1, camera_is_inside, plane_mask);
                 }
                 if (n->flags & BVH_FLAG_RIGHT_CHILD) {
-                    find(n->idx, camera_is_inside);
+                    find(n->idx, camera_is_inside, plane_mask);
                 }
             } else {
                 if (n->flags & BVH_FLAG_RIGHT_CHILD) {
-                    find(n->idx, camera_is_inside);
+                    find(n->idx, camera_is_inside, plane_mask);
                 }
                 if (n->flags & BVH_FLAG_LEFT_CHILD) {
-                    find(i + 1, camera_is_inside);
+                    find(i + 1, camera_is_inside, plane_mask);
                 }
             }
         }
     }
 
-    find(0, true);
+    // start at root node, camera is inside root's "parent", none of the clip planes are fully inside hence plane_mask=0x00
+    find(0, true, 0x00);
 
     if (measure_perf) {
         uint64_t took = TICKS_SINCE(perf.start_ticks);

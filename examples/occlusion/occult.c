@@ -92,7 +92,6 @@ void occ_set_view_and_projection(occ_culler_t *culler, matrix_t *view, matrix_t 
     debugf("view_inverse:\n");
     print_matrix(&culler->view_matrix_inverse);
 
-    
     culler->camera_pos[0] = culler->view_matrix_inverse.m[3][0];
     culler->camera_pos[1] = culler->view_matrix_inverse.m[3][1];
     culler->camera_pos[2] = culler->view_matrix_inverse.m[3][2];

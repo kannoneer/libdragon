@@ -29,7 +29,13 @@ typedef struct sphere_bvh_s {
 } sphere_bvh_t;
 
 enum cull_flags_e {
-    VISIBLE_CAMERA_INSIDE = 1,
+    VISIBLE_HALFSPACE_RIGHT = 1, // was the object fully inside a frustum plane's halfspace
+    VISIBLE_HALFSPACE_TOP = 1 << 1,
+    VISIBLE_HALFSPACE_NEAR = 1 << 2,
+    VISIBLE_HALFSPACE_LEFT = 1 << 3,
+    VISIBLE_HALFSPACE_BOTTOM = 1 << 4,
+    VISIBLE_HALFSPACE_FAR = 1 << 5,
+    VISIBLE_CAMERA_INSIDE = 1 << 6, // was camera position inside node's bounds
 };
 
 typedef uint16_t cull_flags_t;

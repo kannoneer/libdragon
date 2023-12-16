@@ -892,7 +892,6 @@ void render_city_scene(surface_t* disp)
                 continue;
             }
 
-            plane_side_t in_frustum = is_sphere_inside_frustum(&culler->clip_planes[0], n->pos, n->radius_sqr);
             //if (!in_frustum) {
             //    debugf("[bvh node=%lu] frustum culling node\n", i);
             //}
@@ -915,8 +914,6 @@ void render_city_scene(surface_t* disp)
             }
 
             //if (is_leaf) continue;
-            if (in_frustum == SIDE_OUT) continue;
-
             glPushMatrix();
             glMultMatrixf(&city_scene.bvh_xforms[i].m[0][0]);
             // if (clips) {

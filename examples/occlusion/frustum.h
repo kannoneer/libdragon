@@ -1,6 +1,8 @@
 #ifndef FRUSTUM_H_
 #define FRUSTUM_H_
 
+#include <stdint.h>
+
 #define FRUSTUM_RIGHT (0)
 #define FRUSTUM_TOP (1)
 #define FRUSTUM_NEAR (2)
@@ -31,6 +33,8 @@ enum plane_side_e {
 
 typedef int plane_side_t;
 plane_side_t test_plane_sphere(const float* plane, const float* p, const float radius_sqr);
-plane_side_t is_sphere_inside_frustum(const plane_t* planes, const float* pos, const float radius_sqr);
+
+// inflags: clipping plane bitmask that's both read and written. *inflags = 0x3f tests all
+plane_side_t is_sphere_inside_frustum(const plane_t* planes, const float* pos, const float radius_sqr, uint8_t* inflags);
 
 #endif

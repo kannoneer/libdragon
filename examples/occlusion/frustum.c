@@ -1,7 +1,8 @@
 #include "frustum.h"
 
-#include <math.h>
 #include <debug.h>
+#include <math.h>
+#include <stdint.h>
 
 // frustum culling
 
@@ -57,13 +58,23 @@ plane_side_t test_plane_sphere(const float* plane, const float* p, const float r
     return SIDE_OUT;
 }
 
-plane_side_t is_sphere_inside_frustum(const plane_t* planes, const float* pos, const float radius_sqr)
+plane_side_t is_sphere_inside_frustum(const plane_t* planes, const float* pos, const float radius_sqr, uint8_t* plane_mask)
 {
     plane_side_t all = SIDE_IN;
 
-    for (int i=0;i<6;i++) {
+    for (int i = 0; i < 6; i++) {
+        // Don't re-test any plane that has its bit set
+        if ((*plane_mask & (1 << i))) {
+            continue;
+        }
+
         plane_side_t result = test_plane_sphere(planes[i], pos, radius_sqr);
-        if (result == SIDE_OUT) return result;
+        if (result == SIDE_OUT) {
+            return result;
+        }
+        if (result == SIDE_IN) {
+            *plane_mask |= 1 << i;
+        }
         if (result < all) all = result;
     }
 
