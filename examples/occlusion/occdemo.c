@@ -597,10 +597,12 @@ void setup_city_scene()
 
     float* origins = malloc(city_scene.num_nodes * sizeof(float) * 3);
     float* radiuses = malloc(city_scene.num_nodes * sizeof(float));
+    aabb_t* aabbs = malloc(city_scene.num_nodes * sizeof(aabb_t));
     DEFER(free(origins));
     DEFER(free(radiuses));
+    DEFER(free(aabbs));
 
-    for (uint32_t i=0;i<city_scene.num_nodes;i++) {
+    for (uint32_t i = 0; i < city_scene.num_nodes; i++) {
         GLuint list = glGenLists(1);
         glNewList(list, GL_COMPILE);
         city_scene.node_dplists[i] = list;
@@ -645,6 +647,7 @@ world_center[0], world_center[1],world_center[2]
         orig[1] = world_center[1];
         orig[2] = world_center[2];
         radiuses[i] = world_radius;
+        aabbs[i] = world_aabb;
 
         matrix_t temp = cpu_glScalef(scale[0], scale[1], scale[2]);
         matrix_t old = city_scene.node_xforms[i];
@@ -679,7 +682,7 @@ world_center[0], world_center[1],world_center[2]
     }
 
     sphere_bvh_t bvh = {};
-    bool success = bvh_build(origins, radiuses, city_scene.num_nodes, &bvh);
+    bool success = bvh_build(origins, radiuses, aabbs, city_scene.num_nodes, &bvh);
     if (!success) {
         debugf("BVH building failed\n");
         return;
@@ -696,12 +699,12 @@ world_center[0], world_center[1],world_center[2]
         float r = sqrtf(n->radius_sqr);
 
         debugf("[%li] pos=(%f, %f, %f), r=%f\n", i, n->pos[0], n->pos[1], n->pos[2], r);
+        r=1.0f; //HACK
 
         matrix_t scale = cpu_glScalef(r, r, r);
         matrix_t translate = cpu_glTranslatef(n->pos[0], n->pos[1], n->pos[2]);
         matrix_mult_full(&city_scene.bvh_xforms[i], &translate, &scale);
     }
-    
 }
 
 void render_posed_unit_cube(matrix_t* mtx) {
@@ -747,6 +750,9 @@ void render_city_scene(surface_t* disp)
     scene_stats.num_drawn = 0;
     scene_stats.num_max = 0;
 
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+
     static uint16_t data_inds[CITY_SCENE_MAX_NODES]; // references Node* elements
     uint32_t num_visible = bvh_find_visible(&city_scene.bvh, culler->camera_pos, culler->clip_planes, data_inds, sizeof(data_inds) / sizeof(data_inds[0]));
     for (uint32_t i = 0; i < num_visible; i++) {
@@ -757,6 +763,9 @@ void render_city_scene(surface_t* disp)
         glCallList(city_scene.node_dplists[idx]);
         scene_stats.num_drawn++;
     }
+
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_TRUE);
 
     #if 0
     for (uint32_t i = 0; i < city_scene.num_nodes; i++) {
@@ -824,47 +833,49 @@ void render_city_scene(surface_t* disp)
         glDisable(GL_TEXTURE_2D);
 
         GLfloat red[4] = {0.2f, 0.1f, 0.1f, 0.1f};
+        GLfloat blu[4] = {0.1f, 0.1f, 0.2f, 0.1f};
 
-        glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &red[0]);
 
-
-#if 0
         for (uint32_t i=0;i<city_scene.bvh.num_nodes;i++) {
             bvh_node_t* n = &city_scene.bvh.nodes[i];
-            bool is_leaf = bvh_node_is_leaf(n)FRUSTUM_NEAR
+            bool is_leaf = bvh_node_is_leaf(n);
 
             plane_side_t in_frustum = is_sphere_inside_frustum(&culler->clip_planes[0], n->pos, n->radius_sqr);
             //if (!in_frustum) {
             //    debugf("[bvh node=%lu] frustum culling node\n", i);
             //}
 
-            debugf("[bvh node=%lu] is_leaf=%d, in_frustum=%d\n", i, is_leaf, in_frustum);
-            float diff[3]={
-                fps_camera.pos[0] - n->pos[0],
-                fps_camera.pos[1] - n->pos[1],
-                fps_camera.pos[2] - n->pos[2],
-            };
-            float d = diff[0]*diff[0] + diff[1]*diff[1] + diff[2]*diff[2];
-            //render_posed_unit_cube(&city_scene.bvh_xforms[i]);
-            float dist = d - n->radius_sqr;
-            bool clips = dist < 1.0f;
+            // debugf("[bvh node=%lu] is_leaf=%d, in_frustum=%d\n", i, is_leaf, in_frustum);
+            // float diff[3]={
+            //     fps_camera.pos[0] - n->pos[0],
+            //     fps_camera.pos[1] - n->pos[1],
+            //     fps_camera.pos[2] - n->pos[2],
+            // };
+            // float d = diff[0]*diff[0] + diff[1]*diff[1] + diff[2]*diff[2];
+            // //render_posed_unit_cube(&city_scene.bvh_xforms[i]);
+            // float dist = d - n->radius_sqr;
+            // bool clips = dist < 1.0f;
             //bool near = !inside && dist < 2.0f*2.0f;
+            if (is_leaf) {
+                glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &red[0]);
+            } else { 
+                glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &blu[0]);
+            }
 
-            if (!is_leaf) continue;
+             if (is_leaf) continue;
             if (in_frustum == SIDE_OUT) continue;
 
             glPushMatrix();
             glMultMatrixf(&city_scene.bvh_xforms[i].m[0][0]);
-            if (clips) {
-            glCullFace(GL_FRONT);
-            } else {
-            glCullFace(GL_BACK);
-            }
+            // if (clips) {
+            // glCullFace(GL_FRONT);
+            // } else {
+            // glCullFace(GL_BACK);
+            // }
             draw_sphere();
             glPopMatrix();
             glCullFace(GL_BACK);
         }
-        #endif
 
         glEnable(GL_DEPTH_TEST);
         glDisable(GL_BLEND);
@@ -1174,6 +1185,10 @@ int main()
             fps_camera.angle = fmodf(fps_camera.angle + mouse_sens * adelta * mouse_inputs.stick_x / 127.f, 2 * M_PI);
             fps_camera.pitch = fmodf(fps_camera.pitch + mouse_sens * adelta * mouse_inputs.stick_y / 127.f, 2 * M_PI);
         }
+
+        debugf("fps_camera: {.pos=(%f, %f, %f), .angle=%f, .pitch=%f}\n",
+            fps_camera.pos[0], fps_camera.pos[1],fps_camera.pos[2],
+            fps_camera.angle, fps_camera.pitch);
 
         render(delta);
         if (DEBUG_RDP)

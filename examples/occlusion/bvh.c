@@ -70,7 +70,7 @@ bool bvh_validate(const sphere_bvh_t* bvh) {
     return true;
 }
 
-bool bvh_build(float* origins, float* radiuses, uint32_t num, sphere_bvh_t* out_bvh)
+bool bvh_build(const float* origins, const float* radiuses, const aabb_t* aabbs, uint32_t num, sphere_bvh_t* out_bvh)
 {
     sphere_bvh_t bvh = {};
 
@@ -114,29 +114,16 @@ bool bvh_build(float* origins, float* radiuses, uint32_t num, sphere_bvh_t* out_
             debugf("  ");
             bvh_print_node(n);
         } else {
-            // fit a sphere to 'num' smaller spheres
-            // first compute origin
-            float pos[3] = {0.0f, 0.0f, 0.0f};
-            float mins[3] = {__FLT_MAX__, __FLT_MAX__, __FLT_MAX__};
-            float maxs[3] = {-__FLT_MAX__, -__FLT_MAX__, -__FLT_MAX__};
+            aabb_t bounds = (aabb_t){.lo = {__FLT_MAX__, __FLT_MAX__, __FLT_MAX__}, .hi={-__FLT_MAX__, -__FLT_MAX__, -__FLT_MAX__}};
 
             int count = 0;
             for (uint32_t i = start; i < start + num; i++) {
-                float* p = &origins[3*i];
-                for (uint32_t j = 0; j < 3; j++) {
-                    pos[j] += p[j];
-                    mins[j] = min(mins[j], p[j]);
-                    maxs[j] = max(maxs[j], p[j]);
-                    count++;
-                }
+                aabb_union_(&bounds, &aabbs[i]);
+                count++;
             }
 
-            float denom = 1.0f/(float)count;
-            pos[0] *= denom;
-            pos[1] *= denom;
-            pos[2] *= denom;
-
-            float dims[3] = {maxs[0] - mins[0], maxs[1] - mins[1], maxs[2] - mins[2]};
+            float dims[3];
+            aabb_get_size(&bounds, dims);
             uint32_t axis = 0;
             if (dims[0] < dims[1]) {
                 axis = 1;
@@ -166,10 +153,35 @@ bool bvh_build(float* origins, float* radiuses, uint32_t num, sphere_bvh_t* out_
 
             qsort(&inds[start], num, sizeof(inds[0]), compare);
 
+            float pos[3];// = {mins[0] + 0.5f * dims[0], mins[1] + 0.5f * dims[1], mins[2] + 0.5f * dims[2]};
+            aabb_get_center(&bounds, pos);
+
+            uint32_t split = start + num/2;
+            // See if there's an split index that splits the bounding box roughly in two.
+            // We ignore the first and last elements because that would be a degenerate split.
+            // We'll fall back to default 50/50 split if not a good one was found.
+            // assert(num >= 1);
+            // assert(start < max_nodes - 1);
+            // for (uint32_t i = start + 1; i < start + num - 1; i++) {
+            //     uint32_t idx = inds[i];
+            //     //TODO crashes
+            //     float* p = &origins[3*idx];
+            //     if (p[axis] >= pos[axis]) {
+            //         split = i;
+            //         // pos[axis] = p[axis]; // should we update position or not?
+            //         break;
+            //     }
+            // }
+
+            //uint32_t midway = start+num/2;
+            // uint32_t midway_idx = inds[split];
+            // pos[axis] = origins[3*midway_idx+axis];
+            // debugf("split: %lu, midway_idx: %lu, pos: (%f, %f, %f)\n", split, midway_idx, pos[0], pos[1], pos[2]);
+
             // then compute max radius that holds all spheres inside
             float max_radius = 0.0f;
             for (uint32_t i = start; i < start + num; i++) {
-                float* p = &origins[3*i];
+                const float* p = &origins[3*i];
                 float r = radiuses[i];
                 float delta[3] = {p[0] - pos[0], p[1] - pos[1], p[2] - pos[2]};
                 float dist = sqrtf(delta[0]*delta[0] + delta[1]*delta[1] + delta[2]*delta[2]);
@@ -183,7 +195,6 @@ bool bvh_build(float* origins, float* radiuses, uint32_t num, sphere_bvh_t* out_
             n->flags = 0;
             n->flags |= axis << 2;
 
-            uint32_t split = start + num/2;
             uint32_t left_num = split - start;
             uint32_t right_num = num - left_num;
 
@@ -259,7 +270,7 @@ uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const float* camera_pos, cons
             }
         }
 
-        if (!in_frustum) {
+        if (false && !in_frustum) {
             return;
         }
 
@@ -278,7 +289,7 @@ uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const float* camera_pos, cons
             int axis = bvh_node_get_axis(n);
             bool left_first = camera_pos[axis] < n->pos[axis];
 
-            if (left_first) {
+            if (!left_first) {
                 if (n->flags & BVH_FLAG_LEFT_CHILD) {
                     find(i + 1);
                 }

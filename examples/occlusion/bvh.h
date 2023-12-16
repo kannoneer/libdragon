@@ -33,7 +33,7 @@ inline uint32_t bvh_node_get_axis(const bvh_node_t* n) { return (n->flags & BVH_
 void bvh_free(sphere_bvh_t* bvh);
 void bvh_print_node(const bvh_node_t* n);
 bool bvh_validate(const sphere_bvh_t* bvh);
-bool bvh_build(float* origins, float* radiuses, uint32_t num, sphere_bvh_t* out_bvh);
+bool bvh_build(const float* origins, const float* radiuses, const aabb_t* aabbs, uint32_t num, sphere_bvh_t* out_bvh);
 
 uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const float* camera_pos, const plane_t* planes, uint16_t* out_data_inds, uint32_t max_data_inds);
 
