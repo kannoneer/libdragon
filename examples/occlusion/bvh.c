@@ -58,6 +58,15 @@ bool bvh_validate(const sphere_bvh_t* bvh) {
     // TODO check parent bounds always contain all children
     if (!bvh->nodes) return false;
     if (bvh->num_nodes == 0) return false;
+    if (bvh->num_leaves == 0) return false;
+    if (bvh->num_nodes < bvh->num_leaves) return false;
+    uint32_t counted_leaves=0;
+    for (uint32_t i=0;i<bvh->num_nodes;i++) {
+        if (bvh->nodes[i].flags == 0) {
+            counted_leaves++;
+        }
+    }
+    assert(bvh->num_leaves == counted_leaves);
     return true;
 }
 
@@ -206,16 +215,78 @@ bool bvh_build(float* origins, float* radiuses, uint32_t num, sphere_bvh_t* out_
     const uint32_t size =  bvh.num_nodes * sizeof(bvh_node_t);
     bvh.nodes = calloc(size, 1); // calloc so that any padding bytes become zero, good for serialization
     memcpy(bvh.nodes, nodes, size);
+    bvh.num_leaves = num;
 
     *out_bvh = bvh;
     return true;
 }
+
+const static bool measure_perf = true;
+
+#include <timer.h>
 
 uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const plane_t* planes, uint16_t* out_data_inds, uint32_t max_data_inds)
 {
     uint32_t num = 0;
     assert(max_data_inds > 0);
 
+    struct {
+        uint32_t num_tests;
+        uint32_t num_inner;
+        uint32_t num_leaves;
+        uint64_t start_ticks;
+    } perf = {};
+
+    if (measure_perf) {
+        perf.start_ticks = get_ticks();
+    }
+
+    void find(uint32_t i) {
+        bvh_node_t* n = &bvh->nodes[i];
+        bool in_frustum = SIDE_OUT != is_sphere_inside_frustum(planes, n->pos, n->radius_sqr);
+
+        if (measure_perf) {
+            perf.num_tests++;
+            if (n->flags == 0) {
+                perf.num_leaves++;
+            } else {
+                perf.num_inner++;
+            }
+        }
+
+        if (!in_frustum) {
+            return;
+        }
+
+        if (n->flags == 0) {
+            if (num < max_data_inds) {
+                out_data_inds[num++] = n->idx;
+            } else {
+                return; // early out if output array size was reached
+            }
+        } else {
+            if (n->flags & BVH_FLAG_LEFT_CHILD) {
+                find(i+1);
+            }
+            if (n->flags & BVH_FLAG_RIGHT_CHILD) {
+                find(n->idx);
+            }
+        }
+    }
+
+    find(0);
+
+    if (measure_perf) {
+        uint64_t took = TICKS_SINCE(perf.start_ticks);
+        uint64_t took_us = TICKS_TO_US(took);
+        double took_ms = took_us / 1e3;
+        double us_per_test = took_us / (double)perf.num_tests;
+        debugf("took: % 3.3f ms, test ratio: %.1f%%, % 3.3f us/test, num_tests: %lu, inner: %lu, leaves: %lu\n",
+        took_ms,
+        (float)perf.num_tests/bvh->num_leaves * 100, us_per_test, perf.num_tests, perf.num_inner, perf.num_leaves);
+    }
+
+    /*
     for (uint32_t i = 0; i < bvh->num_nodes; i++) {
         bvh_node_t* n = &bvh->nodes[i];
         bool is_leaf = n->flags == 0;
@@ -230,6 +301,7 @@ uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const plane_t* planes, uint16
             }
         }
     }
+    */
 
     return num;
 }

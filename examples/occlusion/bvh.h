@@ -20,6 +20,7 @@ typedef struct bvh_node_s {
 typedef struct sphere_bvh_s {
     bvh_node_t* nodes; // owned by this struct
     uint32_t num_nodes;
+    uint32_t num_leaves;
 } sphere_bvh_t;
 
 void bvh_free(sphere_bvh_t* bvh);
