@@ -4,6 +4,7 @@
 #include <memory.h>
 #include "defer.h"
 #include "frustum.h"
+#include "aabb.h"
 
 enum BvhFlags {
     BVH_FLAG_LEFT_CHILD = 1,

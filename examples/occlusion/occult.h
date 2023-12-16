@@ -8,6 +8,7 @@
 #include "profiler.h"
 #include "defer.h"
 #include "frustum.h"
+#include "aabb.h"
 
 #include <malloc.h>
 #include <memory.h>
@@ -120,10 +121,6 @@ typedef struct occ_mesh_s {
     uint32_t num_indices;
 } occ_mesh_t;
 
-typedef struct occ_aabb_s {
-    float lo[3]; // minimum
-    float hi[3]; // maximum
-} occ_aabb_t;
 #define OCC_NO_EDGE_NEIGHBOR 0xffff
 
 typedef struct occ_hull_s {
@@ -204,10 +201,6 @@ bool model_to_occ_mesh(model64_t* model, mesh_t* mesh_in, occ_mesh_t* mesh_out);
 
 uint32_t uncompress_model64_verts(primitive_t* prim, vertex_t* vertices_out);
 
-void aabb_get_size(occ_aabb_t* box, float* size);
-
-void aabb_get_center(occ_aabb_t* box, float* center);
-
 bool compute_mesh_bounds(mesh_t* mesh_in, const matrix_t* to_world,
-    float* out_obj_radius, occ_aabb_t* out_obj_aabb,
-    float* out_world_radius, occ_aabb_t* out_world_aabb, float* out_world_center);
+    float* out_obj_radius, aabb_t* out_obj_aabb,
+    float* out_world_radius, aabb_t* out_world_aabb, float* out_world_center);

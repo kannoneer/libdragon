@@ -612,8 +612,8 @@ void setup_city_scene()
         float obj_radius = 0.0f;
         float world_radius = 0.0f;
 
-        occ_aabb_t obj_aabb={};
-        occ_aabb_t world_aabb={};
+        aabb_t obj_aabb={};
+        aabb_t world_aabb={};
         float world_center[3]={};
         bool bounds_ok = compute_mesh_bounds(node->mesh, &city_scene.node_xforms[i], &obj_radius, &obj_aabb, &world_radius, &world_aabb, &world_center[0]);
         debugf("[node %lu] OK: %d, obj_radius=%f, min=(%.3f, %.3f, %.3f), max=(%.3f, %.3f, %.3f)\n", i, bounds_ok, obj_radius,

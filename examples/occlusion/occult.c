@@ -1152,21 +1152,9 @@ uint32_t uncompress_model64_verts(primitive_t* prim, vertex_t* vertices_out) {
     return vertex_id;
 }
 
-void aabb_get_size(occ_aabb_t* box, float* size) {
-    size[0] = box->hi[0] - box->lo[0];
-    size[1] = box->hi[1] - box->lo[1];
-    size[2] = box->hi[2] - box->lo[2];
-}
-
-void aabb_get_center(occ_aabb_t* box, float* center) {
-    center[0] = 0.5f * (box->lo[0] + box->hi[0]);
-    center[1] = 0.5f * (box->lo[1] + box->hi[1]);
-    center[2] = 0.5f * (box->lo[2] + box->hi[2]);
-}
-
 bool compute_mesh_bounds(mesh_t* mesh_in, const matrix_t* to_world,
-    float* out_obj_radius, occ_aabb_t* out_obj_aabb,
-    float* out_world_radius, occ_aabb_t* out_world_aabb, float* out_world_center)
+    float* out_obj_radius, aabb_t* out_obj_aabb,
+    float* out_world_radius, aabb_t* out_world_aabb, float* out_world_center)
 {
     bool verbose = false;
 
