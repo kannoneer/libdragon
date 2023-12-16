@@ -43,6 +43,7 @@
 
 void bvh_free(sphere_bvh_t* bvh) {
     if (bvh->nodes) free(bvh->nodes);
+    if (bvh->node_aabbs) free(bvh->node_aabbs);
 }
 
 void bvh_print_node(const bvh_node_t* n) {
@@ -79,6 +80,7 @@ bool bvh_build(const float* origins, const float* radiuses, const aabb_t* aabbs,
     debugf("max_nodes: %lu\n", max_nodes);
     // temporary array where we add nodes as we go and truncate at the end
     bvh_node_t* nodes = malloc(max_nodes * sizeof(bvh_node_t));
+    aabb_t* node_aabbs = malloc(max_nodes * sizeof(aabb_t));
     // references to origins[] and radiuses[]
     uint32_t* inds = malloc(max_nodes * sizeof(uint32_t));
     // start at identity mapping that gets permuted by sorting of recursive subranges
@@ -87,6 +89,7 @@ bool bvh_build(const float* origins, const float* radiuses, const aabb_t* aabbs,
     }
 
     DEFER(free(nodes));
+    DEFER(free(node_aabbs));
     DEFER(free(inds));
 
     bvh.num_nodes = 0;
@@ -118,9 +121,12 @@ bool bvh_build(const float* origins, const float* radiuses, const aabb_t* aabbs,
 
             int count = 0;
             for (uint32_t i = start; i < start + num; i++) {
-                aabb_union_(&bounds, &aabbs[i]);
+                aabb_union_(&bounds, &aabbs[inds[i]]);
                 count++;
             }
+
+            aabb_print(&bounds);
+            node_aabbs[n_id] = bounds;
 
             float dims[3];
             aabb_get_size(&bounds, dims);
@@ -164,8 +170,7 @@ bool bvh_build(const float* origins, const float* radiuses, const aabb_t* aabbs,
             // assert(start < max_nodes - 1);
             // for (uint32_t i = start + 1; i < start + num - 1; i++) {
             //     uint32_t idx = inds[i];
-            //     //TODO crashes
-            //     float* p = &origins[3*idx];
+            //     const float* p = &origins[3*idx];
             //     if (p[axis] >= pos[axis]) {
             //         split = i;
             //         // pos[axis] = p[axis]; // should we update position or not?
@@ -224,10 +229,12 @@ bool bvh_build(const float* origins, const float* radiuses, const aabb_t* aabbs,
 
     bvh_build_range(0, num);
 
-    const uint32_t size =  bvh.num_nodes * sizeof(bvh_node_t);
+    const uint32_t size = bvh.num_nodes * sizeof(bvh_node_t);
     bvh.nodes = calloc(size, 1); // calloc so that any padding bytes become zero, good for serialization
     memcpy(bvh.nodes, nodes, size);
     bvh.num_leaves = num;
+    bvh.node_aabbs = calloc(bvh.num_nodes, sizeof(bvh.node_aabbs[0]));
+    memcpy(bvh.node_aabbs, node_aabbs, bvh.num_nodes * sizeof(bvh.node_aabbs[0]));
 
     *out_bvh = bvh;
     return true;

@@ -98,6 +98,14 @@ static const char *texture_path[4] = {
 
 static sprite_t *sprites[4];
 
+void wait_for_button() {
+    while (true) {
+        joypad_poll();
+        joypad_buttons_t pressed = joypad_get_buttons_pressed(JOYPAD_PORT_1);
+        if (pressed.a || pressed.b || pressed.start) break;
+    }
+}
+
 void compute_camera_matrix(matrix_t *matrix, const camera_t *camera)
 {
     matrix_t lookat;
@@ -595,6 +603,8 @@ void setup_city_scene()
         0.0f, 0.0f, 1.0f, 1.0f,
     };
 
+    uint64_t start_ticks = get_ticks();
+
     float* origins = malloc(city_scene.num_nodes * sizeof(float) * 3);
     float* radiuses = malloc(city_scene.num_nodes * sizeof(float));
     aabb_t* aabbs = malloc(city_scene.num_nodes * sizeof(aabb_t));
@@ -681,12 +691,17 @@ world_center[0], world_center[1],world_center[2]
         debugf("[%li] (%f, %f, %f), radius=%f\n", i, p[0], p[1], p[2], r);
     }
 
+    uint64_t bvh_start_ticks = get_ticks();
+
     sphere_bvh_t bvh = {};
     bool success = bvh_build(origins, radiuses, aabbs, city_scene.num_nodes, &bvh);
     if (!success) {
         debugf("BVH building failed\n");
         return;
     }
+
+    uint64_t stop_ticks = get_ticks();
+    debugf("init took %lu ms, bvh build %lu ms\n", TICKS_TO_MS(TICKS_DISTANCE(start_ticks, stop_ticks)), TICKS_TO_MS(TICKS_DISTANCE(bvh_start_ticks, stop_ticks)));
     debugf("bvh.num_nodes=%lu\n", bvh.num_nodes);
     bool ok = bvh_validate(&bvh);
     assert(bvh.num_nodes < CITY_SCENE_MAX_BVH_SIZE);
@@ -699,17 +714,41 @@ world_center[0], world_center[1],world_center[2]
         float r = sqrtf(n->radius_sqr);
 
         debugf("[%li] pos=(%f, %f, %f), r=%f\n", i, n->pos[0], n->pos[1], n->pos[2], r);
-        r=1.0f; //HACK
 
         matrix_t scale = cpu_glScalef(r, r, r);
         matrix_t translate = cpu_glTranslatef(n->pos[0], n->pos[1], n->pos[2]);
         matrix_mult_full(&city_scene.bvh_xforms[i], &translate, &scale);
     }
+
+wait_for_button();
+    // while(true){}
 }
 
 void render_posed_unit_cube(matrix_t* mtx) {
     glPushMatrix();
     glMultMatrixf(&mtx->m[0][0]);
+    draw_unit_cube();
+    glPopMatrix();
+}
+
+void render_scaled_unit_cube(matrix_t* mtx, float scale) {
+    glPushMatrix();
+    glScalef(scale, scale, scale);
+    glMultMatrixf(&mtx->m[0][0]);
+    draw_unit_cube();
+    glPopMatrix();
+}
+
+void render_aabb(const aabb_t* box) {
+    float center[3];
+    float size[3];
+    aabb_get_center(box, center);
+    aabb_get_size(box, size);
+    aabb_print(box);
+
+    glPushMatrix();
+    glTranslatef(center[0], center[1], center[2]);
+    glScalef(0.5f*size[0], 0.5*size[1], 0.5*size[2]);
     draw_unit_cube();
     glPopMatrix();
 }
@@ -866,14 +905,17 @@ void render_city_scene(surface_t* disp)
             if (in_frustum == SIDE_OUT) continue;
 
             glPushMatrix();
-            glMultMatrixf(&city_scene.bvh_xforms[i].m[0][0]);
+            //glMultMatrixf(&city_scene.bvh_xforms[i].m[0][0]);
             // if (clips) {
             // glCullFace(GL_FRONT);
             // } else {
             // glCullFace(GL_BACK);
             // }
-            draw_sphere();
+
+            // render_scaled_unit_cube(&city_scene.bvh_xforms[i], float scale) {
+            // draw_sphere();
             glPopMatrix();
+            render_aabb(&city_scene.bvh.node_aabbs[i]);
             glCullFace(GL_BACK);
         }
 
@@ -1093,6 +1135,7 @@ int main()
     display_init(RESOLUTION_320x240, DEPTH_16_BPP, 3, GAMMA_NONE, FILTERS_RESAMPLE_ANTIALIAS_DEDITHER);
     *(volatile uint32_t*)0xA4400000 |= 0x300; //disable filtering on PAL
 
+    joypad_init();
     rdpq_init();
     gl_init();
 
@@ -1108,8 +1151,6 @@ int main()
     setup();
     setup_big_scene();
     setup_city_scene();
-
-    joypad_init();
 
     rspq_profile_start();
 
