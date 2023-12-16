@@ -186,8 +186,9 @@ bool bvh_build(const float* origins, const float* radiuses, const aabb_t* aabbs,
             // then compute max radius that holds all spheres inside
             float max_radius = 0.0f;
             for (uint32_t i = start; i < start + num; i++) {
-                const float* p = &origins[3*i];
-                float r = radiuses[i];
+                uint32_t idx = inds[i];
+                const float* p = &origins[3*idx];
+                float r = radiuses[idx];
                 float delta[3] = {p[0] - pos[0], p[1] - pos[1], p[2] - pos[2]};
                 float dist = sqrtf(delta[0]*delta[0] + delta[1]*delta[1] + delta[2]*delta[2]);
                 max_radius = max(max_radius, dist + r); // must contain sphere origin + its farthest point
