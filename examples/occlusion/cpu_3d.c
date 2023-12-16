@@ -459,6 +459,29 @@ matrix_t cpu_glLoadIdentity(void)
                       }};
 }
 
+void invert_rigid_xform(matrix_t* dst, matrix_t* src)
+{
+    // Transpose upper 3x3 and compute the new translation as -R^T t
+    // see https://math.stackexchange.com/a/1315407
+
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            dst->m[j][i] = src->m[i][j];
+        }
+    }
+    for (int i = 0; i < 3; i++) {
+        dst->m[3][i] = 0.0f;
+        for (int j = 0; j < 3; j++) {
+            dst->m[3][i] += dst->m[j][i] * src->m[3][j];
+        }
+        dst->m[3][i] = -dst->m[3][i];
+    }
+    dst->m[0][3] = 0.0f;
+    dst->m[1][3] = 0.0f;
+    dst->m[2][3] = 0.0f;
+    dst->m[3][3] = 1.0f;
+}
+
 // Reimplementations taken from src/GL/lighting.c and src/GL/glu.c
 
 void computeProjectionMatrix(matrix_t *proj, float fovy, float aspect, float zNear, float zFar)

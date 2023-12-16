@@ -84,6 +84,7 @@ typedef struct occ_culler_s {
     matrix_t proj;
     matrix_t mvp;
     matrix_t view_matrix;
+    matrix_t view_matrix_inverse;
     float camera_pos[3]; // extracted from view_matrix
     uint32_t frame;
 

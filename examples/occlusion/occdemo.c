@@ -51,6 +51,7 @@ static surface_t *sw_zbuffer;
 static matrix_t g_projection;
 
 static uint64_t g_num_frames = 0;
+int g_show_node = -1;
 
 static GLuint textures[4];
 
@@ -720,7 +721,7 @@ world_center[0], world_center[1],world_center[2]
         matrix_mult_full(&city_scene.bvh_xforms[i], &translate, &scale);
     }
 
-wait_for_button();
+//wait_for_button();
     // while(true){}
 }
 
@@ -744,7 +745,7 @@ void render_aabb(const aabb_t* box) {
     float size[3];
     aabb_get_center(box, center);
     aabb_get_size(box, size);
-    aabb_print(box);
+    //aabb_print(box);
 
     glPushMatrix();
     glTranslatef(center[0], center[1], center[2]);
@@ -792,6 +793,9 @@ void render_city_scene(surface_t* disp)
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
 
+        //glEnable(GL_BLEND);
+        //glBlendFunc(GL_ONE, GL_ONE);
+
     static uint16_t data_inds[CITY_SCENE_MAX_NODES]; // references Node* elements
     uint32_t num_visible = bvh_find_visible(&city_scene.bvh, culler->camera_pos, culler->clip_planes, data_inds, sizeof(data_inds) / sizeof(data_inds[0]));
     for (uint32_t i = 0; i < num_visible; i++) {
@@ -803,6 +807,7 @@ void render_city_scene(surface_t* disp)
         scene_stats.num_drawn++;
     }
 
+        //glDisable(GL_BLEND);
     glEnable(GL_DEPTH_TEST);
     glDepthMask(GL_TRUE);
 
@@ -871,13 +876,19 @@ void render_city_scene(surface_t* disp)
         glDisable(GL_DEPTH_TEST);
         glDisable(GL_TEXTURE_2D);
 
-        GLfloat red[4] = {0.2f, 0.1f, 0.1f, 0.1f};
-        GLfloat blu[4] = {0.1f, 0.1f, 0.2f, 0.1f};
-
+        //GLfloat red[4] = {0.2f, 0.1f, 0.1f, 0.2f};
+        //GLfloat blu[4] = {0.1f, 0.1f, 0.2f, 0.2f};
+        GLfloat red[4] = {0.4f, 0.1f, 0.1f, 0.2f};
+        GLfloat blu[4] = {0.1f, 0.1f, 0.4f, 0.2f};
+        GLfloat green[4] = {0.1f, 0.4f, 0.1f, 0.2f};
 
         for (uint32_t i=0;i<city_scene.bvh.num_nodes;i++) {
             bvh_node_t* n = &city_scene.bvh.nodes[i];
             bool is_leaf = bvh_node_is_leaf(n);
+
+            if (g_show_node >= 0 && i != g_show_node) {
+                continue;
+            }
 
             plane_side_t in_frustum = is_sphere_inside_frustum(&culler->clip_planes[0], n->pos, n->radius_sqr);
             //if (!in_frustum) {
@@ -901,7 +912,7 @@ void render_city_scene(surface_t* disp)
                 glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &blu[0]);
             }
 
-             if (is_leaf) continue;
+            //if (is_leaf) continue;
             if (in_frustum == SIDE_OUT) continue;
 
             glPushMatrix();
@@ -916,6 +927,15 @@ void render_city_scene(surface_t* disp)
             // draw_sphere();
             glPopMatrix();
             render_aabb(&city_scene.bvh.node_aabbs[i]);
+            if (!is_leaf) {
+                aabb_t planebox = city_scene.bvh.node_aabbs[i];
+                uint32_t ax = bvh_node_get_axis(n);
+                planebox.lo[ax] = n->pos[ax] - 1e-3;
+                planebox.hi[ax] = n->pos[ax] + 1e-3;
+
+                glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &green[0]);
+                render_aabb(&planebox);
+            }
             glCullFace(GL_BACK);
         }
 
@@ -1165,7 +1185,17 @@ int main()
         joypad_buttons_t pressed = joypad_get_buttons_pressed(JOYPAD_PORT_1);
         joypad_inputs_t inputs = joypad_get_inputs(JOYPAD_PORT_1);
         joypad_inputs_t mouse_inputs = joypad_get_inputs(JOYPAD_PORT_2);
+        joypad_buttons_t mouse_pressed = joypad_get_buttons_pressed(JOYPAD_PORT_2);
         prof_next_frame();
+
+        if (mouse_pressed.a) {
+            g_show_node++;
+            debugf("g_show_node: %d\n", g_show_node);
+        }
+        if (mouse_pressed.b) {
+            g_show_node--;
+            debugf("g_show_node: %d\n", g_show_node);
+        }
 
         if (pressed.a) {
             animation++;

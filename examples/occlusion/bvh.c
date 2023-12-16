@@ -114,6 +114,7 @@ bool bvh_build(const float* origins, const float* radiuses, const aabb_t* aabbs,
             n->radius_sqr = radiuses[idx] * radiuses[idx];
             n->flags = 0;
             n->idx = idx; // represents an index to data array
+            node_aabbs[n_id] = aabbs[idx];
             debugf("  ");
             bvh_print_node(n);
         } else {
@@ -162,21 +163,20 @@ bool bvh_build(const float* origins, const float* radiuses, const aabb_t* aabbs,
             float pos[3];// = {mins[0] + 0.5f * dims[0], mins[1] + 0.5f * dims[1], mins[2] + 0.5f * dims[2]};
             aabb_get_center(&bounds, pos);
 
-            uint32_t split = start + num/2;
+            uint32_t split = start + num/2;  // median cut by default
             // See if there's an split index that splits the bounding box roughly in two.
             // We ignore the first and last elements because that would be a degenerate split.
-            // We'll fall back to default 50/50 split if not a good one was found.
-            // assert(num >= 1);
-            // assert(start < max_nodes - 1);
-            // for (uint32_t i = start + 1; i < start + num - 1; i++) {
-            //     uint32_t idx = inds[i];
-            //     const float* p = &origins[3*idx];
-            //     if (p[axis] >= pos[axis]) {
-            //         split = i;
-            //         // pos[axis] = p[axis]; // should we update position or not?
-            //         break;
-            //     }
-            // }
+            // We'll fall back to default 50/50 split if no a good one was found.
+            assert(num >= 1);
+            assert(start < max_nodes - 1);
+            for (uint32_t i = start + 1; i < start + num - 1; i++) {
+                uint32_t idx = inds[i];
+                const float* p = &origins[3*idx];
+                if (p[axis] >= pos[axis]) {
+                    split = i;
+                    break;
+                }
+            }
 
             //uint32_t midway = start+num/2;
             // uint32_t midway_idx = inds[split];
@@ -292,23 +292,46 @@ uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const float* camera_pos, cons
             // heuristic we consider the sphere origin and the axis as a splitting
             // plane and traverse the camera side first. Hopefully this will give a
             // rough front-to-back traversal.
-
             int axis = bvh_node_get_axis(n);
             bool left_first = camera_pos[axis] < n->pos[axis];
-
-            if (!left_first) {
+            left_first = !left_first; // back to front
+            
+            //extern int g_show_node;
+            if (false) {// && i==g_show_node) {
+            if (left_first) {
                 if (n->flags & BVH_FLAG_LEFT_CHILD) {
                     find(i + 1);
                 }
-                if (n->flags & BVH_FLAG_RIGHT_CHILD) {
-                    find(n->idx);
-                }
+                //HACK 
+                //if (n->flags & BVH_FLAG_RIGHT_CHILD) {
+                //    find(n->idx);
+                //}
             } else {
                 if (n->flags & BVH_FLAG_RIGHT_CHILD) {
                     find(n->idx);
                 }
-                if (n->flags & BVH_FLAG_LEFT_CHILD) {
-                    find(i + 1);
+                //HACK
+                //if (n->flags & BVH_FLAG_LEFT_CHILD) {
+                //    find(i + 1);
+                //}
+            }
+            }
+            else {
+                if (left_first) {
+                    if (n->flags & BVH_FLAG_LEFT_CHILD) {
+                        find(i + 1);
+                    }
+                    if (n->flags & BVH_FLAG_RIGHT_CHILD) {
+                        find(n->idx);
+                    }
+                }
+                else {
+                    if (n->flags & BVH_FLAG_RIGHT_CHILD) {
+                        find(n->idx);
+                    }
+                    if (n->flags & BVH_FLAG_LEFT_CHILD) {
+                        find(i + 1);
+                    }
                 }
             }
         }

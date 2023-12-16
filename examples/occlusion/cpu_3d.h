@@ -71,6 +71,8 @@ matrix_t cpu_glScalef(float x, float y, float z);
 matrix_t cpu_glFrustum(double l, double r, double b, double t, double n, double f);
 matrix_t cpu_glLoadIdentity(void);
 
+void invert_rigid_xform(matrix_t* dst, matrix_t* src);
+
 // Reimplementations taken from src/GL/lighting.c and src/GL/glu.c
 
 void computeProjectionMatrix(matrix_t *proj, float fovy, float aspect, float zNear, float zFar);
