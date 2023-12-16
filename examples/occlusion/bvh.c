@@ -271,12 +271,16 @@ uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const float* camera_pos, cons
         perf.start_ticks = get_ticks();
     }
 
-    void find(uint32_t i) {
+    void find(uint32_t i, bool camera_inside_parent) {
         bvh_node_t* n = &bvh->nodes[i];
 
-        bool camera_is_inside = squared_distance(camera_pos, n->pos) < n->radius_sqr;
-        bool visible = camera_is_inside;
+        bool camera_is_inside = false;
 
+        if (camera_inside_parent) {
+            camera_is_inside = squared_distance(camera_pos, n->pos) < n->radius_sqr;
+        }
+
+        bool visible = camera_is_inside;
         if (!visible) {
             bool in_frustum = SIDE_OUT != is_sphere_inside_frustum(planes, n->pos, n->radius_sqr);
             visible = in_frustum;
@@ -313,23 +317,23 @@ uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const float* camera_pos, cons
 
             if (left_first) {
                 if (n->flags & BVH_FLAG_LEFT_CHILD) {
-                    find(i + 1);
+                    find(i + 1, camera_is_inside);
                 }
                 if (n->flags & BVH_FLAG_RIGHT_CHILD) {
-                    find(n->idx);
+                    find(n->idx, camera_is_inside);
                 }
             } else {
                 if (n->flags & BVH_FLAG_RIGHT_CHILD) {
-                    find(n->idx);
+                    find(n->idx, camera_is_inside);
                 }
                 if (n->flags & BVH_FLAG_LEFT_CHILD) {
-                    find(i + 1);
+                    find(i + 1, camera_is_inside);
                 }
             }
         }
     }
 
-    find(0);
+    find(0, true);
 
     if (measure_perf) {
         uint64_t took = TICKS_SINCE(perf.start_ticks);
