@@ -36,7 +36,7 @@ void extract_planes_from_projmat(
     normalize_plane(&far[0]);
 }
 
-void print_clip_plane(float* p) {
+void print_clip_plane(const float* p) {
     debugf("(%f, %f, %f, %f)\n", p[0], p[1], p[2], p[3]);
 }
 

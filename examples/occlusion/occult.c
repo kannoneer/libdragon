@@ -78,6 +78,10 @@ void occ_set_view_and_projection(occ_culler_t *culler, matrix_t *view, matrix_t 
         culler->clip_planes[3],
         culler->clip_planes[4],
         culler->clip_planes[5]);
+    
+    culler->camera_pos[0] = view->m[3][0];
+    culler->camera_pos[1] = view->m[3][1];
+    culler->camera_pos[2] = view->m[3][2];
 }
 
 void occ_next_frame(occ_culler_t *culler)

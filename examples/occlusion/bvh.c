@@ -46,12 +46,12 @@ void bvh_free(sphere_bvh_t* bvh) {
 }
 
 void bvh_print_node(const bvh_node_t* n) {
-    if (n->flags == 0) {
+    if (bvh_node_is_leaf(n)) {
         debugf("leaf (0x%x): ", n->flags);
     } else {
         debugf("inner (0x%x): ", n->flags);
     }
-    debugf("(%f, %f, %f), rad^2=%f, idx=%u\n", n->pos[0], n->pos[1], n->pos[2], n->radius_sqr, n->idx);
+    debugf("(%f, %f, %f), rad^2=%f, idx=%u, axis=%lu\n", n->pos[0], n->pos[1], n->pos[2], n->radius_sqr, n->idx, bvh_node_get_axis(n));
 }
 
 bool bvh_validate(const sphere_bvh_t* bvh) {
@@ -82,7 +82,7 @@ bool bvh_build(float* origins, float* radiuses, uint32_t num, sphere_bvh_t* out_
     // references to origins[] and radiuses[]
     uint32_t* inds = malloc(max_nodes * sizeof(uint32_t));
     // start at identity mapping that gets permuted by sorting of recursive subranges
-    for (uint32_t i=0;i<num;i++) {
+    for (uint32_t i = 0; i < num; i++) {
         inds[i] = i;
     }
 
@@ -137,7 +137,7 @@ bool bvh_build(float* origins, float* radiuses, uint32_t num, sphere_bvh_t* out_
             pos[2] *= denom;
 
             float dims[3] = {maxs[0] - mins[0], maxs[1] - mins[1], maxs[2] - mins[2]};
-            int axis = 0;
+            uint32_t axis = 0;
             if (dims[0] < dims[1]) {
                 axis = 1;
             }
@@ -145,7 +145,7 @@ bool bvh_build(float* origins, float* radiuses, uint32_t num, sphere_bvh_t* out_
                 axis = 2;
             }
 
-            debugf("dims: (%f, %f, %f) --> axis=%d\n", dims[0], dims[1], dims[2], axis);
+            debugf("dims: (%f, %f, %f) --> axis=%lu\n", dims[0], dims[1], dims[2], axis);
 
 
             int compare(const void *a, const void *b)
@@ -181,6 +181,7 @@ bool bvh_build(float* origins, float* radiuses, uint32_t num, sphere_bvh_t* out_
             n->pos[2] = pos[2];
             n->radius_sqr = max_radius * max_radius;
             n->flags = 0;
+            n->flags |= axis << 2;
 
             uint32_t split = start + num/2;
             uint32_t left_num = split - start;
@@ -225,10 +226,13 @@ const static bool measure_perf = true;
 
 #include <timer.h>
 
-uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const plane_t* planes, uint16_t* out_data_inds, uint32_t max_data_inds)
+uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const float* camera_pos, const plane_t* planes, uint16_t* out_data_inds, uint32_t max_data_inds)
 {
     uint32_t num = 0;
     assert(max_data_inds > 0);
+
+    debugf("near plane: ");
+    print_clip_plane(planes[FRUSTUM_NEAR]);
 
     struct {
         uint32_t num_tests;
@@ -244,6 +248,7 @@ uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const plane_t* planes, uint16
     void find(uint32_t i) {
         bvh_node_t* n = &bvh->nodes[i];
         bool in_frustum = SIDE_OUT != is_sphere_inside_frustum(planes, n->pos, n->radius_sqr);
+        bvh_print_node(n);
 
         if (measure_perf) {
             perf.num_tests++;
@@ -258,18 +263,35 @@ uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const plane_t* planes, uint16
             return;
         }
 
-        if (n->flags == 0) {
+        if (bvh_node_is_leaf(n)) {
             if (num < max_data_inds) {
                 out_data_inds[num++] = n->idx;
             } else {
                 return; // early out if output array size was reached
             }
         } else {
-            if (n->flags & BVH_FLAG_LEFT_CHILD) {
-                find(i+1);
-            }
-            if (n->flags & BVH_FLAG_RIGHT_CHILD) {
-                find(n->idx);
+            // The left child has half the data sorted by 'axis' so as a sorting
+            // heuristic we consider the sphere origin and the axis as a splitting
+            // plane and traverse the camera side first. Hopefully this will give a
+            // rough front-to-back traversal.
+
+            int axis = bvh_node_get_axis(n);
+            bool left_first = camera_pos[axis] < n->pos[axis];
+
+            if (left_first) {
+                if (n->flags & BVH_FLAG_LEFT_CHILD) {
+                    find(i + 1);
+                }
+                if (n->flags & BVH_FLAG_RIGHT_CHILD) {
+                    find(n->idx);
+                }
+            } else {
+                if (n->flags & BVH_FLAG_RIGHT_CHILD) {
+                    find(n->idx);
+                }
+                if (n->flags & BVH_FLAG_LEFT_CHILD) {
+                    find(i + 1);
+                }
             }
         }
     }
@@ -285,23 +307,6 @@ uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const plane_t* planes, uint16
         took_ms,
         (float)perf.num_tests/bvh->num_leaves * 100, us_per_test, perf.num_tests, perf.num_inner, perf.num_leaves);
     }
-
-    /*
-    for (uint32_t i = 0; i < bvh->num_nodes; i++) {
-        bvh_node_t* n = &bvh->nodes[i];
-        bool is_leaf = n->flags == 0;
-        if (!is_leaf) continue;
-
-        bool in_frustum = SIDE_OUT != is_sphere_inside_frustum(planes, n->pos, n->radius_sqr);
-
-        if (in_frustum) {
-            out_data_inds[num++] = n->idx;
-            if (num >= max_data_inds) {
-                break;
-            }
-        }
-    }
-    */
 
     return num;
 }

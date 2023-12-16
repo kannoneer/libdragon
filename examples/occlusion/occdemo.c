@@ -748,7 +748,7 @@ void render_city_scene(surface_t* disp)
     scene_stats.num_max = 0;
 
     static uint16_t data_inds[CITY_SCENE_MAX_NODES]; // references Node* elements
-    uint32_t num_visible = bvh_find_visible(&city_scene.bvh, culler->clip_planes, data_inds, sizeof(data_inds) / sizeof(data_inds[0]));
+    uint32_t num_visible = bvh_find_visible(&city_scene.bvh, culler->camera_pos, culler->clip_planes, data_inds, sizeof(data_inds) / sizeof(data_inds[0]));
     for (uint32_t i = 0; i < num_visible; i++) {
         uint16_t idx = data_inds[i];
         debugf("[%lu] = %d\n", i, idx);
@@ -831,7 +831,7 @@ void render_city_scene(surface_t* disp)
 #if 0
         for (uint32_t i=0;i<city_scene.bvh.num_nodes;i++) {
             bvh_node_t* n = &city_scene.bvh.nodes[i];
-            bool is_leaf = n->flags == 0;
+            bool is_leaf = bvh_node_is_leaf(n)FRUSTUM_NEAR
 
             plane_side_t in_frustum = is_sphere_inside_frustum(&culler->clip_planes[0], n->pos, n->radius_sqr);
             //if (!in_frustum) {
