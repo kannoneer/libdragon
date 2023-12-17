@@ -60,7 +60,7 @@ static GLuint textures[4];
 
 static const GLfloat environment_color[] = {0.85f, 0.85f, 1.0f, 1.f};
 
-static bool config_menu_open = false;
+static bool config_menu_open = true;
 
 static bool config_enable_culling = true;
 static bool config_show_wireframe = false;
@@ -644,6 +644,91 @@ void render_city_scene(surface_t* disp)
         glEnable(GL_DEPTH_TEST);
         glDisable(GL_BLEND);
     }
+        
+        {
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ONE);
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_TEXTURE_2D);
+
+        GLfloat red[4] = {0.4f, 0.1f, 0.1f, 0.2f};
+        GLfloat blu[4] = {0.1f, 0.1f, 0.4f, 0.2f};
+        GLfloat green[4] = {0.1f, 0.4f, 0.1f, 0.2f};
+
+        if (mu_begin_window_ex(&mu_ctx, "BVH", mu_rect(120, 40, 300, 340), MU_OPT_NOCLOSE)) {
+            static int show_leaf_boxes;
+            static int show_inner_boxes;
+            mu_checkbox(&mu_ctx, "Show leaf boxes", &show_leaf_boxes);
+            mu_checkbox(&mu_ctx, "Show inner boxes", &show_inner_boxes);
+            mu_layout_row(&mu_ctx, 1, (int[]){-1}, 0);
+
+            void traverse(uint32_t i)
+            {
+                bvh_node_t *n = &city_scene.bvh.nodes[i];
+                bool is_leaf = bvh_node_is_leaf(n);
+                char msg[100];
+                const char *title = "";
+
+                if (is_leaf) {
+                    title = city_scene.node_names[n->idx];
+                }
+
+                snprintf(msg, sizeof(msg), "[%lu] %s", i, title);
+
+                if (mu_begin_treenode(&mu_ctx, msg)) {
+                    snprintf(msg, sizeof(msg), "radius^^2=%.3f", n->radius_sqr);
+                    mu_text(&mu_ctx, msg);
+
+                    if (is_leaf && show_leaf_boxes) {
+                        glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &red[0]);
+                        render_aabb(&city_scene.bvh.node_aabbs[i]);
+                    } else if (show_inner_boxes) { 
+                        render_aabb(&city_scene.bvh.node_aabbs[i]);
+                        glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &blu[0]);
+                    }
+
+                    if (is_leaf) {
+                        snprintf(msg, sizeof(msg), "go to idx=%u", n->idx);
+                        if (mu_button(&mu_ctx, msg)) {
+                            fps_camera.pos[0] = n->pos[0];
+                            //fps_camera.pos[1] = n->pos[1];
+                            fps_camera.pos[2] = n->pos[2];
+                            fps_camera.pos[2] -= 2.0f * sqrtf(n->radius_sqr);
+                            fps_camera.angle = M_PI_2;
+                        }
+                    }
+                    else {
+                        if (show_inner_boxes) {
+                            aabb_t planebox = city_scene.bvh.node_aabbs[i];
+                            uint32_t ax = bvh_node_get_axis(n);
+                            planebox.lo[ax] = n->pos[ax] - 1e-3;
+                            planebox.hi[ax] = n->pos[ax] + 1e-3;
+
+                            glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &green[0]);
+                            render_aabb(&planebox);
+                        }
+
+                        snprintf(msg, sizeof(msg), "flags=0x%02x", n->flags);
+                        mu_text(&mu_ctx, msg);
+                        if (n->flags & BVH_FLAG_LEFT_CHILD) {
+                            traverse(i + 1);
+                        }
+                        if (n->flags & BVH_FLAG_RIGHT_CHILD) {
+                            traverse(n->idx);
+                        }
+                    }
+                    mu_end_treenode(&mu_ctx);
+                }
+            }
+
+            traverse(0);
+        }
+
+        glEnable(GL_DEPTH_TEST);
+        glDisable(GL_BLEND);
+
+        mu_end_window(&mu_ctx);
+    }
 
     bool show_bvh = g_show_node >= -1;
 
@@ -654,8 +739,6 @@ void render_city_scene(surface_t* disp)
         glDisable(GL_DEPTH_TEST);
         glDisable(GL_TEXTURE_2D);
 
-        //GLfloat red[4] = {0.2f, 0.1f, 0.1f, 0.2f};
-        //GLfloat blu[4] = {0.1f, 0.1f, 0.2f, 0.2f};
         GLfloat red[4] = {0.4f, 0.1f, 0.1f, 0.2f};
         GLfloat blu[4] = {0.1f, 0.1f, 0.4f, 0.2f};
         GLfloat green[4] = {0.1f, 0.4f, 0.1f, 0.2f};
@@ -690,16 +773,16 @@ void render_city_scene(surface_t* disp)
             }
 
             if (!config_show_bvh_boxes) {
-            //if (is_leaf) continue;
-            glPushMatrix();
-            glMultMatrixf(&city_scene.bvh_xforms[i].m[0][0]);
-            // if (clips) {
-            // glCullFace(GL_FRONT);
-            // } else {
-            // glCullFace(GL_BACK);
-            // }
+                // if (is_leaf) continue;
+                glPushMatrix();
+                glMultMatrixf(&city_scene.bvh_xforms[i].m[0][0]);
+                // if (clips) {
+                // glCullFace(GL_FRONT);
+                // } else {
+                // glCullFace(GL_BACK);
+                // }
                 draw_sphere();
-            glPopMatrix();
+                glPopMatrix();
             }
 
             if (!config_show_bvh_boxes) {
@@ -842,8 +925,13 @@ int main()
 
     dfs_init(DFS_DEFAULT_LOCATION);
 
-    display_init(RESOLUTION_320x240, DEPTH_16_BPP, 3, GAMMA_NONE, FILTERS_RESAMPLE_ANTIALIAS_DEDITHER);
-    *(volatile uint32_t*)0xA4400000 |= 0x300; //disable filtering on PAL
+    const bool hires = true;
+    if (hires) {
+        display_init(RESOLUTION_640x480, DEPTH_16_BPP, 3, GAMMA_NONE, FILTERS_RESAMPLE_ANTIALIAS_DEDITHER /* FILTERS_DISABLED */);
+    } else {
+        display_init(RESOLUTION_320x240, DEPTH_16_BPP, 3, GAMMA_NONE, FILTERS_RESAMPLE_ANTIALIAS_DEDITHER);
+        *(volatile uint32_t*)0xA4400000 |= 0x300; //disable filtering on PAL
+    }
 
     joypad_init();
     rdpq_init();
@@ -858,7 +946,7 @@ int main()
     culler = occ_alloc();
     occ_set_viewport(culler, 0, 0, CULL_W, CULL_H);
 
-    rdpq_font_t *font = rdpq_font_load("rom:/VCR_OSD_MONO.font64");
+    rdpq_font_t *font = rdpq_font_load("rom:/KidsDraw.font64");
     uint8_t font_id = 2;
     rdpq_text_register_font(font_id, font);
     mu64_init(JOYPAD_PORT_2, font_id);
@@ -880,12 +968,13 @@ int main()
         mu64_set_mouse_speed(0.10f * (float)delta); // keep cursor speed constant
 
         if (config_menu_open) {
-            if (mu_begin_window_ex(&mu_ctx, "Settings", mu_rect(12, 20, 90, 140), MU_OPT_NOCLOSE)) {
+            if (mu_begin_window_ex(&mu_ctx, "Settings", mu_rect(80, 40, 120, 160), MU_OPT_NOCLOSE)) {
                 mu_layout_row(&mu_ctx, 1, (int[]){-1}, 0);
                 mu_label(&mu_ctx, "Background");
                 mu_checkbox(&mu_ctx, "Show BVH boxes", &config_show_bvh_boxes);
                 mu_end_window(&mu_ctx);
             }
+
         }
 
         joypad_poll();

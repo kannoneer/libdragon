@@ -27,7 +27,7 @@ bool g_verbose_raster = false; // print depth at vertex pixels
 bool g_verbose_early_out = false; // print coordinates of pixels that pass the depth test
 bool g_verbose_visibility_tracking = false; // debug prints of last visible tri tracking
 bool g_octagon_test = false; // intersect screenspace box with a 45 degree rotated box to get a stricter octagon test
-bool g_draw_queries_hack = true; // render also queried objects to the depth buffer
+bool g_draw_queries_hack = false; // render also queried objects to the depth buffer
 
 bool config_shrink_silhouettes = true; // detect edges with flipped viewspace Z signs in each neighbor and add inner conservative flags
 bool config_discard_based_on_tr_code = true;
