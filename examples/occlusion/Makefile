@@ -2,6 +2,7 @@ BUILD_DIR=build
 include $(N64_INST)/include/n64.mk
 
 common_src = bvh.c occult.c cpumath.c cpu_3d.c profiler.c frustum.c aabb.c
+lib_src = lib/microui.c lib/microuiN64.c
 demo_src = occdemo.c $(common_src)
 tests_src = tests.c $(common_src)
 
@@ -28,10 +29,11 @@ filesystem/%.sprite: assets/%.png
 
 $(BUILD_DIR)/occdemo.dfs: $(assets_conv)
 $(BUILD_DIR)/occtests.dfs: $(assets_conv)
-$(BUILD_DIR)/occdemo.elf: $(demo_src:%.c=$(BUILD_DIR)/%.o)
+$(BUILD_DIR)/occdemo.elf: $(demo_src:%.c=$(BUILD_DIR)/%.o) $(lib_src:%.c=$(BUILD_DIR)/%.o)
 $(BUILD_DIR)/occtests.elf: $(tests_src:%.c=$(BUILD_DIR)/%.o)
 
 filesystem/FerriteCoreDX.font64: MKFONT_FLAGS+=--size 12
+filesystem/VCR_OSD_MONO.font64: MKFONT_FLAGS+=--size 9
 
 occdemo.z64: N64_ROM_TITLE="Occlusion Demo"
 occdemo.z64: $(BUILD_DIR)/occdemo.dfs

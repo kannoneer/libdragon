@@ -8,6 +8,7 @@
 
 #include <model64.h>
 #include "../../src/model64_internal.h"
+#include "lib/microuiN64.h"
 
 #include "camera.h"
 #include "cube.h"
@@ -41,7 +42,9 @@ enum camera_mode_enum {
 static uint32_t animation = 0;
 static uint32_t texture_index = 0;
 static camera_t camera;
-static fps_camera_t fps_camera = {.pos = {6.752933f, 0.000000f, -0.804996f}, .angle = -0.127801f, .pitch=0.0f};
+//static fps_camera_t fps_camera = {.pos = {6.752933f, 0.000000f, -0.804996f}, .angle = -0.127801f, .pitch=0.0f};
+static fps_camera_t fps_camera = {.pos={-5.412786f, 0.000000f, 18.875854f}, .angle=2.183891f, .pitch=0.030703f};
+
 int g_camera_mode = CAM_SPIN;
 matrix_t g_view;
 static surface_t zbuffer;
@@ -57,11 +60,14 @@ static GLuint textures[4];
 
 static const GLfloat environment_color[] = {0.85f, 0.85f, 1.0f, 1.f};
 
+static bool config_menu_open = false;
+
 static bool config_enable_culling = true;
 static bool config_show_wireframe = false;
 static int config_depth_view_mode = 1;
 static bool config_top_down_view = false;
 static float config_far_plane = 50.f;
+static int config_show_bvh_boxes = 0;
 
 static const GLfloat light_pos[8][4] = {
     {1, 0, 0, 0},
@@ -99,6 +105,7 @@ static const char *texture_path[4] = {
 static sprite_t *sprites[4];
 
 void wait_for_button() {
+    debugf("Press A or B or Start to continue\n");
     while (true) {
         joypad_poll();
         joypad_buttons_t pressed = joypad_get_buttons_pressed(JOYPAD_PORT_1);
@@ -294,7 +301,7 @@ void setup_city_scene()
     //bool verbose=false;
     struct city_scene_s* s = &city_scene;
 
-    model64_t* model = model64_load("rom://room1.model64");
+    model64_t* model = model64_load("rom://room2.model64");
     if (!model) {
         debugf("Couldn't load model!\n");
         return;
@@ -308,9 +315,15 @@ void setup_city_scene()
 
     for (uint32_t i=0;i<node_count;i++){ 
         model64_node_t* node = model64_get_node(model, i);
+        bool this =false;
         if (node->name == NULL || node->mesh == NULL) {
             debugf("Skipping node %lu name=%s, mesh=%p\n", i, node->name, node->mesh);
             continue;
+        }
+
+        if (strstr(node->name, "room1 detail.002") != NULL) {
+            this=true;
+            debugf("\nTHIS!!! vvv\n");
         }
         if (strstr(node->name, "cell") != NULL) {
             debugf("skipping cell '%s'\n", node->name);
@@ -343,6 +356,10 @@ void setup_city_scene()
             city_scene.node_names[s->num_nodes] = node->name;
             s->num_nodes++;
             debugf("wrote node node=%p", s->nodes[s->num_nodes - 1]);
+        }
+
+        if (this) {
+            //wait_for_button();
         }
     }
 
@@ -386,7 +403,7 @@ void setup_city_scene()
         debugf("[node %lu] OK: %d, world_radius=%f, min=(%.3f, %.3f, %.3f), max=(%.3f, %.3f, %.3f), center=(%f, %f, %f)\n", i, bounds_ok, world_radius,
             world_aabb.lo[0], world_aabb.lo[1], world_aabb.lo[2],
             world_aabb.hi[0], world_aabb.hi[1], world_aabb.hi[2],
-world_center[0], world_center[1],world_center[2]
+            world_center[0], world_center[1],world_center[2]
         );
 
         const float* minp = &obj_aabb.lo[0];
@@ -471,8 +488,7 @@ world_center[0], world_center[1],world_center[2]
         matrix_mult_full(&city_scene.bvh_xforms[i], &translate, &scale);
     }
 
-//wait_for_button();
-    // while(true){}
+    //wait_for_button();
 }
 
 void render_posed_unit_cube(matrix_t* mtx) {
@@ -629,9 +645,9 @@ void render_city_scene(surface_t* disp)
         glDisable(GL_BLEND);
     }
 
-    bool show_bvh = g_show_node > 0;
+    bool show_bvh = g_show_node >= -1;
 
-    if (show_bvh)
+    if (show_bvh || config_show_bvh_boxes)
     {
         glEnable(GL_BLEND);
         glBlendFunc(GL_ONE, GL_ONE);
@@ -673,6 +689,7 @@ void render_city_scene(surface_t* disp)
                 glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &blu[0]);
             }
 
+            if (!config_show_bvh_boxes) {
             //if (is_leaf) continue;
             glPushMatrix();
             glMultMatrixf(&city_scene.bvh_xforms[i].m[0][0]);
@@ -681,12 +698,13 @@ void render_city_scene(surface_t* disp)
             // } else {
             // glCullFace(GL_BACK);
             // }
-
-            // render_scaled_unit_cube(&city_scene.bvh_xforms[i], float scale) {
-            draw_sphere();
+                draw_sphere();
             glPopMatrix();
+            }
 
-            // render_aabb(&city_scene.bvh.node_aabbs[i]);
+            if (!config_show_bvh_boxes) {
+                render_aabb(&city_scene.bvh.node_aabbs[i]);
+            }
             if (!is_leaf) {
                 aabb_t planebox = city_scene.bvh.node_aabbs[i];
                 uint32_t ax = bvh_node_get_axis(n);
@@ -794,6 +812,12 @@ void render(double delta)
     rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 30, config_show_wireframe ? "show culled: ON" : "show culled: OFF");
     rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 40, "visible: %d/%d objects", scene_stats.num_drawn, scene_stats.num_max);
     rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 50, "delta: %.3f ms", delta*1000);
+
+    mu64_end_frame();
+    if (config_menu_open) {
+        mu64_draw();
+    }
+    
     rdpq_detach_show();
 
     rspq_profile_next_frame();
@@ -834,6 +858,12 @@ int main()
     culler = occ_alloc();
     occ_set_viewport(culler, 0, 0, CULL_W, CULL_H);
 
+    rdpq_font_t *font = rdpq_font_load("rom:/VCR_OSD_MONO.font64");
+    uint8_t font_id = 2;
+    rdpq_text_register_font(font_id, font);
+    mu64_init(JOYPAD_PORT_2, font_id);
+
+
     setup();
     setup_city_scene();
 
@@ -846,6 +876,18 @@ int main()
     while (1)
 #endif
     {
+        mu64_start_frame();
+        mu64_set_mouse_speed(0.10f * (float)delta); // keep cursor speed constant
+
+        if (config_menu_open) {
+            if (mu_begin_window_ex(&mu_ctx, "Settings", mu_rect(12, 20, 90, 140), MU_OPT_NOCLOSE)) {
+                mu_layout_row(&mu_ctx, 1, (int[]){-1}, 0);
+                mu_label(&mu_ctx, "Background");
+                mu_checkbox(&mu_ctx, "Show BVH boxes", &config_show_bvh_boxes);
+                mu_end_window(&mu_ctx);
+            }
+        }
+
         joypad_poll();
         joypad_buttons_t pressed = joypad_get_buttons_pressed(JOYPAD_PORT_1);
         joypad_inputs_t inputs = joypad_get_inputs(JOYPAD_PORT_1);
@@ -853,13 +895,15 @@ int main()
         joypad_buttons_t mouse_pressed = joypad_get_buttons_pressed(JOYPAD_PORT_2);
         prof_next_frame();
 
-        if (mouse_pressed.a) {
-            g_show_node++;
-            debugf("g_show_node: %d\n", g_show_node);
-        }
-        if (mouse_pressed.b) {
-            g_show_node--;
-            debugf("g_show_node: %d\n", g_show_node);
+        if (!config_menu_open) {
+            if (mouse_pressed.a) {
+                g_show_node++;
+                debugf("g_show_node: %d\n", g_show_node);
+            }
+            if (mouse_pressed.b) {
+                g_show_node--;
+                debugf("g_show_node: %d\n", g_show_node);
+            }
         }
 
         if (pressed.a) {
@@ -871,7 +915,7 @@ int main()
         }
 
         if (pressed.start) {
-            debugf("%ld\n", animation);
+            config_menu_open = !config_menu_open;
         }
 
         if (pressed.l) {
@@ -904,27 +948,30 @@ int main()
             }
         }
         else if (g_camera_mode == CAM_FPS) {
-            float adelta = 0.075f;
-            float mdelta = 0.20f;
-            if (fabsf(mag) > 0.01f) {
-                fps_camera.pos[0] += mdelta * y * cos(fps_camera.angle);
-                fps_camera.pos[2] += mdelta * y * sin(fps_camera.angle);
-                fps_camera.pos[0] += mdelta * x * cos(fps_camera.angle + M_PI_2);
-                fps_camera.pos[2] += mdelta * x * sin(fps_camera.angle + M_PI_2);
-            }
+            if (!config_menu_open) {
+                float adelta = 0.075f;
+                float mdelta = 0.20f;
+                if (fabsf(mag) > 0.01f) {
+                    fps_camera.pos[0] += mdelta * y * cos(fps_camera.angle);
+                    fps_camera.pos[2] += mdelta * y * sin(fps_camera.angle);
+                    fps_camera.pos[0] += mdelta * x * cos(fps_camera.angle + M_PI_2);
+                    fps_camera.pos[2] += mdelta * x * sin(fps_camera.angle + M_PI_2);
+                }
 
-            if (fabsf(inputs.cstick_x) > 0.01f) {
-                fps_camera.angle = fmodf(fps_camera.angle + adelta * inputs.cstick_x/127.f, 2 * M_PI);
-            }
+                if (fabsf(inputs.cstick_x) > 0.01f) {
+                    fps_camera.angle = fmodf(fps_camera.angle + adelta * inputs.cstick_x / 127.f, 2 * M_PI);
+                }
 
-            const float mouse_sens = 2.0f;
-            fps_camera.angle = fmodf(fps_camera.angle + mouse_sens * adelta * mouse_inputs.stick_x / 127.f, 2 * M_PI);
-            fps_camera.pitch = fmodf(fps_camera.pitch + mouse_sens * adelta * mouse_inputs.stick_y / 127.f, 2 * M_PI);
+                const float mouse_sens = 2.0f;
+                fps_camera.angle = fmodf(fps_camera.angle + mouse_sens * adelta * mouse_inputs.stick_x / 127.f, 2 * M_PI);
+                fps_camera.pitch = fmodf(fps_camera.pitch + mouse_sens * adelta * mouse_inputs.stick_y / 127.f, 2 * M_PI);
+            }
         }
 
-        debugf("fps_camera: {.pos=(%f, %f, %f), .angle=%f, .pitch=%f}\n",
+        debugf("fps_camera: {.pos={%ff, %ff, %ff}, .angle=%ff, .pitch=%ff}\n",
             fps_camera.pos[0], fps_camera.pos[1],fps_camera.pos[2],
             fps_camera.angle, fps_camera.pitch);
+
 
         render(delta);
         if (DEBUG_RDP)
@@ -932,6 +979,7 @@ int main()
         
         rspq_wait();
         rspq_flush();
+
         uint32_t ticks_end = get_ticks();
         if (true) {
             delta = (ticks_end - last_ticks) / (double)TICKS_PER_SECOND;

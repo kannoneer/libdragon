@@ -27,12 +27,12 @@ bool g_verbose_raster = false; // print depth at vertex pixels
 bool g_verbose_early_out = false; // print coordinates of pixels that pass the depth test
 bool g_verbose_visibility_tracking = false; // debug prints of last visible tri tracking
 bool g_octagon_test = false; // intersect screenspace box with a 45 degree rotated box to get a stricter octagon test
-bool g_draw_queries_hack = false; // render also queried objects to the depth buffer
+bool g_draw_queries_hack = true; // render also queried objects to the depth buffer
 
 bool config_shrink_silhouettes = true; // detect edges with flipped viewspace Z signs in each neighbor and add inner conservative flags
 bool config_discard_based_on_tr_code = true;
 bool config_inflate_rough_bounds = true;
-bool config_report_near_clip_as_visible  = true; // if queried polygons clip the near plane, always report them as visible
+bool config_report_near_clip_as_visible  = false; // if queried polygons clip the near plane, always report them as visible
 
 enum {
     CLIP_ACTION_REJECT = 0,
@@ -1083,7 +1083,7 @@ bool occ_hull_from_flat_mesh(const occ_mesh_t* mesh_in, occ_hull_t* hull_out)
 
 bool model_to_occ_mesh(model64_t* model, mesh_t* mesh_in, occ_mesh_t* mesh_out)
 {
-    bool verbose = false;
+    bool verbose = true;
 
     primitive_t* prim = &mesh_in->primitives[0];
     attribute_t* attr = &prim->position;
@@ -1147,6 +1147,8 @@ bool model_to_occ_mesh(model64_t* model, mesh_t* mesh_in, occ_mesh_t* mesh_out)
 
 uint32_t uncompress_model64_verts(primitive_t* prim, vertex_t* vertices_out) {
     assert(prim->position.type == GL_HALF_FIXED_N64);
+    assert(prim->position.size == 3);
+    assert(prim->mode == GL_TRIANGLES);
 
     int bits = prim->vertex_precision;
     float scale = 1.0f / (1 << bits);
@@ -1174,7 +1176,7 @@ bool compute_mesh_bounds(mesh_t* mesh_in, const matrix_t* to_world,
     float* out_obj_radius, aabb_t* out_obj_aabb,
     float* out_world_radius, aabb_t* out_world_aabb, float* out_world_center)
 {
-    bool verbose = false;
+    bool verbose = true;
 
     primitive_t* prim = &mesh_in->primitives[0];
     attribute_t* attr = &prim->position;
