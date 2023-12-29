@@ -383,11 +383,15 @@ void setup_city_scene()
     for (uint32_t i = 0; i < city_scene.num_nodes; i++) {
         GLuint list = glGenLists(1);
         glNewList(list, GL_COMPILE);
-        city_scene.node_dplists[i] = list;
-        glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &mat_diffuse[4*(i%4)]);
+        glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+        glEnable(GL_COLOR_MATERIAL);
+        // glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &mat_diffuse[4*(i%4)]);
         model64_node_t* node = city_scene.nodes[i];
         model64_draw_node(city_scene.mdl_room, node);
+        (void)mat_diffuse;
+        //glDisable(GL_COLOR_MATERIAL);
         glEndList();
+        city_scene.node_dplists[i] = list;
 
         float obj_radius = 0.0f;
         float world_radius = 0.0f;
