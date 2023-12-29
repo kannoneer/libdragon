@@ -636,21 +636,22 @@ void render_city_scene(surface_t* disp)
 
         glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &white[0]);
 
-        for (uint32_t i = 0; i < city_scene.num_nodes; i++) {
-            if (city_scene.targets[i].last_visible_frame == culler->frame) {
-                render_posed_unit_cube(&city_scene.node_xforms[i]);
-                // glPushMatrix();
-                // glMultMatrixf(&city_scene.node_xforms[i].m[0][0]);
-                // draw_unit_cube();
-                // glPopMatrix();
+        //for (uint32_t i = 0; i < city_scene.num_nodes; i++) {
+        for (uint32_t i = 0; i < CITY_SCENE_MAX_NODES; i++) {
+        if (!actually_visible[i]) {
+            render_posed_unit_cube(&city_scene.node_xforms[i]);
             }
+            // glPushMatrix();
+            // glMultMatrixf(&city_scene.node_xforms[i].m[0][0]);
+            // draw_unit_cube();
+            // glPopMatrix();
         }
 
         glEnable(GL_DEPTH_TEST);
         glDisable(GL_BLEND);
     }
-        
-        {
+
+    {
         glEnable(GL_BLEND);
         glBlendFunc(GL_ONE, GL_ONE);
         glDisable(GL_DEPTH_TEST);
@@ -660,10 +661,12 @@ void render_city_scene(surface_t* disp)
         GLfloat blu[4] = {0.1f, 0.1f, 0.4f, 0.2f};
         GLfloat green[4] = {0.1f, 0.4f, 0.1f, 0.2f};
 
-        if (mu_begin_window_ex(&mu_ctx, "BVH", mu_rect(120, 40, 300, 340), MU_OPT_NOCLOSE)) {
+        if (mu_begin_window_ex(&mu_ctx, "BVH", mu_rect(220, 40, 300, 340), MU_OPT_NOCLOSE)) {
             static int show_leaf_boxes;
             static int show_inner_boxes;
+            static int show_obb;
             mu_checkbox(&mu_ctx, "Show leaf boxes", &show_leaf_boxes);
+            mu_checkbox(&mu_ctx, "Leaf OBB instead", &show_obb);
             mu_checkbox(&mu_ctx, "Show inner boxes", &show_inner_boxes);
             mu_layout_row(&mu_ctx, 1, (int[]){-1}, 0);
 
@@ -686,8 +689,13 @@ void render_city_scene(surface_t* disp)
 
                     if (is_leaf && show_leaf_boxes) {
                         glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &red[0]);
-                        render_aabb(&city_scene.bvh.node_aabbs[i]);
-                    } else if (show_inner_boxes) { 
+                        if (show_obb) {
+                            uint16_t model_idx = bvh_node_get_idx(n);
+                            render_posed_unit_cube(&city_scene.node_xforms[model_idx]);
+                        } else {
+                            render_aabb(&city_scene.bvh.node_aabbs[i]);
+                        }
+                    } else if (show_inner_boxes) {
                         render_aabb(&city_scene.bvh.node_aabbs[i]);
                         glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &blu[0]);
                     }
@@ -696,13 +704,12 @@ void render_city_scene(surface_t* disp)
                         snprintf(msg, sizeof(msg), "go to idx=%u", n->idx);
                         if (mu_button(&mu_ctx, msg)) {
                             fps_camera.pos[0] = n->pos[0];
-                            //fps_camera.pos[1] = n->pos[1];
+                            // fps_camera.pos[1] = n->pos[1];
                             fps_camera.pos[2] = n->pos[2];
                             fps_camera.pos[2] -= 2.0f * sqrtf(n->radius_sqr);
                             fps_camera.angle = M_PI_2;
                         }
-                    }
-                    else {
+                    } else {
                         if (show_inner_boxes) {
                             aabb_t planebox = city_scene.bvh.node_aabbs[i];
                             uint32_t ax = bvh_node_get_axis(n);
@@ -1004,7 +1011,7 @@ int main()
         mu64_set_mouse_speed(0.10f * (float)delta); // keep cursor speed constant
 
         if (config_menu_open) {
-            if (mu_begin_window_ex(&mu_ctx, "Settings", mu_rect(80, 40, 120, 160), MU_OPT_NOCLOSE)) {
+            if (mu_begin_window_ex(&mu_ctx, "Settings", mu_rect(10, 40, 120, 60), MU_OPT_NOCLOSE)) {
                 mu_layout_row(&mu_ctx, 1, (int[]){-1}, 0);
                 mu_label(&mu_ctx, "Background");
                 mu_checkbox(&mu_ctx, "Show BVH boxes", &config_show_bvh_boxes);
