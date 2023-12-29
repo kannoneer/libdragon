@@ -49,7 +49,10 @@ static uint32_t animation = 0;
 static uint32_t texture_index = 0;
 static camera_t camera;
 //static fps_camera_t fps_camera = {.pos = {6.752933f, 0.000000f, -0.804996f}, .angle = -0.127801f, .pitch=0.0f};
-static fps_camera_t fps_camera = {.pos={-5.412786f, 0.000000f, 18.875854f}, .angle=2.183891f, .pitch=0.030703f};
+// static fps_camera_t fps_camera = {.pos={-5.412786f, 0.000000f, 18.875854f}, .angle=2.183891f, .pitch=0.030703f};
+// static fps_camera_t fps_camera = {.pos={-13.264417f, 0.000000f, 10.275603f}, .angle=-0.733432f, .pitch=0.030703f};
+//static fps_camera_t fps_camera = {.pos={11.028643f, 0.000000f, 40.910480f}, .angle=3.844792f, .pitch=0.030703f};
+static fps_camera_t fps_camera = {.pos={40.688049f, 0.000000f, 30.212502f}, .angle=2.041767f, .pitch=0.030703f};
 
 int g_camera_mode = CAM_SPIN;
 matrix_t g_view;
@@ -66,7 +69,7 @@ static GLuint textures[4];
 
 static const GLfloat environment_color[] = {0.85f, 0.85f, 1.0f, 1.f};
 
-static bool config_menu_open = true;
+static bool config_menu_open = false;
 
 static bool config_enable_culling = true;
 static bool config_show_wireframe = false;
@@ -74,17 +77,6 @@ static int config_depth_view_mode = 1;
 static bool config_top_down_view = false;
 static float config_far_plane = 50.f;
 static int config_show_bvh_boxes = 0;
-
-static const GLfloat light_pos[8][4] = {
-    {1, 0, 0, 0},
-    {-1, 0, 0, 0},
-    {0, 0, 1, 0},
-    {0, 0, -1, 0},
-    {8, 3, 0, 1},
-    {-8, 3, 0, 1},
-    {0, 3, 8, 1},
-    {0, 3, -8, 1},
-};
 
 static const GLfloat light_diffuse[8][4] = {
     {1.0f, 1.0f, 1.0f, 1.0f},
@@ -198,8 +190,10 @@ void setup()
     GLfloat mat_diffuse[] = {1.0f, 1.0f, 1.0f, 1.0f};
     glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, mat_diffuse);
 
-    glFogf(GL_FOG_START, 1);
-    glFogf(GL_FOG_END, far_plane);
+    // glFogf(GL_FOG_START, 1);
+    // glFogf(GL_FOG_END, far_plane);
+    glFogf(GL_FOG_START, far_plane); // inverted fog range for RDPQ_FOG_STANDARD
+    glFogf(GL_FOG_END, 2); 
     glFogfv(GL_FOG_COLOR, environment_color);
 
     glEnable(GL_MULTISAMPLE_ARB);
@@ -248,23 +242,19 @@ void setup()
     }
 }
 
-void set_light_positions(float rotation)
-{
-    glPushMatrix();
-    glRotatef(rotation * 5.43f, 0, 1, 0);
-
-    for (uint32_t i = 0; i < 8; i++) {
-        glLightfv(GL_LIGHT0 + i, GL_POSITION, light_pos[i]);
-    }
-    glPopMatrix();
-}
-
-
 static void copy_to_matrix(const float* in, matrix_t* out) {
     // matrix_t is in column-major order with m[col][row]
 
     for (int i = 0; i < 16; ++i) {
         out->m[i / 4][i % 4] = in[i];
+    }
+}
+
+static void matrix_to_memory(const matrix_t* in, float* out) {
+    // matrix_t is in column-major order with m[col][row]
+
+    for (int i = 0; i < 16; ++i) {
+        out[i] = in->m[i / 4][i % 4];
     }
 }
 
@@ -321,6 +311,20 @@ void setup_city_scene()
 
     for (uint32_t i=0;i<node_count;i++){ 
         model64_node_t* node = model64_get_node(model, i);
+
+        if (false) {
+            // model downscaling hack
+            matrix_t mat;
+            copy_to_matrix(&model->transforms[i].world_mtx[0], &mat);
+
+            float coord_scale = 0.25f;
+            matrix_t scale_to_meters = cpu_glScalef(coord_scale, coord_scale, coord_scale);
+            matrix_t temp;
+            matrix_mult_full(&temp, &scale_to_meters, &mat);
+
+            matrix_to_memory(&temp, &model->transforms[i].world_mtx[0]);
+        }
+
         if (node->name == NULL || node->mesh == NULL) {
             debugf("Skipping node %lu name=%s, mesh=%p\n", i, node->name, node->mesh);
             continue;
@@ -349,7 +353,7 @@ void setup_city_scene()
                 break;
             }
 
-            if (strstr(node->name, "detail") != NULL) {
+            if (strstr(node->name, "occluder") == NULL) {
                 city_scene.node_should_test[s->num_nodes] = true;
             }
             copy_to_matrix(&model->transforms[i].world_mtx[0], &city_scene.node_xforms[s->num_nodes]);
@@ -381,11 +385,25 @@ void setup_city_scene()
         glNewList(list, GL_COMPILE);
         glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
         glEnable(GL_COLOR_MATERIAL);
+        glEnable(GL_RDPQ_MATERIAL_N64);
+
+        rdpq_set_mode_standard(); // Can't use copy mode if we need a 16-bit -> 32-bit conversion
+        uint8_t env = 0;
+        uint8_t prim = 255;
+        rdpq_set_env_color((color_t){env, env, env, 255});
+        rdpq_set_prim_color((color_t){prim, prim, prim, 255});
+        rdpq_mode_combiner(RDPQ_COMBINER2(
+            (TEX0, 0, SHADE, ENV), (0, 0, 0, ENV),
+            (COMBINED, ENV, PRIM, COMBINED), (0, 0, 0, COMBINED)));
+        rdpq_mode_fog(RDPQ_BLENDER((IN_RGB, SHADE_ALPHA, FOG_RGB, INV_MUX_ALPHA)));
+        //rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY);
+
         // glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &mat_diffuse[4*(i%4)]);
         model64_node_t* node = city_scene.nodes[i];
         model64_draw_node(city_scene.mdl_room, node);
         (void)mat_diffuse;
         //glDisable(GL_COLOR_MATERIAL);
+        glDisable(GL_RDPQ_MATERIAL_N64);
         glEndList();
         city_scene.node_dplists[i] = list;
 
@@ -430,9 +448,9 @@ void setup_city_scene()
         matrix_t old = city_scene.node_xforms[i];
 
         matrix_t centerize = cpu_glTranslatef(mid[0], mid[1], mid[2]);
-        matrix_t scale_down = cpu_glScalef(scale[0], scale[1], scale[2]);
+        matrix_t scale_obb = cpu_glScalef(scale[0], scale[1], scale[2]);
         matrix_t temp;
-        matrix_mult_full(&temp, &centerize, &scale_down);
+        matrix_mult_full(&temp, &centerize, &scale_obb);
         matrix_mult_full(&city_scene.node_xforms[i], &old, &temp);
     }
 
@@ -538,7 +556,6 @@ void render_city_scene(surface_t* disp)
 
     if (config_enable_culling) {
         for (uint32_t i = 0; i < city_scene.num_occluders; i++) {
-            debugf("drawing occluder %lu\n", i);
             occ_raster_query_result_t result = {};
             occ_draw_hull(culler, sw_zbuffer, &city_scene.occ_hulls[i], &city_scene.occluder_xforms[i], &result, OCCLUDER_TWO_SIDED);
         }
@@ -560,67 +577,38 @@ void render_city_scene(surface_t* disp)
     glDepthMask(GL_TRUE);
     glEnable(GL_DEPTH_TEST);
 
-        //glEnable(GL_BLEND);
-        //glBlendFunc(GL_ONE, GL_ONE);
+    //glEnable(GL_BLEND);
+    //glBlendFunc(GL_ONE, GL_ONE);
 
     static cull_result_t cull_results[CITY_SCENE_MAX_NODES]; // references Node* elements
     uint32_t num_visible = bvh_find_visible(&city_scene.bvh, culler->camera_pos, culler->clip_planes, cull_results, sizeof(cull_results) / sizeof(cull_results[0]));
+    bool actually_visible[CITY_SCENE_MAX_NODES] = {};
+
+    scene_stats.num_max = city_scene.num_nodes;
 
     for (uint32_t res_idx = 0; res_idx < num_visible; res_idx++) {
         cull_result_t res = cull_results[res_idx];
         uint16_t idx = res.idx;
-        debugf("[%u] .idx=%d, .flags=0x%x\n", idx, res.idx, res.flags);
+        // debugf("[%u] .idx=%d, .flags=0x%x\n", idx, res.idx, res.flags);
 
         bool visible = true;
 
         if (config_enable_culling && !(res.flags & VISIBLE_CAMERA_INSIDE) && city_scene.node_should_test[idx]) {
-            debugf("occlusion testing node '%s'\n", city_scene.node_names[idx]);
+            // debugf("occlusion testing node '%s'\n", city_scene.node_names[idx]);
             occ_raster_query_result_t result = {};
-            //occ_draw_hull(culler, sw_zbuffer, &unit_cube_hull, &city_scene.node_xforms[i], &result, 0);
+            // occ_draw_hull(culler, sw_zbuffer, &unit_cube_hull, &city_scene.node_xforms[idx], &result, 0);
             visible = occ_check_target_visible(culler, sw_zbuffer, &unit_cube_hull, &city_scene.node_xforms[idx], &city_scene.targets[idx], &result);
         }
 
         if (visible) {
-            glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &mat_diffuse[4*(idx%4)]);
+            actually_visible[idx] = true;
+
             glCallList(city_scene.node_dplists[idx]);
+
+            (void)mat_diffuse;
             scene_stats.num_drawn++;
         }
     }
-
-        //glDisable(GL_BLEND);
-    //glEnable(GL_DEPTH_TEST);
-
-    #if 0
-    for (uint32_t i = 0; i < city_scene.num_nodes; i++) {
-        //if (strcmp(city_scene.node_names[i], "room1 detail")) continue; // HACK skip other nodes
-
-        bool visible = true;
-
-        if (config_enable_culling && city_scene.node_should_test[i]) {
-            debugf("occlusion testing node '%s'\n", city_scene.node_names[i]);
-            occ_raster_query_result_t result = {};
-            //occ_draw_hull(culler, sw_zbuffer, &unit_cube_hull, &city_scene.node_xforms[i], &result, 0);
-            visible = occ_check_target_visible(culler, sw_zbuffer, &unit_cube_hull, &city_scene.node_xforms[i], &city_scene.targets[i], &result);
-        }
-
-        debugf("%lu visible=%d\n", i, visible);
-
-        if (visible) {
-            debugf("drawing %lu, mdl=%p, node=%p\n", i, city_scene.mdl_room, city_scene.nodes[i]);
-            glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &mat_diffuse[4*(i%4)]);
-            glCallList(city_scene.node_dplists[i]);
-            scene_stats.num_drawn++;
-        } else if (config_show_wireframe) {
-            //glPushMatrix();
-            //glMultMatrixf(&city_scene.node_xforms[i].m[0][0]);
-            //draw_unit_cube();
-            //glPopMatrix();
-            // glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &mat_diffuse[4*(i%4)]);
-            // glCallList(city_scene.node_dplists[i]);
-        }
-        scene_stats.num_max++;
-    }
-    #endif
 
     if (config_show_wireframe) {
         glEnable(GL_BLEND);
@@ -830,9 +818,9 @@ void render(double delta)
     occ_clear_zbuffer(sw_zbuffer);
     
     if (config_top_down_view || config_show_wireframe) {
-        //glDisable(GL_FOG);
+        glDisable(GL_FOG);
     } else {
-        //glEnable(GL_FOG);
+        glEnable(GL_FOG);
     }
 
     glMatrixMode(GL_MODELVIEW);
@@ -902,7 +890,7 @@ void render(double delta)
     rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 20, config_enable_culling ? "occlusion culling: ON" : "occlusion culling: OFF");
     rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 30, config_show_wireframe ? "show culled: ON" : "show culled: OFF");
     rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 40, "visible: %d/%d objects", scene_stats.num_drawn, scene_stats.num_max);
-    rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 50, "delta: %.3f ms", delta*1000);
+    rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 50, "delta: % 6.3f ms, %.1f fps", delta*1000, 1.0/delta);
 
     mu64_end_frame();
     if (config_menu_open) {
@@ -1101,7 +1089,7 @@ int main()
             fps_camera.angle, fps_camera.pitch);
 
 
-        render(delta);
+        render(smoothed_delta);
         if (DEBUG_RDP)
             rspq_wait();
         
@@ -1112,7 +1100,7 @@ int main()
         if (true) {
             delta = (ticks_end - last_ticks) / (double)TICKS_PER_SECOND;
             smoothed_delta = get_smoothed_delta(ticks_end - last_ticks);
-            debugf("deltatime: %f ms\n", delta * 1000.0);
+            //debugf("deltatime: % 6f ms\n", delta * 1000.0);
             prof_print_stats();
         }
         last_ticks = ticks_end;
