@@ -1172,6 +1172,16 @@ uint32_t uncompress_model64_verts(primitive_t* prim, vertex_t* vertices_out) {
     return vertex_id;
 }
 
+float aabb_diagonal_length(const aabb_t *box)
+{
+    const float diag[3] = {
+        box->hi[0] - box->lo[0],
+        box->hi[1] - box->lo[1],
+        box->hi[2] - box->lo[2],
+    };
+    return sqrtf(diag[0] * diag[0] + diag[1] * diag[1] + diag[2] * diag[2]);
+}
+
 bool compute_mesh_bounds(mesh_t* mesh_in, const matrix_t* to_world,
     float* out_obj_radius, aabb_t* out_obj_aabb,
     float* out_world_radius, aabb_t* out_world_aabb, float* out_world_center)
@@ -1204,6 +1214,10 @@ bool compute_mesh_bounds(mesh_t* mesh_in, const matrix_t* to_world,
         return 0.0f;
     }
 
+    // We rasterize OBBs and want to conservatively check if a camera can clip one at near plane.
+    // That's why we need to make the bounding sphere always include OBB.
+    const bool cover_aabb_with_sphere = true;
+
     float max_obj_radius = 0.0f;
 
     for (int j = 0; j < 3; j++) {
@@ -1228,7 +1242,13 @@ bool compute_mesh_bounds(mesh_t* mesh_in, const matrix_t* to_world,
             out_obj_aabb->hi[j] = max(out_obj_aabb->hi[j], p[j]);
         }
 
-        max_obj_radius = max(obj_radius, max_obj_radius);
+        if (!cover_aabb_with_sphere) {
+            max_obj_radius = max(obj_radius, max_obj_radius);
+        }
+    }
+
+    if (cover_aabb_with_sphere) {
+        max_obj_radius = aabb_diagonal_length(out_obj_aabb);
     }
 
     float obj_center[4];
@@ -1260,7 +1280,13 @@ bool compute_mesh_bounds(mesh_t* mesh_in, const matrix_t* to_world,
             out_world_aabb->hi[j] = max(out_world_aabb->hi[j], world[j]);
         }
 
-        max_world_radius = max(world_radius, max_world_radius);
+        if (!cover_aabb_with_sphere) {
+            max_world_radius = max(world_radius, max_world_radius);
+        }
+    }
+
+    if (cover_aabb_with_sphere) {
+        max_world_radius = aabb_diagonal_length(out_world_aabb);
     }
 
     *out_obj_radius = max_obj_radius;
