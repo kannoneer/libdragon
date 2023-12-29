@@ -262,7 +262,7 @@ static void copy_to_matrix(const float* in, matrix_t* out) {
     }
 }
 
-#define CITY_SCENE_MAX_OCCLUDERS (10)
+#define CITY_SCENE_MAX_OCCLUDERS (30)
 #define CITY_SCENE_MAX_NODES (50)
 #define CITY_SCENE_MAX_BVH_SIZE (200)
 
@@ -301,7 +301,7 @@ void setup_city_scene()
     //bool verbose=false;
     struct city_scene_s* s = &city_scene;
 
-    model64_t* model = model64_load("rom://room2.model64");
+    model64_t* model = model64_load("rom://room3.model64");
     if (!model) {
         debugf("Couldn't load model!\n");
         return;
@@ -315,16 +315,11 @@ void setup_city_scene()
 
     for (uint32_t i=0;i<node_count;i++){ 
         model64_node_t* node = model64_get_node(model, i);
-        bool this =false;
         if (node->name == NULL || node->mesh == NULL) {
             debugf("Skipping node %lu name=%s, mesh=%p\n", i, node->name, node->mesh);
             continue;
         }
 
-        if (strstr(node->name, "room1 detail.002") != NULL) {
-            this=true;
-            debugf("\nTHIS!!! vvv\n");
-        }
         if (strstr(node->name, "cell") != NULL) {
             debugf("skipping cell '%s'\n", node->name);
             continue;
@@ -355,11 +350,6 @@ void setup_city_scene()
             s->nodes[s->num_nodes] = node;
             city_scene.node_names[s->num_nodes] = node->name;
             s->num_nodes++;
-            debugf("wrote node node=%p", s->nodes[s->num_nodes - 1]);
-        }
-
-        if (this) {
-            //wait_for_button();
         }
     }
 
