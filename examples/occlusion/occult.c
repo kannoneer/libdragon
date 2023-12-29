@@ -1215,7 +1215,8 @@ bool compute_mesh_bounds(mesh_t* mesh_in, const matrix_t* to_world,
     }
 
     // We rasterize OBBs and want to conservatively check if a camera can clip one at near plane.
-    // That's why we need to make the bounding sphere always include OBB.
+    // That's why we need to make the bounding sphere always include object space AABB and therefore
+    // also the world space OBB.
     const bool cover_aabb_with_sphere = true;
 
     float max_obj_radius = 0.0f;
@@ -1234,21 +1235,19 @@ bool compute_mesh_bounds(mesh_t* mesh_in, const matrix_t* to_world,
 
         matrix_mult(&world[0], to_world, &v[0]);
 
-        float obj_radius = sqrtf(p[0]*p[0] + p[1]*p[1] + p[2]*p[2]);
-
-
         for (int j=0;j<3;j++) {
             out_obj_aabb->lo[j] = min(out_obj_aabb->lo[j], p[j]);
             out_obj_aabb->hi[j] = max(out_obj_aabb->hi[j], p[j]);
         }
 
         if (!cover_aabb_with_sphere) {
+            float obj_radius = sqrtf(p[0]*p[0] + p[1]*p[1] + p[2]*p[2]);
             max_obj_radius = max(obj_radius, max_obj_radius);
         }
     }
 
     if (cover_aabb_with_sphere) {
-        max_obj_radius = aabb_diagonal_length(out_obj_aabb);
+        max_obj_radius = 0.5f * aabb_diagonal_length(out_obj_aabb);
     }
 
     float obj_center[4];
@@ -1273,20 +1272,25 @@ bool compute_mesh_bounds(mesh_t* mesh_in, const matrix_t* to_world,
             world[1] - center[1],
             world[2] - center[2]};
 
-        float world_radius = sqrtf(diff[0]*diff[0] + diff[1]*diff[1] + diff[2]*diff[2]);
-
         for (int j=0;j<3;j++) {
             out_world_aabb->lo[j] = min(out_world_aabb->lo[j], world[j]);
             out_world_aabb->hi[j] = max(out_world_aabb->hi[j], world[j]);
         }
 
         if (!cover_aabb_with_sphere) {
+            float world_radius = sqrtf(diff[0]*diff[0] + diff[1]*diff[1] + diff[2]*diff[2]);
             max_world_radius = max(world_radius, max_world_radius);
         }
     }
 
     if (cover_aabb_with_sphere) {
-        max_world_radius = aabb_diagonal_length(out_world_aabb);
+        // Put the bounding sphere in the middle of the OBB.
+        max_world_radius = 0.5f * aabb_diagonal_length(out_world_aabb);
+        float* minp = out_world_aabb->lo;
+        float* maxp = out_world_aabb->hi;
+        center[0] = 0.5f * (maxp[0] + minp[0]);
+        center[1] = 0.5f * (maxp[1] + minp[1]);
+        center[2] = 0.5f * (maxp[2] + minp[2]);
     }
 
     *out_obj_radius = max_obj_radius;
