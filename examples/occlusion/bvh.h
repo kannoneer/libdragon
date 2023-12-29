@@ -47,6 +47,7 @@ typedef struct cull_result_e {
 
 inline bool bvh_node_is_leaf(const bvh_node_t* n) { return (n->flags & BVH_FLAGS_CHILD_MASK) == 0; }
 inline uint32_t bvh_node_get_axis(const bvh_node_t* n) { return (n->flags & BVH_FLAGS_AXIS_MASK) >> 2; }
+inline uint16_t bvh_node_get_idx(const bvh_node_t* n) { return n->idx; }
 
 void bvh_free(sphere_bvh_t* bvh);
 void bvh_print_node(const bvh_node_t* n);

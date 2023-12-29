@@ -68,6 +68,7 @@ bool bvh_validate(const sphere_bvh_t* bvh) {
         }
     }
     assert(bvh->num_leaves == counted_leaves);
+    if (bvh->num_leaves != counted_leaves) return false;
     return true;
 }
 
