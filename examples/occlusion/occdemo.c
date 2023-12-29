@@ -923,6 +923,35 @@ void render(double delta)
     }
 }
 
+#define GET_ARRAY_SIZE(a) (sizeof(a)/sizeof(a[0]))
+
+struct {
+    uint32_t ticks[3];
+    int next;
+    uint32_t mean;
+} avg_delta = {};
+
+void delta_time_init() {
+    avg_delta.next = 0;
+    avg_delta.mean = 0;
+    for (int i = 0; i < GET_ARRAY_SIZE(avg_delta.ticks); i++) {
+        avg_delta.ticks[i] = (uint32_t)(1./30.0 * TICKS_PER_SECOND);
+        avg_delta.mean += avg_delta.ticks[i];
+    }
+}
+
+float get_smoothed_delta(uint32_t tickdelta) {
+    float old = avg_delta.ticks[avg_delta.next];
+    avg_delta.ticks[avg_delta.next++] = tickdelta;
+    if (avg_delta.next == GET_ARRAY_SIZE(avg_delta.ticks)) {
+        avg_delta.next = 0;
+    }
+    avg_delta.mean -= old;
+    avg_delta.mean += tickdelta;
+    float div = 1.0f / GET_ARRAY_SIZE(avg_delta.ticks);
+    return avg_delta.mean * div / (float)TICKS_PER_SECOND;
+}
+
 int main()
 {
     debug_init_isviewer();
@@ -941,6 +970,7 @@ int main()
     joypad_init();
     rdpq_init();
     gl_init();
+    delta_time_init();
 
 #if DEBUG_RDP
     rdpq_debug_start();
@@ -963,6 +993,7 @@ int main()
     rspq_profile_start();
 
     double delta=1/30.0f; // last frame's delta time
+    double smoothed_delta=1/30.0f;
     uint32_t last_ticks = get_ticks();
 
 #if !DEBUG_RDP
@@ -1046,14 +1077,14 @@ int main()
                 float adelta = 0.075f;
                 float mdelta = 0.20f;
                 if (fabsf(mag) > 0.01f) {
-                    fps_camera.pos[0] += mdelta * y * cos(fps_camera.angle);
-                    fps_camera.pos[2] += mdelta * y * sin(fps_camera.angle);
-                    fps_camera.pos[0] += mdelta * x * cos(fps_camera.angle + M_PI_2);
-                    fps_camera.pos[2] += mdelta * x * sin(fps_camera.angle + M_PI_2);
+                    fps_camera.pos[0] += 60.0f * smoothed_delta * mdelta * y * cos(fps_camera.angle);
+                    fps_camera.pos[2] += 60.0f * smoothed_delta * mdelta * y * sin(fps_camera.angle);
+                    fps_camera.pos[0] += 60.0f * smoothed_delta * mdelta * x * cos(fps_camera.angle + M_PI_2);
+                    fps_camera.pos[2] += 60.0f * smoothed_delta * mdelta * x * sin(fps_camera.angle + M_PI_2);
                 }
 
                 if (fabsf(inputs.cstick_x) > 0.01f) {
-                    fps_camera.angle = fmodf(fps_camera.angle + adelta * inputs.cstick_x / 127.f, 2 * M_PI);
+                    fps_camera.angle = fmodf(fps_camera.angle + 60.0f * smoothed_delta * adelta * inputs.cstick_x / 127.f, 2 * M_PI);
                 }
 
                 const float mouse_sens = 2.0f;
@@ -1077,6 +1108,7 @@ int main()
         uint32_t ticks_end = get_ticks();
         if (true) {
             delta = (ticks_end - last_ticks) / (double)TICKS_PER_SECOND;
+            smoothed_delta = get_smoothed_delta(ticks_end - last_ticks);
             debugf("deltatime: %f ms\n", delta * 1000.0);
             prof_print_stats();
         }
