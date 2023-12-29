@@ -83,23 +83,20 @@ void occ_set_view_and_projection(occ_culler_t *culler, matrix_t *view, matrix_t 
     // view maps model space -> view space
     // we want to map view space (0,0,0) -> world
 
-    // float p[4];
-    // float origin[4]={0.0f, 0.0f, 0.0f, 1.0f};
-    // matrix_mult(&p[0], &culler->view_matrix, origin);
-    debugf("view:\n");
-    print_matrix(&culler->view_matrix);
+    //debugf("view:\n");
+    //print_matrix(&culler->view_matrix);
     invert_rigid_xform(&culler->view_matrix_inverse, &culler->view_matrix);
-    debugf("view_inverse:\n");
-    print_matrix(&culler->view_matrix_inverse);
+    // debugf("view_inverse:\n");
+    // print_matrix(&culler->view_matrix_inverse);
 
     culler->camera_pos[0] = culler->view_matrix_inverse.m[3][0];
     culler->camera_pos[1] = culler->view_matrix_inverse.m[3][1];
     culler->camera_pos[2] = culler->view_matrix_inverse.m[3][2];
 
-    debugf("camera pos: (%f, %f, %f)\n",
-           culler->camera_pos[0],
-           culler->camera_pos[1],
-           culler->camera_pos[2]);
+    // debugf("camera pos: (%f, %f, %f)\n",
+    //        culler->camera_pos[0],
+    //        culler->camera_pos[1],
+    //        culler->camera_pos[2]);
 }
 
 void occ_next_frame(occ_culler_t *culler)
