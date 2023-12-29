@@ -25,8 +25,14 @@
 // The demo will only run for a single frame and stop.
 #define DEBUG_RDP 0
 
+#define HIRES_MODE 1
+#if HIRES_MODE
+#define SCREEN_WIDTH (640)
+#define SCREEN_HEIGHT (480)
+#else
 #define SCREEN_WIDTH (320)
 #define SCREEN_HEIGHT (240)
+#endif
 #define CULL_W (SCREEN_WIDTH / 8)
 #define CULL_H (SCREEN_HEIGHT / 8)
 
@@ -956,7 +962,7 @@ int main()
 
     dfs_init(DFS_DEFAULT_LOCATION);
 
-    const bool hires = true;
+    const bool hires = HIRES_MODE;
     if (hires) {
         display_init(RESOLUTION_640x480, DEPTH_16_BPP, 3, GAMMA_NONE, FILTERS_RESAMPLE_ANTIALIAS_DEDITHER /* FILTERS_DISABLED */);
     } else {
