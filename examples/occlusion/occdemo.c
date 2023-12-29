@@ -418,8 +418,8 @@ void setup_city_scene()
             mid[0], mid[1], mid[2]
         );
 
-        debugf("matrix %lu\n", i);
-        print_matrix(&city_scene.node_xforms[i]);
+        // debugf("matrix %lu in\n", i);
+        // print_matrix(&city_scene.node_xforms[i]);
         float* orig = &origins[3*i];
         orig[0] = world_center[0];
         orig[1] = world_center[1];
@@ -427,11 +427,12 @@ void setup_city_scene()
         radiuses[i] = world_radius;
         aabbs[i] = world_aabb;
 
-        matrix_t temp = cpu_glScalef(scale[0], scale[1], scale[2]);
         matrix_t old = city_scene.node_xforms[i];
-        matrix_mult_full(&city_scene.node_xforms[i], &old, &temp);
-        old = city_scene.node_xforms[i];
-        temp = cpu_glTranslatef(mid[0], mid[1], mid[2]);
+
+        matrix_t centerize = cpu_glTranslatef(mid[0], mid[1], mid[2]);
+        matrix_t scale_down = cpu_glScalef(scale[0], scale[1], scale[2]);
+        matrix_t temp;
+        matrix_mult_full(&temp, &centerize, &scale_down);
         matrix_mult_full(&city_scene.node_xforms[i], &old, &temp);
     }
 
