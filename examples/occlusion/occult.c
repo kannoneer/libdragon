@@ -57,6 +57,15 @@ void occ_set_viewport(occ_culler_t *culler, int x, int y, int width, int height)
     culler->viewport.y = y;
     culler->viewport.width = width;
     culler->viewport.height = height;
+
+    // Assume we render the whole zbuffer to keep things simple
+    cpu_glViewport(
+        culler->viewport.x,
+        culler->viewport.y,
+        culler->viewport.width,
+        culler->viewport.height,
+        culler->viewport.width,
+        culler->viewport.height);
 }
 
 void occ_free(occ_culler_t *culler)
@@ -434,14 +443,8 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
                                 vec3f* tri_normals, uint16_t* tri_neighbors,
                                 occ_target_t* target, const occ_raster_flags_t flags, occ_raster_query_result_t* query_result)
 {
-    // We render a viewport (x,y,x+w,y+h) in zbuffer's pixel space
-    cpu_glViewport(
-        occ->viewport.x,
-        occ->viewport.y,
-        occ->viewport.width,
-        occ->viewport.height,
-        zbuffer->width,
-        zbuffer->height);
+    assert(zbuffer->width == occ->viewport.width);
+    assert(zbuffer->height == occ->viewport.height);
 
     // Transform all vertices first
     prof_begin(REGION_TRANSFORM);
@@ -770,6 +773,9 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
         vert.screen_pos[1] += SCREENSPACE_BIAS;
         prof_end(REGION_TRANSFORM);
         //if (vert.depth < 0.f) return true; // HACK: any vertex behind camera makes the object visible
+
+        debugf("iv=%d model  = (%f, %f, %f)\n", iv, mesh->vertices[iv].position[0], mesh->vertices[iv].position[1], mesh->vertices[iv].position[2]);
+        debugf("iv=%d screen = (%f, %f), depth=%f\n", iv, vert.screen_pos[0], vert.screen_pos[1], vert.depth);
 
         if (vert.depth > 0.f) {
             minZ = min(minZ, vert.depth);
