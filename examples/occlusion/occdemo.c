@@ -192,10 +192,8 @@ void setup()
     GLfloat mat_diffuse[] = {1.0f, 1.0f, 1.0f, 1.0f};
     glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, mat_diffuse);
 
-    // glFogf(GL_FOG_START, 1);
-    // glFogf(GL_FOG_END, far_plane);
     glFogf(GL_FOG_START, far_plane); // inverted fog range for RDPQ_FOG_STANDARD
-    glFogf(GL_FOG_END, 2); 
+    glFogf(GL_FOG_END, 4.0f);
     glFogfv(GL_FOG_COLOR, environment_color);
 
     glEnable(GL_MULTISAMPLE_ARB);
@@ -389,16 +387,15 @@ void setup_city_scene()
         glEnable(GL_COLOR_MATERIAL);
         glEnable(GL_RDPQ_MATERIAL_N64);
 
-        rdpq_set_mode_standard(); // Can't use copy mode if we need a 16-bit -> 32-bit conversion
+        rdpq_set_mode_standard();
         uint8_t env = 0;
         uint8_t prim = 255;
         rdpq_set_env_color((color_t){env, env, env, 255});
         rdpq_set_prim_color((color_t){prim, prim, prim, 255});
         rdpq_mode_combiner(RDPQ_COMBINER2(
-            (TEX0, 0, SHADE, ENV), (0, 0, 0, ENV),
+            (TEX0, 0, SHADE, ENV), (0, 0, 0, 1),
             (COMBINED, ENV, PRIM, COMBINED), (0, 0, 0, COMBINED)));
-        rdpq_mode_fog(RDPQ_BLENDER((IN_RGB, SHADE_ALPHA, FOG_RGB, INV_MUX_ALPHA)));
-        //rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY);
+        rdpq_mode_fog(RDPQ_FOG_STANDARD);
 
         // glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &mat_diffuse[4*(i%4)]);
         model64_node_t* node = city_scene.nodes[i];
