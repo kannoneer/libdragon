@@ -157,6 +157,7 @@ void cpu_glDepthRange(double n, double f)
 
 void cpu_vertex_calc_screenspace(cpu_vtx_t *v)
 {
+    assert(state.current_viewport.scale[0] != 0.0f);
     v->inv_w = v->cs_pos[3] != 0.0f ? 1.0f / v->cs_pos[3] : 0x7FFF;
 
     v->screen_pos[0] = v->cs_pos[0] * v->inv_w * state.current_viewport.scale[0] + state.current_viewport.offset[0];
