@@ -29,12 +29,14 @@
 #if HIRES_MODE
 #define SCREEN_WIDTH (640)
 #define SCREEN_HEIGHT (480)
+#define CULL_W (SCREEN_WIDTH / 16)
+#define CULL_H (SCREEN_HEIGHT / 16)
 #else
 #define SCREEN_WIDTH (320)
 #define SCREEN_HEIGHT (240)
-#endif
 #define CULL_W (SCREEN_WIDTH / 8)
 #define CULL_H (SCREEN_HEIGHT / 8)
+#endif
 
 static occ_culler_t *culler;
 static occ_hull_t cube_hull;
