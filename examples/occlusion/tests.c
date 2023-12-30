@@ -43,7 +43,9 @@ enum camera_mode_enum {
 static uint32_t animation = 0;
 static uint32_t texture_index = 0;
 static camera_t camera;
-static fps_camera_t fps_camera = {.pos = {6.752933f, 0.000000f, -0.804996f}, .angle = -0.127801f, .pitch=0.0f};
+// static fps_camera_t fps_camera = {.pos = {0.0, 0.000000f, 10.000000f}, .angle =-M_PI_2, .pitch=0.0f};
+// static fps_camera_t fps_camera = {.pos = {0.0, 0.000000f, 10.000000f}, .angle =-0.673158, .pitch=0.0f};
+static fps_camera_t fps_camera = {.pos={-6.866766f, 0.000000f, 6.455487f}, .angle=-0.134575, .pitch=0.000000};
 int g_camera_mode = CAM_SPIN;
 matrix_t g_view;
 static surface_t zbuffer;
@@ -61,7 +63,7 @@ static const GLfloat environment_color[] = {0.85f, 0.85f, 1.0f, 1.f};
 
 static bool config_enable_culling = true;
 static bool config_show_wireframe = false;
-static int config_depth_view_mode = 1;
+static int config_depth_view_mode = 2;
 static bool config_conservative = true;
 static bool config_top_down_view = false;
 static float config_far_plane = 50.f;
@@ -142,7 +144,7 @@ void compute_top_down_camera_matrix(matrix_t *matrix, const fps_camera_t *camera
 
 void setup()
 {
-    camera.distance=-10.0; camera.rotation=0.f;
+    camera.distance=-1.0; camera.rotation=0.f;
 
     zbuffer = surface_alloc(FMT_RGBA16, display_get_width(), display_get_height());
     sw_zbuffer_array[0] = surface_alloc(FMT_RGBA16, CULL_W, CULL_H);
@@ -991,7 +993,7 @@ static occ_target_t target_single_cube = {0};
 
 void render_single_cube_scene(surface_t*)
 {
-    long unsigned int anim_timer = g_num_frames;
+    long unsigned int anim_timer = 10; //g_num_frames;
 
     glEnable(GL_LIGHTING);
     glEnable(GL_NORMALIZE);
@@ -1018,7 +1020,7 @@ void render_single_cube_scene(surface_t*)
     glPopMatrix();
 
     //occ_draw_mesh(culler, sw_zbuffer, &cube_hull.mesh, &xform);
-    //occ_draw_hull(culler, sw_zbuffer, &cube_hull, &xform, NULL, 0);
+    occ_draw_hull(culler, sw_zbuffer, &cube_hull, &xform, NULL, 0);
     (void)target_single_cube;
     //occ_check_target_visible(culler, sw_zbuffer, &cube_hull, &xform, &target_single_cube, NULL);
     glDisable(GL_TEXTURE_2D);
@@ -1182,7 +1184,6 @@ int main()
 
     setup();
     setup_big_scene();
-    //setup_city_scene();
 
     rspq_profile_start();
 
@@ -1269,7 +1270,7 @@ int main()
             fps_camera.pitch = fmodf(fps_camera.pitch + mouse_sens * adelta * mouse_inputs.stick_y / 127.f, 2 * M_PI);
         }
 
-        debugf("fps_camera: {.pos=(%f, %f, %f), .angle=%f, .pitch=%f}\n",
+        debugf("fps_camera: {.pos={%ff, %ff, %ff}, .angle=%f, .pitch=%f}\n",
             fps_camera.pos[0], fps_camera.pos[1],fps_camera.pos[2],
             fps_camera.angle, fps_camera.pitch);
 
