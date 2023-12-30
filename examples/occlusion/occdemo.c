@@ -840,7 +840,7 @@ void render(double delta)
     occ_set_view_and_projection(culler, &g_view, &g_projection);
     glLoadMatrixf(&g_view.m[0][0]);
 
-    glLightfv(GL_LIGHT0, GL_POSITION, &fps_camera.pos[0]);
+    // glLightfv(GL_LIGHT0, GL_POSITION, &fps_camera.pos[0]);
 
     if (config_top_down_view) {
         matrix_t new_view;
