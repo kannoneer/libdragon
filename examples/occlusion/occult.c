@@ -585,6 +585,9 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
                 verts[2].clip_code = verts[2].tr_code;
 
                 cpu_gl_clip_triangle(&verts[0], &verts[1], &verts[2], (1 << NEAR_PLANE_INDEX), clipping_cache, &clipping_list);
+                // Workaround: Don't shrink edges. Clipping invalidates silhoutte checks we made above so just rasterize normally
+                //             to avoid cracks. This hack makes occluders cover too many pixels which may lead to culling errors.
+                edge_flag_mask = 0;
             } else {
                 debugf("Invalid clip action %lu\n", g_near_clipping_action);
                 assert(false);
