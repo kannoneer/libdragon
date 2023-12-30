@@ -777,9 +777,6 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
         prof_end(REGION_TRANSFORM);
         //if (vert.depth < 0.f) return true; // HACK: any vertex behind camera makes the object visible
 
-        debugf("iv=%d model  = (%f, %f, %f)\n", iv, mesh->vertices[iv].position[0], mesh->vertices[iv].position[1], mesh->vertices[iv].position[2]);
-        debugf("iv=%d screen = (%f, %f), depth=%f\n", iv, vert.screen_pos[0], vert.screen_pos[1], vert.depth);
-
         if (vert.depth > 0.f) {
             minZ = min(minZ, vert.depth);
             minX = min(minX, vert.screen_pos[0]);
