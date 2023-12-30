@@ -621,6 +621,10 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
                     flags | edge_flag_mask, query_result,
                     zbuffer);
                 num_tris_drawn++;
+
+                if ((flags & RASTER_FLAG_EARLY_OUT) && query_result && query_result->visible) {
+                    break;
+                }
             }
             prof_end(REGION_RASTERIZATION);
         }
