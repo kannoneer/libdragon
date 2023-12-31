@@ -255,6 +255,7 @@ static void copy_to_matrix(const float* in, matrix_t* out) {
     }
 }
 
+#if 0
 static void matrix_to_memory(const matrix_t* in, float* out) {
     // matrix_t is in column-major order with m[col][row]
 
@@ -262,6 +263,7 @@ static void matrix_to_memory(const matrix_t* in, float* out) {
         out[i] = in->m[i / 4][i % 4];
     }
 }
+#endif
 
 #define CITY_SCENE_MAX_OCCLUDERS (30)
 #define CITY_SCENE_MAX_NODES (50)
@@ -318,19 +320,6 @@ void setup_city_scene()
 
     for (uint32_t i=0;i<node_count;i++){ 
         model64_node_t* node = model64_get_node(model, i);
-
-        if (false) {
-            // model downscaling hack
-            matrix_t mat;
-            copy_to_matrix(&model->transforms[i].world_mtx[0], &mat);
-
-            float coord_scale = 0.25f;
-            matrix_t scale_to_meters = cpu_glScalef(coord_scale, coord_scale, coord_scale);
-            matrix_t temp;
-            matrix_mult_full(&temp, &scale_to_meters, &mat);
-
-            matrix_to_memory(&temp, &model->transforms[i].world_mtx[0]);
-        }
 
         if (node->name == NULL || node->mesh == NULL) {
             debugf("Skipping node %lu name=%s, mesh=%p\n", i, node->name, node->mesh);
