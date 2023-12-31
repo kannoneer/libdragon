@@ -38,6 +38,7 @@ void prof_print_stats()
     PRINT_REGION(REGION_TRANSFORM, "Transform")
     PRINT_REGION(REGION_RASTERIZATION, "Rasterization")
     PRINT_REGION(REGION_TESTING, "Testing")
+    PRINT_REGION(REGION_FRUSTUM_CULL, "Frustum culling")
 }
 
 void prof_reset_stats()

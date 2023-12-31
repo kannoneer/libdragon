@@ -8,7 +8,8 @@
 #define REGION_TRANSFORM (0)
 #define REGION_RASTERIZATION (1)
 #define REGION_TESTING (2)
-#define REGION_COUNT (3)
+#define REGION_FRUSTUM_CULL (3)
+#define REGION_COUNT (4)
 
 void prof_next_frame();
 void prof_begin(int region);

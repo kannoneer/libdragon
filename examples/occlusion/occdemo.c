@@ -54,7 +54,11 @@ static camera_t camera;
 // static fps_camera_t fps_camera = {.pos={-5.412786f, 0.000000f, 18.875854f}, .angle=2.183891f, .pitch=0.030703f};
 // static fps_camera_t fps_camera = {.pos={-13.264417f, 0.000000f, 10.275603f}, .angle=-0.733432f, .pitch=0.030703f};
 //static fps_camera_t fps_camera = {.pos={11.028643f, 0.000000f, 40.910480f}, .angle=3.844792f, .pitch=0.030703f};
-static fps_camera_t fps_camera = {.pos={40.688049f, 0.000000f, 30.212502f}, .angle=2.041767f, .pitch=0.030703f};
+// static fps_camera_t fps_camera = {.pos={40.688049f, 0.000000f, 30.212502f}, .angle=2.041767f, .pitch=0.030703f};
+// static fps_camera_t fps_camera = {.pos={3.199933f, 0.000000f, 30.553013f}, .angle=1.826194f, .pitch=0.030703f};
+// static fps_camera_t fps_camera = {.pos={2.377626f, 0.000000f, 21.517771f}, .angle=4.706178f, .pitch=0.029522f};
+// static fps_camera_t fps_camera = {.pos={7.686297f, 0.000000f, -2.676855f}, .angle=3.683286f, .pitch=0.029522f};
+static fps_camera_t fps_camera = {.pos={-9.939481f, 0.000000f, -3.837207f}, .angle=-2.173863f, .pitch=0.029522f};
 
 int g_camera_mode = CAM_SPIN;
 matrix_t g_view;
@@ -79,6 +83,7 @@ static int config_depth_view_mode = 1;
 static bool config_top_down_view = false;
 static float config_far_plane = 50.f;
 static int config_show_bvh_boxes = 0;
+static int config_show_last_box = 0;
 
 static const GLfloat light_diffuse[8][4] = {
     {1.0f, 1.0f, 1.0f, 1.0f},
@@ -291,6 +296,8 @@ struct {
     int num_drawn;
     int num_max;
 } scene_stats;
+
+occ_raster_query_result_t last_visible_result = {};
 
 void setup_city_scene()
 {
@@ -554,9 +561,11 @@ void render_city_scene(surface_t* disp)
     // Draw occluders
 
     if (config_enable_culling) {
+        // debugf("HACK no occluders\n");
         for (uint32_t i = 0; i < city_scene.num_occluders; i++) {
-            occ_raster_query_result_t result = {};
-            occ_draw_hull(culler, sw_zbuffer, &city_scene.occ_hulls[i], &city_scene.occluder_xforms[i], &result, OCCLUDER_TWO_SIDED);
+           //if (i!=2) continue;
+           occ_raster_query_result_t result = {};
+           occ_draw_hull(culler, sw_zbuffer, &city_scene.occ_hulls[i], &city_scene.occluder_xforms[i], &result, OCCLUDER_TWO_SIDED);
         }
     }
 
@@ -585,18 +594,20 @@ void render_city_scene(surface_t* disp)
 
     scene_stats.num_max = city_scene.num_nodes;
 
-    for (uint32_t res_idx = 0; res_idx < num_visible; res_idx++) {
-        cull_result_t res = cull_results[res_idx];
+    for (uint32_t traverse_idx = 0; traverse_idx < num_visible; traverse_idx++) {
+        cull_result_t res = cull_results[traverse_idx];
         uint16_t idx = res.idx;
+        // if (res.idx != 0) continue;
         // debugf("[%u] .idx=%d, .flags=0x%x\n", idx, res.idx, res.flags);
 
         bool visible = true;
 
         if (config_enable_culling && !(res.flags & VISIBLE_CAMERA_INSIDE) && city_scene.node_should_test[idx]) {
-            // debugf("occlusion testing node '%s'\n", city_scene.node_names[idx]);
             occ_raster_query_result_t result = {};
+            // debugf("occlusion testing node '%s'\n", city_scene.node_names[idx]);
             // occ_draw_hull(culler, sw_zbuffer, &unit_cube_hull, &city_scene.node_xforms[idx], &result, 0);
             visible = occ_check_target_visible(culler, sw_zbuffer, &unit_cube_hull, &city_scene.node_xforms[idx], &city_scene.targets[idx], &result);
+            if (visible) last_visible_result = result;
         }
 
         if (visible) {
@@ -884,6 +895,15 @@ void render(double delta)
         rdpq_tex_blit(sw_zbuffer, 0, 0, &params);
     }
 
+    if (config_show_last_box && (g_num_frames % 2 ==0)) {
+        rdpq_set_mode_fill((color_t){255,0,0,255});
+        const occ_result_box_t* box = &last_visible_result.box;
+        int scalex = SCREEN_WIDTH / CULL_W;
+        int scaley = SCREEN_HEIGHT / CULL_H;
+        rdpq_fill_rectangle(scalex*box->minX, scaley*box->minY, scalex*box->maxX, scaley*box->maxY);
+        // debugf("filled (%d, %d, %d, %d)\n", box->minX, box->minY, box->maxX, box->maxY);
+    }
+
     rspq_flush();
 
     rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 20, config_enable_culling ? "occlusion culling: ON" : "occlusion culling: OFF");
@@ -994,10 +1014,12 @@ int main()
         mu64_set_mouse_speed(0.10f * (float)delta); // keep cursor speed constant
 
         if (config_menu_open) {
-            if (mu_begin_window_ex(&mu_ctx, "Settings", mu_rect(10, 40, 120, 60), MU_OPT_NOCLOSE)) {
+            if (mu_begin_window_ex(&mu_ctx, "Settings", mu_rect(10, 40, 120, 80), MU_OPT_NOCLOSE)) {
                 mu_layout_row(&mu_ctx, 1, (int[]){-1}, 0);
                 mu_label(&mu_ctx, "Background");
                 mu_checkbox(&mu_ctx, "Show BVH boxes", &config_show_bvh_boxes);
+                mu_checkbox(&mu_ctx, "Rough test only", &config_force_rough_test_only);
+                mu_checkbox(&mu_ctx, "Show last rough box", &config_show_last_box);
                 mu_end_window(&mu_ctx);
             }
 
