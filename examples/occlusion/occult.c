@@ -41,6 +41,10 @@ enum {
 
 typedef uint32_t occ_clip_action_t;
 
+const int NEAR_PLANE_INDEX = 2;
+const int FAR_PLANE_INDEX = 5;
+
+
 occ_clip_action_t g_near_clipping_action = CLIP_ACTION_DO_IT;
 
 occ_culler_t *occ_alloc()
@@ -554,8 +558,6 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
             }
         }
 
-        const int NEAR_PLANE_INDEX = 2;
-        const int FAR_PLANE_INDEX = 5;
         const bool clips_near = (verts[0].tr_code | verts[1].tr_code | verts[2].tr_code) & (1 << NEAR_PLANE_INDEX);
         const bool clips_far = (verts[0].tr_code | verts[1].tr_code | verts[2].tr_code) & (1 << FAR_PLANE_INDEX);
 
@@ -686,9 +688,8 @@ bool occ_check_pixel_box_visible(occ_culler_t *occ, surface_t *zbuffer,
     prof_begin(REGION_TESTING);
     if (minX < 0) minX = 0;
     if (minY < 0) minY = 0;
-    if (maxX > zbuffer->width - 1) maxX = zbuffer->width - 1;
-    if (maxY > zbuffer->height - 1) maxY = zbuffer->height - 1;
-
+    if (maxX > zbuffer->width) maxX = zbuffer->width;
+    if (maxY > zbuffer->height) maxY = zbuffer->height;
 
     if (out_box) {
         out_box->minX = minX;
@@ -749,8 +750,7 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
         mvp = &mvp_new;
         matrix_mult_full(mvp, &occ->mvp, model_xform);
         prof_end(REGION_TRANSFORM);
-    }
-    else {
+    } else {
         mvp = &occ->mvp;
     }
 
@@ -761,6 +761,8 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
     float maxY = -__FLT_MAX__;
 
     occ_box2df_t oct_box = {{__FLT_MAX__, __FLT_MAX__}, {-__FLT_MAX__, -__FLT_MAX__}};
+    uint8_t clip_codes_all = 0xff;
+    uint8_t clip_codes_any = 0x00;
 
     for (int iv = 0; iv < mesh->num_vertices; iv++) {
         prof_begin(REGION_TRANSFORM);
@@ -771,27 +773,49 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
         vert.obj_attributes.position[3] = 1.0f;
 
         cpu_vertex_pre_tr(&vert, mvp);
-        cpu_vertex_calc_screenspace(&vert);
-        vert.screen_pos[0] += SCREENSPACE_BIAS;
-        vert.screen_pos[1] += SCREENSPACE_BIAS;
+
+        clip_codes_all &= vert.tr_code;
+        clip_codes_any |= vert.tr_code;
+        debugf("[%d] vert.tr_code: %x\n", iv, vert.tr_code);
+
+        // An optimization: If a single vertex was behind the near plane then we don't
+        // care about the computed garbage bounds anyway. We can only check the clipping
+        // flags of the rest of the vertices to see if they are all outside the frustum.
+        if (!(clip_codes_any & (1 << NEAR_PLANE_INDEX))) {
+            cpu_vertex_calc_screenspace(&vert);
+            vert.screen_pos[0] += SCREENSPACE_BIAS;
+            vert.screen_pos[1] += SCREENSPACE_BIAS;
+
+            if (vert.depth > 0.f) {
+                minZ = min(minZ, vert.depth);
+                minX = min(minX, vert.screen_pos[0]);
+                maxX = max(maxX, vert.screen_pos[0]);
+                minY = min(minY, vert.screen_pos[1]);
+                maxY = max(maxY, vert.screen_pos[1]);
+            }
+
+            if (g_octagon_test) {
+                vec2f pr = rotate_xy_coords_45deg(vert.screen_pos[0], vert.screen_pos[1]);
+                oct_box.lo.x = min(oct_box.lo.x, pr.x);
+                oct_box.lo.y = min(oct_box.lo.y, pr.y);
+                oct_box.hi.x = max(oct_box.hi.x, pr.x);
+                oct_box.hi.y = max(oct_box.hi.y, pr.y);
+            }
+        }
         prof_end(REGION_TRANSFORM);
-        //if (vert.depth < 0.f) return true; // HACK: any vertex behind camera makes the object visible
+    }
 
-        if (vert.depth > 0.f) {
-            minZ = min(minZ, vert.depth);
-            minX = min(minX, vert.screen_pos[0]);
-            maxX = max(maxX, vert.screen_pos[0]);
-            minY = min(minY, vert.screen_pos[1]);
-            maxY = max(maxY, vert.screen_pos[1]);
-        }
+    debugf("clip_codes_all: %x\n", clip_codes_all);
 
-        if (g_octagon_test) {
-            vec2f pr = rotate_xy_coords_45deg(vert.screen_pos[0], vert.screen_pos[1]);
-            oct_box.lo.x = min(oct_box.lo.x, pr.x);
-            oct_box.lo.y = min(oct_box.lo.y, pr.y);
-            oct_box.hi.x = max(oct_box.hi.x, pr.x);
-            oct_box.hi.y = max(oct_box.hi.y, pr.y);
-        }
+    if (clip_codes_all != 0) {
+        // If all vertices were behind some clip plane then the object can't be visible.
+        return false;
+    }
+
+    if (clip_codes_any & (1 << NEAR_PLANE_INDEX)) {
+        // If any vertex lies behind the camera then we can't trust the projected bounds
+        // and must report the object as potentially visible.
+        return true;
     }
 
     if (config_inflate_rough_bounds) {
@@ -803,16 +827,20 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
         maxY += 1;
     }
 
-    // Upper bounds are exclusive so round up to include the pixels right at the edge as well.
-    //maxX = ceilf(maxX);
-    //maxY = ceilf(maxY);
-
     if (g_octagon_test) {
         oct_box.lo.x = floorf(oct_box.lo.x);
         oct_box.lo.y = floorf(oct_box.lo.y);
         oct_box.hi.x = ceilf(oct_box.hi.x);
         oct_box.hi.y = ceilf(oct_box.hi.y);
     }
+
+    if (minZ >= 1.0f) {
+        // Can't be visible since the closest vertex was behind the far plane.
+        return false;
+    }
+
+    // assert(minZ >= 0.0f);
+    // assert(minZ < 1.0f);
 
     uint16_t udepth = FLOAT_TO_U16(minZ);
     occ_box2df_t* rotated_box = NULL;
@@ -853,13 +881,15 @@ occ_target_t* target, occ_raster_query_result_t *out_result)
     if (target->last_visible_frame != occ->frame - 1 || force_rough_only) {
         pass = occ_check_mesh_visible_rough(occ, zbuffer, &hull->mesh, model_xform, &box);
 
+        if (out_result) {
+            out_result->visible = pass; //TODO does this get overwritten?
+            out_result->x = box.hitX;
+            out_result->y = box.hitY;
+            out_result->depth = box.udepth;
+            out_result->box = box;
+        }
+
         if (!pass) {
-            if (out_result) {
-                out_result->visible = false;
-                out_result->x = box.hitX;
-                out_result->y = box.hitY;
-                out_result->depth = box.udepth;
-            }
             if (g_verbose_visibility_tracking) {
                 debugf("coarse fail\n");
             }
