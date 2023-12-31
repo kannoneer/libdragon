@@ -84,6 +84,7 @@ static bool config_top_down_view = false;
 static float config_far_plane = 50.f;
 static int config_show_bvh_boxes = 0;
 static int config_show_last_box = 0;
+static int config_cull_occluders = 1;
 
 static const GLfloat light_diffuse[8][4] = {
     {1.0f, 1.0f, 1.0f, 1.0f},
@@ -290,9 +291,12 @@ struct city_scene_s
     occ_mesh_t occ_meshes[CITY_SCENE_MAX_OCCLUDERS];
     occ_hull_t occ_hulls[CITY_SCENE_MAX_OCCLUDERS];
     matrix_t occluder_xforms[CITY_SCENE_MAX_OCCLUDERS];
+    float occ_origins[CITY_SCENE_MAX_OCCLUDERS*3];
+    float occ_radiuses_sqr[CITY_SCENE_MAX_OCCLUDERS];
 
     sphere_bvh_t bvh;
     matrix_t bvh_xforms[CITY_SCENE_MAX_BVH_SIZE];
+
 } city_scene = {};
 
 struct {
@@ -459,7 +463,7 @@ void setup_city_scene()
         city_scene.node_dplists[i] = list;
 
         bool success = extract_node_bounds(node, &city_scene.node_world_xforms[i], &origins[3*i], &radiuses[i], &aabbs[i], &city_scene.node_xforms[i]);
-
+        assert(success);
     }
 
     debugf("num_nodes: %lu, num_occluders: %lu\n", s->num_nodes, s->num_occluders);
@@ -476,6 +480,14 @@ void setup_city_scene()
             debugf("conversion of hull %lu failed\n", i);
             assert(success);
         }
+        aabb_t box;
+        matrix_t node_xform;
+        float radius = 0.0f;
+        success = extract_node_bounds(s->occluders[i], &city_scene.occluder_xforms[i], &city_scene.occ_origins[3*i], &radius, &box, &node_xform);
+        city_scene.occ_radiuses_sqr[i] = radius * radius;
+        debugf("occluder %lu origin=(%f, %f, %f), radius=%f\n", i, 
+            city_scene.occ_origins[3*i+0], city_scene.occ_origins[3*i+1], city_scene.occ_origins[3*i+2],
+            radius);
     }
 
     debugf("input origins and rads:\n");
@@ -563,12 +575,33 @@ void render_city_scene(surface_t* disp)
     // Draw occluders
 
     if (config_enable_culling) {
+
+        prof_begin(REGION_DRAW_OCCLUDERS);
         // debugf("HACK no occluders\n");
         for (uint32_t i = 0; i < city_scene.num_occluders; i++) {
-           //if (i!=2) continue;
-           occ_raster_query_result_t result = {};
-           occ_draw_hull(culler, sw_zbuffer, &city_scene.occ_hulls[i], &city_scene.occluder_xforms[i], &result, OCCLUDER_TWO_SIDED);
+            //debugf("testing %lu (%f, %f, %f), rad_sqr=%f\n",
+            //        i,
+            //       city_scene.occ_origins[3 * i],
+            //       city_scene.occ_origins[3 * i + 1],
+            //       city_scene.occ_origins[3 * i + 2],
+            //       city_scene.occ_radiuses_sqr[i]);
+
+            prof_begin(REGION_CULL_OCCLUDERS);
+            bool visible = true;
+            if (config_cull_occluders) {
+                uint8_t inflags = 0x00;
+                plane_side_t side = is_sphere_inside_frustum(culler->clip_planes, &city_scene.occ_origins[3 * i], city_scene.occ_radiuses_sqr[i], &inflags);
+                visible = side != SIDE_OUT;
+            }
+            prof_end(REGION_CULL_OCCLUDERS);
+
+            if (visible) {
+                occ_raster_query_result_t result = {};
+                occ_draw_hull(culler, sw_zbuffer, &city_scene.occ_hulls[i], &city_scene.occluder_xforms[i], &result, OCCLUDER_TWO_SIDED);
+            }
+            // debugf("occluder %lu visible: %d, inflags: 0x%x\n", i, visible, inflags);
         }
+        prof_end(REGION_DRAW_OCCLUDERS);
     }
 
     // Draw occludees (AKA objects, targets)
@@ -1024,6 +1057,7 @@ int main()
                 mu_checkbox(&mu_ctx, "Show BVH boxes", &config_show_bvh_boxes);
                 mu_checkbox(&mu_ctx, "Rough test only", &config_force_rough_test_only);
                 mu_checkbox(&mu_ctx, "Show last rough box", &config_show_last_box);
+                mu_checkbox(&mu_ctx, "Cull occluders", &config_cull_occluders);
                 mu_end_window(&mu_ctx);
             }
 

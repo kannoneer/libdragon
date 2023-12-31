@@ -195,6 +195,18 @@ void draw_tri(
     vec2 v2 = {SUBPIXEL_SCALE * (v2f.x+SCREENSPACE_BIAS) + 0.5f, SUBPIXEL_SCALE * (v2f.y+SCREENSPACE_BIAS) + 0.5f};
 
     int area2x = -orient2d_subpixel(v0, v1, v2);
+
+    if (false) {
+        debugf("area2x int: %d\n", area2x);
+        // debugf("minb: (%d, %d), maxb: (%d, %d), size: %dx%d\n", minb.x, minb.y, maxb.x, maxb.y, maxb.x-minb.x, maxb.y-minb.y);
+        debugf("v0f: (%f, %f), v1f: (%f, %f), v2f: (%f, %f)\n",
+               v0f.x, v0f.y, v1f.x, v1f.y, v2f.x, v2f.y);
+        debugf("v0: (%d, %d), v1: (%d, %d), v2: (%d, %d)\n",
+               v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
+
+        // debugf("v01: (%f, %f, %f), v02: (%f, %f, %f)\n", v01.x, v01.y, v01.z, v02.x, v02.y, v02.z);
+    }
+
     if (area2x <= 0) {
         if (flags & RASTER_FLAG_BACKFACE_CULL) {
             return;
@@ -308,17 +320,11 @@ void draw_tri(
     if (false) {
         debugf("area2x: %d\n", area2x);
         debugf("Z0f: %f, Z1f: %f, Z2f: %f\n", Z0f, Z1f, Z2f);
-        debugf("Zf_row: %f\n", Zf_row);
-
-                            debugf("minb: (%d, %d), maxb: (%d, %d), size: %dx%d\n", minb.x, minb.y, maxb.x, maxb.y, maxb.x-minb.x, maxb.y-minb.y);
-
-                            debugf("v0f: (%f, %f), v1f: (%f, %f), v2f: (%f, %f)\n",
-                                   v0f.x, v0f.y, v1f.x, v1f.y, v2f.x, v2f.y);
-                            debugf("v0: (%d, %d), v1: (%d, %d), v2: (%d, %d)\n",
-                                   v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
-
-                            debugf("v01: (%f, %f, %f), v02: (%f, %f, %f)\n",
-                                   v01.x, v01.y, v01.z, v02.x, v02.y, v02.z);
+        debugf("Zf_row: %f, dZdx: %f, dZdy: %f\n", Zf_row, dZdx, dZdy);
+        debugf("minb: (%d, %d), maxb: (%d, %d), size: %dx%d\n", minb.x, minb.y, maxb.x, maxb.y, maxb.x - minb.x, maxb.y - minb.y);
+        debugf("v0f: (%f, %f), v1f: (%f, %f), v2f: (%f, %f)\n", v0f.x, v0f.y, v1f.x, v1f.y, v2f.x, v2f.y);
+        debugf("v0: (%d, %d), v1: (%d, %d), v2: (%d, %d)\n", v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
+        debugf("v01: (%f, %f, %f), v02: (%f, %f, %f)\n", v01.x, v01.y, v01.z, v02.x, v02.y, v02.z);
     }
 
     // Fixed point deltas for the integer-only inner loop. We use DELTA_BITS of precision.
@@ -548,6 +554,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
                    verts[0].depth,
                    verts[0].inv_w);
         }
+
 
         uint8_t tr_codes = 0xff;
         tr_codes &= verts[0].tr_code;
@@ -936,6 +943,10 @@ occ_target_t* target, occ_raster_query_result_t *out_result)
             }
             return false;
         }
+
+        if (g_verbose_visibility_tracking) {
+            debugf("coarse pass\n");
+        }
     }
 
     if (force_rough_only) {
@@ -951,6 +962,9 @@ occ_target_t* target, occ_raster_query_result_t *out_result)
     finish:
     if (pass) {
         target->last_visible_frame = occ->frame;
+        if (g_verbose_visibility_tracking) {
+            debugf("marked visible\n");
+        }
     } else {
         if (g_verbose_visibility_tracking) {
             debugf("precise fail\n");
@@ -1124,22 +1138,6 @@ bool occ_hull_from_flat_mesh(const occ_mesh_t* mesh_in, occ_hull_t* hull_out)
 
     }
 
-    // Compute max distance from origin
-    hull_out->max_radius = 0.0;
-
-    for (uint32_t i=0;i<m->num_vertices;i++) {
-        float* p = &m->vertices[i].position[0];
-        float radius = sqrtf(p[0]*p[0] + p[1]*p[1] + p[2]*p[2]);
-
-        hull_out->max_radius = max(radius, hull_out->max_radius);
-    }
-
-    assert(hull_out->max_radius > 1e-3);
-
-    if (verbose) {
-        debugf("max_radius: %f\n", hull_out->max_radius);
-    }
-
     if (verbose) {
         for (int tri_idx = 0; tri_idx < num_tris; tri_idx++) {
             debugf("tri %-2d: ", tri_idx);
@@ -1260,7 +1258,7 @@ float aabb_diagonal_length(const aabb_t *box)
     return sqrtf(diag[0] * diag[0] + diag[1] * diag[1] + diag[2] * diag[2]);
 }
 
-bool compute_mesh_bounds(mesh_t* mesh_in, const matrix_t* to_world,
+bool compute_mesh_bounds(const mesh_t* mesh_in, const matrix_t* to_world,
     float* out_obj_radius, aabb_t* out_obj_aabb,
     float* out_world_radius, aabb_t* out_world_aabb, float* out_world_center)
 {

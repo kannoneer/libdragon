@@ -67,6 +67,8 @@ enum {
 
 typedef uint32_t occ_raster_flags_t;
 
+#define RASTER_FLAG_MASK_SHRINK (RASTER_FLAG_SHRINK_EDGE_01 | RASTER_FLAG_SHRINK_EDGE_12 | RASTER_FLAG_SHRINK_EDGE_20)
+
 enum {
     OCCLUDER_TWO_SIDED = 1,
 };
@@ -125,7 +127,6 @@ typedef struct occ_hull_s {
     vec3f* tri_normals; // num_indices/3 triangle normal vectors
     uint16_t* neighbors; // three neighbors per triangle, one for each edge. num_indices size.
                         // OCC_NO_EDGE_NEIGHBOR sentinel value marks outer edges
-    float max_radius;   // largest vertex distance from origin, to be used for culling
 } occ_hull_t;
 
 typedef struct occ_target_s {
@@ -198,6 +199,6 @@ bool model_to_occ_mesh(model64_t* model, mesh_t* mesh_in, occ_mesh_t* mesh_out);
 
 uint32_t uncompress_model64_verts(primitive_t* prim, vertex_t* vertices_out);
 
-bool compute_mesh_bounds(mesh_t* mesh_in, const matrix_t* to_world,
+bool compute_mesh_bounds(const mesh_t* mesh_in, const matrix_t* to_world,
     float* out_obj_radius, aabb_t* out_obj_aabb,
     float* out_world_radius, aabb_t* out_world_aabb, float* out_world_center);

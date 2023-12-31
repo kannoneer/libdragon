@@ -39,6 +39,8 @@ void prof_print_stats()
     PRINT_REGION(REGION_RASTERIZATION, "Rasterization")
     PRINT_REGION(REGION_TESTING, "Testing")
     PRINT_REGION(REGION_FRUSTUM_CULL, "Frustum culling")
+    PRINT_REGION(REGION_DRAW_OCCLUDERS, "Draw occluders");
+    PRINT_REGION(REGION_CULL_OCCLUDERS, "  Cull occluders");
 }
 
 void prof_reset_stats()
