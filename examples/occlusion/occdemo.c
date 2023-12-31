@@ -38,6 +38,8 @@
 #define CULL_H (SCREEN_HEIGHT / 8)
 #endif
 
+#define GET_ARRAY_SIZE(a) (sizeof(a)/sizeof(a[0]))
+
 static occ_culler_t *culler;
 static occ_hull_t cube_hull;
 static occ_hull_t unit_cube_hull;
@@ -292,7 +294,9 @@ struct city_scene_s
     occ_hull_t occ_hulls[CITY_SCENE_MAX_OCCLUDERS];
     matrix_t occluder_xforms[CITY_SCENE_MAX_OCCLUDERS];
     float occ_origins[CITY_SCENE_MAX_OCCLUDERS*3];
-    float occ_radiuses_sqr[CITY_SCENE_MAX_OCCLUDERS];
+    float occ_radiuses[CITY_SCENE_MAX_OCCLUDERS];
+    aabb_t occ_aabbs[CITY_SCENE_MAX_OCCLUDERS];
+    sphere_bvh_t occluder_bvh;
 
     sphere_bvh_t bvh;
     matrix_t bvh_xforms[CITY_SCENE_MAX_BVH_SIZE];
@@ -302,6 +306,7 @@ struct city_scene_s
 struct {
     int num_drawn;
     int num_max;
+    int num_occluders_drawn;
 } scene_stats;
 
 occ_raster_query_result_t last_visible_result = {};
@@ -480,14 +485,22 @@ void setup_city_scene()
             debugf("conversion of hull %lu failed\n", i);
             assert(success);
         }
-        aabb_t box;
         matrix_t node_xform;
-        float radius = 0.0f;
-        success = extract_node_bounds(s->occluders[i], &city_scene.occluder_xforms[i], &city_scene.occ_origins[3*i], &radius, &box, &node_xform);
-        city_scene.occ_radiuses_sqr[i] = radius * radius;
+        success = extract_node_bounds(
+            s->occluders[i],
+            &city_scene.occluder_xforms[i],
+            &city_scene.occ_origins[3 * i],
+            &city_scene.occ_radiuses[i],
+            &city_scene.occ_aabbs[i],
+            &node_xform);
+
         debugf("occluder %lu origin=(%f, %f, %f), radius=%f\n", i, 
-            city_scene.occ_origins[3*i+0], city_scene.occ_origins[3*i+1], city_scene.occ_origins[3*i+2],
-            radius);
+            city_scene.occ_origins[3*i+0], city_scene.occ_origins[3*i+1], city_scene.occ_origins[3*i+2], city_scene.occ_radiuses[i]);
+    }
+
+    if (!bvh_build(s->occ_origins, s->occ_radiuses, s->occ_aabbs, city_scene.num_occluders, &city_scene.occluder_bvh)) {
+        debugf("Occluder BVH building failed\n");
+        return;
     }
 
     debugf("input origins and rads:\n");
@@ -501,9 +514,8 @@ void setup_city_scene()
     uint64_t bvh_start_ticks = get_ticks();
 
     sphere_bvh_t bvh = {};
-    bool success = bvh_build(origins, radiuses, aabbs, city_scene.num_nodes, &bvh);
-    if (!success) {
-        debugf("BVH building failed\n");
+    if (!bvh_build(origins, radiuses, aabbs, city_scene.num_nodes, &bvh)) {
+        debugf("Geometry BVH building failed\n");
         return;
     }
 
@@ -573,33 +585,47 @@ void render_city_scene(surface_t* disp)
     glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
 
     // Draw occluders
+    scene_stats.num_occluders_drawn = 0;
 
     if (config_enable_culling) {
-
         prof_begin(REGION_DRAW_OCCLUDERS);
-        // debugf("HACK no occluders\n");
-        for (uint32_t i = 0; i < city_scene.num_occluders; i++) {
-            //debugf("testing %lu (%f, %f, %f), rad_sqr=%f\n",
-            //        i,
-            //       city_scene.occ_origins[3 * i],
-            //       city_scene.occ_origins[3 * i + 1],
-            //       city_scene.occ_origins[3 * i + 2],
-            //       city_scene.occ_radiuses_sqr[i]);
 
+        if (config_cull_occluders) {
+            // debugf("HACK no occluders\n");
             prof_begin(REGION_CULL_OCCLUDERS);
-            bool visible = true;
-            if (config_cull_occluders) {
-                uint8_t inflags = 0x00;
-                plane_side_t side = is_sphere_inside_frustum(culler->clip_planes, &city_scene.occ_origins[3 * i], city_scene.occ_radiuses_sqr[i], &inflags);
-                visible = side != SIDE_OUT;
-            }
+            static cull_result_t occluder_cull_results[CITY_SCENE_MAX_OCCLUDERS];
+            uint32_t num_visible = bvh_find_visible(&city_scene.occluder_bvh, culler->camera_pos, culler->clip_planes, occluder_cull_results, GET_ARRAY_SIZE(occluder_cull_results));
             prof_end(REGION_CULL_OCCLUDERS);
 
-            if (visible) {
+            // for (uint32_t i = 0; i < city_scene.num_occluders; i++) {
+            for (uint32_t traverse_idx = 0; traverse_idx < num_visible; traverse_idx++) {
+                // debugf("testing %lu (%f, %f, %f), rad_sqr=%f\n",
+                //         i,
+                //        city_scene.occ_origins[3 * i],
+                //        city_scene.occ_origins[3 * i + 1],
+                //        city_scene.occ_origins[3 * i + 2],
+                //        city_scene.occ_radiuses_sqr[i]);
+
+                // bool visible = true;
+                // if (config_cull_occluders) {
+                //     uint8_t inflags = 0x00;
+                //     float radius = city_scene.occ_radiuses[i];
+                //     plane_side_t side = is_sphere_inside_frustum(culler->clip_planes, &city_scene.occ_origins[3 * i], radius*radius, &inflags);
+                //     visible = side != SIDE_OUT;
+                // }
+
+                uint16_t idx = occluder_cull_results[traverse_idx].idx;
+                occ_raster_query_result_t result = {};
+                occ_draw_hull(culler, sw_zbuffer, &city_scene.occ_hulls[idx], &city_scene.occluder_xforms[idx], &result, OCCLUDER_TWO_SIDED);
+                // debugf("occluder %lu visible: %d, inflags: 0x%x\n", i, visible, inflags);
+                scene_stats.num_occluders_drawn++;
+            }
+        } else {
+            for (uint32_t i = 0; i < city_scene.num_occluders; i++) {
                 occ_raster_query_result_t result = {};
                 occ_draw_hull(culler, sw_zbuffer, &city_scene.occ_hulls[i], &city_scene.occluder_xforms[i], &result, OCCLUDER_TWO_SIDED);
+                scene_stats.num_occluders_drawn++;
             }
-            // debugf("occluder %lu visible: %d, inflags: 0x%x\n", i, visible, inflags);
         }
         prof_end(REGION_DRAW_OCCLUDERS);
     }
@@ -945,7 +971,7 @@ void render(double delta)
 
     rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 20, config_enable_culling ? "occlusion culling: ON" : "occlusion culling: OFF");
     rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 30, config_show_wireframe ? "show culled: ON" : "show culled: OFF");
-    rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 40, "visible: %d/%d objects", scene_stats.num_drawn, scene_stats.num_max);
+    rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 40, "visible: %d/%d objects, %d occluders", scene_stats.num_drawn, scene_stats.num_max, scene_stats.num_occluders_drawn);
     rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 50, "delta: % 6.3f ms, %.1f fps", delta*1000, 1.0/delta);
 
     mu64_end_frame();
@@ -969,8 +995,6 @@ void render(double delta)
         sw_zbuffer = &sw_zbuffer_array[0];
     }
 }
-
-#define GET_ARRAY_SIZE(a) (sizeof(a)/sizeof(a[0]))
 
 struct {
     uint32_t ticks[3];
