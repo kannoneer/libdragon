@@ -60,7 +60,7 @@ static camera_t camera;
 // static fps_camera_t fps_camera = {.pos={3.199933f, 0.000000f, 30.553013f}, .angle=1.826194f, .pitch=0.030703f};
 // static fps_camera_t fps_camera = {.pos={2.377626f, 0.000000f, 21.517771f}, .angle=4.706178f, .pitch=0.029522f};
 // static fps_camera_t fps_camera = {.pos={7.686297f, 0.000000f, -2.676855f}, .angle=3.683286f, .pitch=0.029522f};
-static fps_camera_t fps_camera = {.pos={0.910205f, 0.000000f, 24.153013f}, .angle=0.373610f, .pitch=0.029522f};
+static fps_camera_t fps_camera = {.pos={-1.147780f, 0.000000f, -8.575987f}, .angle=-3.231272f, .pitch=0.029522f};
 
 int g_camera_mode = CAM_SPIN;
 matrix_t g_view;
@@ -75,7 +75,8 @@ int g_show_node = -2;
 
 static GLuint textures[4];
 
-static const GLfloat environment_color[] = {0.85f, 0.85f, 1.0f, 1.f};
+#define ENV_COLOR_LITERAL {0.85f, 0.85f, 1.0f, 1.f}
+static const GLfloat environment_color[] = ENV_COLOR_LITERAL;
 
 static bool config_menu_open = false;
 
@@ -87,6 +88,7 @@ static float config_far_plane = 50.f;
 static int config_show_bvh_boxes = 0;
 static int config_show_last_box = 0;
 static int config_cull_occluders = 1;
+static int config_enable_fog_probes = 1;
 
 static const GLfloat light_diffuse[8][4] = {
     {1.0f, 1.0f, 1.0f, 1.0f},
@@ -98,6 +100,19 @@ static const GLfloat light_diffuse[8][4] = {
     {1.0f, 1.0f, 1.0f, 1.0f},
     {1.0f, 1.0f, 1.0f, 1.0f},
 };
+
+typedef struct fog_probe_s {
+    const char* name;
+    float pos[3];
+    float color[4];
+} fog_probe_t;
+
+static fog_probe_t fog_probes[] = {
+    (fog_probe_t){"environment", {}, ENV_COLOR_LITERAL},
+    (fog_probe_t){"probe torii", {}, {0.7f, 0.8f, 0.9f, 1.0f}},
+    (fog_probe_t){"probe central", {}, {0.95f, 0.95f, 0.95f, 1.0f}},
+    (fog_probe_t){"probe hallway", {}, {0.6f, 0.3f, 0.3f, 1.0f}},
+    };
 
 enum Fonts {
     FONT_SCIFI = 1
@@ -397,7 +412,7 @@ void setup_city_scene()
     //bool verbose=false;
     struct city_scene_s* s = &city_scene;
 
-    model64_t* model = model64_load("rom://room3.model64");
+    model64_t* model = model64_load("rom://room4.model64");
     if (!model) {
         debugf("Couldn't load model!\n");
         return;
@@ -411,6 +426,24 @@ void setup_city_scene()
 
     for (uint32_t i=0;i<node_count;i++){ 
         model64_node_t* node = model64_get_node(model, i);
+
+        if (node->name && strstr(node->name, "probe")) {
+            float* p = node->transform.pos;
+            bool found=false;
+            for (int probe_i = 0; probe_i < GET_ARRAY_SIZE(fog_probes); probe_i++) {
+                if (strcmp(node->name, fog_probes[probe_i].name) == 0) {
+                    fog_probes[probe_i].pos[0] = p[0];
+                    fog_probes[probe_i].pos[1] = p[1];
+                    fog_probes[probe_i].pos[2] = p[2];
+                    debugf("Found '%s' at (%f, %f, %f)\n", node->name, p[0], p[1], p[2]);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                debugf("No entry found for '%s' (%f, %f, %f)\n", node->name, p[0], p[1], p[2]);
+            }
+        }
 
         if (node->name == NULL || node->mesh == NULL) {
             debugf("Skipping node %lu name=%s, mesh=%p\n", i, node->name, node->mesh);
@@ -539,7 +572,7 @@ void setup_city_scene()
         matrix_mult_full(&city_scene.bvh_xforms[i], &translate, &scale);
     }
 
-    //wait_for_button();
+    // wait_for_button();
 }
 
 void render_posed_unit_cube(matrix_t* mtx) {
@@ -571,6 +604,7 @@ void render_aabb(const aabb_t* box) {
     glPopMatrix();
 }
 
+
 void render_city_scene(surface_t* disp)
 {
     long unsigned int anim_timer = g_num_frames;
@@ -589,7 +623,7 @@ void render_city_scene(surface_t* disp)
 
     if (config_enable_culling) {
         prof_begin(REGION_DRAW_OCCLUDERS);
-        const uint32_t max_occluders = 10;
+        const uint32_t max_occluders = 20;
 
         if (config_cull_occluders) {
             // debugf("HACK no occluders\n");
@@ -879,6 +913,16 @@ void render_city_scene(surface_t* disp)
     glDisable(GL_LIGHTING);
 }
 
+static float point3_distance_sqr(const float* a, const float* b) {
+    float diff[3] = {
+        b[0] - a[0],
+        b[1] - a[1],
+        b[2] - a[2],
+    };
+    return diff[0]*diff[0] + diff[1]*diff[1] + diff[2]*diff[2];
+}
+
+
 void render(double delta)
 {
     surface_t *disp = display_get();
@@ -887,7 +931,31 @@ void render(double delta)
 
     gl_context_begin();
 
-    glClearColor(environment_color[0], environment_color[1], environment_color[2], environment_color[3]);
+    // Evaluate fog probes
+
+    if (config_enable_fog_probes) {
+        prof_begin(REGION_PROBES);
+        const float env_weight = 1e-2; // assign some weight to env color that's used when not near any probe
+        float fog_color[4] = {env_weight * fog_probes[0].color[0], env_weight * fog_probes[0].color[1], env_weight * fog_probes[0].color[2], env_weight};
+        for (int i = 1; i < GET_ARRAY_SIZE(fog_probes); i++) {
+            float dist = point3_distance_sqr(&fps_camera.pos[0], &fog_probes[i].pos[0]);
+            float w = 1.0f / (dist + 4.0f);
+            fog_color[0] += w * fog_probes[i].color[0];
+            fog_color[1] += w * fog_probes[i].color[1];
+            fog_color[2] += w * fog_probes[i].color[2];
+            fog_color[3] += w;
+        }
+        fog_color[0] /= fog_color[3];
+        fog_color[1] /= fog_color[3];
+        fog_color[2] /= fog_color[3];
+        glFogfv(GL_FOG_COLOR, fog_color);
+        glClearColor(fog_color[0], fog_color[1], fog_color[2], 1.0f);
+        prof_end(REGION_PROBES);
+    } else {
+        glFogfv(GL_FOG_COLOR, environment_color);
+        glClearColor(environment_color[0], environment_color[1], environment_color[2], environment_color[3]);
+    }
+
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     occ_next_frame(culler);
     occ_clear_zbuffer(sw_zbuffer);
@@ -1077,13 +1145,15 @@ int main()
         mu64_set_mouse_speed(0.10f * (float)delta); // keep cursor speed constant
 
         if (config_menu_open) {
-            if (mu_begin_window_ex(&mu_ctx, "Settings", mu_rect(10, 40, 120, 80), MU_OPT_NOCLOSE)) {
+            if (mu_begin_window_ex(&mu_ctx, "Settings", mu_rect(10, 40, 140, 120), MU_OPT_NOCLOSE)) {
                 mu_layout_row(&mu_ctx, 1, (int[]){-1}, 0);
                 mu_label(&mu_ctx, "Background");
                 mu_checkbox(&mu_ctx, "Show BVH boxes", &config_show_bvh_boxes);
                 mu_checkbox(&mu_ctx, "Rough test only", &config_force_rough_test_only);
                 mu_checkbox(&mu_ctx, "Show last rough box", &config_show_last_box);
                 mu_checkbox(&mu_ctx, "Cull occluders", &config_cull_occluders);
+                mu_checkbox(&mu_ctx, "Enable fog probes", &config_enable_fog_probes);
+
                 mu_end_window(&mu_ctx);
             }
 

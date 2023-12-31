@@ -1159,7 +1159,7 @@ bool occ_hull_from_flat_mesh(const occ_mesh_t* mesh_in, occ_hull_t* hull_out)
 
 bool model_to_occ_mesh(model64_t* model, mesh_t* mesh_in, occ_mesh_t* mesh_out)
 {
-    bool verbose = true;
+    bool verbose = false;
 
     primitive_t* prim = &mesh_in->primitives[0];
     attribute_t* attr = &prim->position;
