@@ -58,7 +58,7 @@ static camera_t camera;
 // static fps_camera_t fps_camera = {.pos={3.199933f, 0.000000f, 30.553013f}, .angle=1.826194f, .pitch=0.030703f};
 // static fps_camera_t fps_camera = {.pos={2.377626f, 0.000000f, 21.517771f}, .angle=4.706178f, .pitch=0.029522f};
 // static fps_camera_t fps_camera = {.pos={7.686297f, 0.000000f, -2.676855f}, .angle=3.683286f, .pitch=0.029522f};
-static fps_camera_t fps_camera = {.pos={-9.939481f, 0.000000f, -3.837207f}, .angle=-2.173863f, .pitch=0.029522f};
+static fps_camera_t fps_camera = {.pos={0.910205f, 0.000000f, 24.153013f}, .angle=0.373610f, .pitch=0.029522f};
 
 int g_camera_mode = CAM_SPIN;
 matrix_t g_view;
@@ -282,6 +282,7 @@ struct city_scene_s
     model64_node_t* nodes[CITY_SCENE_MAX_NODES];
     GLuint node_dplists[CITY_SCENE_MAX_NODES];
     matrix_t node_xforms[CITY_SCENE_MAX_NODES];
+    matrix_t node_world_xforms[CITY_SCENE_MAX_NODES];
     bool node_should_test[CITY_SCENE_MAX_NODES];
     const char* node_names[CITY_SCENE_MAX_NODES];
 
@@ -300,6 +301,87 @@ struct {
 } scene_stats;
 
 occ_raster_query_result_t last_visible_result = {};
+
+void render_node(model64_t* mdl, model64_node_t* node)
+{
+    GLfloat mat_diffuse[] = 
+    {
+        1.0f, 1.0f, 1.0f, 1.0f,
+        1.0f, 0.0f, 0.0f, 1.0f,
+        0.0f, 1.0f, 0.0f, 1.0f,
+        0.0f, 0.0f, 1.0f, 1.0f,
+    };
+    (void)mat_diffuse;
+
+    glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+    glEnable(GL_COLOR_MATERIAL);
+    glEnable(GL_RDPQ_MATERIAL_N64);
+
+    rdpq_set_mode_standard();
+    uint8_t env = 0;
+    uint8_t prim = 255;
+    rdpq_set_env_color((color_t){env, env, env, 255});
+    rdpq_set_prim_color((color_t){prim, prim, prim, 255});
+    rdpq_mode_combiner(RDPQ_COMBINER2(
+        (TEX0, 0, SHADE, ENV), (0, 0, 0, 1),
+        (COMBINED, ENV, PRIM, COMBINED), (0, 0, 0, COMBINED)));
+    rdpq_mode_fog(RDPQ_FOG_STANDARD);
+
+    model64_draw_node(mdl, node);
+    glDisable(GL_RDPQ_MATERIAL_N64);
+}
+
+bool extract_node_bounds(const model64_node_t* node, const matrix_t* world_xform,
+    float* out_origin, float* out_radius, aabb_t* out_aabb, matrix_t* out_node_xform)
+{
+        float obj_radius = 0.0f;
+        float world_radius = 0.0f;
+
+        aabb_t obj_aabb={};
+        aabb_t world_aabb={};
+        float world_center[3]={};
+        bool bounds_ok = compute_mesh_bounds(node->mesh, world_xform, &obj_radius, &obj_aabb, &world_radius, &world_aabb, &world_center[0]);
+        debugf("[node %p] OK: %d, obj_radius=%f, min=(%.3f, %.3f, %.3f), max=(%.3f, %.3f, %.3f)\n", node, bounds_ok, obj_radius,
+            obj_aabb.lo[0], obj_aabb.lo[1], obj_aabb.lo[2],
+            obj_aabb.hi[0], obj_aabb.hi[1], obj_aabb.hi[2]
+        );
+        debugf("[node %p] OK: %d, world_radius=%f, min=(%.3f, %.3f, %.3f), max=(%.3f, %.3f, %.3f), center=(%f, %f, %f)\n", node, bounds_ok, world_radius,
+            world_aabb.lo[0], world_aabb.lo[1], world_aabb.lo[2],
+            world_aabb.hi[0], world_aabb.hi[1], world_aabb.hi[2],
+            world_center[0], world_center[1],world_center[2]
+        );
+
+        const float* minp = &obj_aabb.lo[0];
+        const float* maxp = &obj_aabb.hi[0];
+        // unit cube is [-1, 1]^3 so we need to scale only by 1/2 of the AABB axes to get that size
+        float scale[3] = {0.5f * (maxp[0] - minp[0]), 0.5f * (maxp[1] - minp[1]), 0.5f * (maxp[2] - minp[2])};
+        // compute midpoint
+        float mid[3] = {0.5f * (maxp[0] + minp[0]), 0.5f * (maxp[1] + minp[1]), 0.5f * (maxp[2] + minp[2])};
+        debugf("[node %p] scale: (%.3f, %.3f, %.3f), mid: (%.3f, %.3f, %.3f)\n",
+            node,
+            scale[0], scale[1], scale[2],
+            mid[0], mid[1], mid[2]
+        );
+
+        // debugf("matrix %lu in\n", i);
+        // print_matrix(&city_scene.node_xforms[i]);
+        // float* orig = &origins[3*i];
+        out_origin[0] = world_center[0];
+        out_origin[1] = world_center[1];
+        out_origin[2] = world_center[2];
+        *out_radius = world_radius;
+        *out_aabb = world_aabb;
+
+        //matrix_t old = city_scene.node_world_xforms[i];
+
+        matrix_t centerize = cpu_glTranslatef(mid[0], mid[1], mid[2]);
+        matrix_t scale_obb = cpu_glScalef(scale[0], scale[1], scale[2]);
+        matrix_t temp;
+        matrix_mult_full(&temp, &centerize, &scale_obb);
+        matrix_mult_full(out_node_xform, world_xform, &temp);
+
+    return true;
+}
 
 void setup_city_scene()
 {
@@ -352,20 +434,12 @@ void setup_city_scene()
             if (strstr(node->name, "occluder") == NULL) {
                 city_scene.node_should_test[s->num_nodes] = true;
             }
-            copy_to_matrix(&model->transforms[i].world_mtx[0], &city_scene.node_xforms[s->num_nodes]);
+            copy_to_matrix(&model->transforms[i].world_mtx[0], &city_scene.node_world_xforms[s->num_nodes]);
             s->nodes[s->num_nodes] = node;
             city_scene.node_names[s->num_nodes] = node->name;
             s->num_nodes++;
         }
     }
-
-    GLfloat mat_diffuse[] = 
-    {
-        1.0f, 1.0f, 1.0f, 1.0f,
-        1.0f, 0.0f, 0.0f, 1.0f,
-        0.0f, 1.0f, 0.0f, 1.0f,
-        0.0f, 0.0f, 1.0f, 1.0f,
-    };
 
     uint64_t start_ticks = get_ticks();
 
@@ -379,74 +453,13 @@ void setup_city_scene()
     for (uint32_t i = 0; i < city_scene.num_nodes; i++) {
         GLuint list = glGenLists(1);
         glNewList(list, GL_COMPILE);
-        glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
-        glEnable(GL_COLOR_MATERIAL);
-        glEnable(GL_RDPQ_MATERIAL_N64);
-
-        rdpq_set_mode_standard();
-        uint8_t env = 0;
-        uint8_t prim = 255;
-        rdpq_set_env_color((color_t){env, env, env, 255});
-        rdpq_set_prim_color((color_t){prim, prim, prim, 255});
-        rdpq_mode_combiner(RDPQ_COMBINER2(
-            (TEX0, 0, SHADE, ENV), (0, 0, 0, 1),
-            (COMBINED, ENV, PRIM, COMBINED), (0, 0, 0, COMBINED)));
-        rdpq_mode_fog(RDPQ_FOG_STANDARD);
-
-        // glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &mat_diffuse[4*(i%4)]);
         model64_node_t* node = city_scene.nodes[i];
-        model64_draw_node(city_scene.mdl_room, node);
-        (void)mat_diffuse;
-        //glDisable(GL_COLOR_MATERIAL);
-        glDisable(GL_RDPQ_MATERIAL_N64);
+        render_node(city_scene.mdl_room, node);
         glEndList();
         city_scene.node_dplists[i] = list;
 
-        float obj_radius = 0.0f;
-        float world_radius = 0.0f;
+        bool success = extract_node_bounds(node, &city_scene.node_world_xforms[i], &origins[3*i], &radiuses[i], &aabbs[i], &city_scene.node_xforms[i]);
 
-        aabb_t obj_aabb={};
-        aabb_t world_aabb={};
-        float world_center[3]={};
-        bool bounds_ok = compute_mesh_bounds(node->mesh, &city_scene.node_xforms[i], &obj_radius, &obj_aabb, &world_radius, &world_aabb, &world_center[0]);
-        debugf("[node %lu] OK: %d, obj_radius=%f, min=(%.3f, %.3f, %.3f), max=(%.3f, %.3f, %.3f)\n", i, bounds_ok, obj_radius,
-            obj_aabb.lo[0], obj_aabb.lo[1], obj_aabb.lo[2],
-            obj_aabb.hi[0], obj_aabb.hi[1], obj_aabb.hi[2]
-        );
-        debugf("[node %lu] OK: %d, world_radius=%f, min=(%.3f, %.3f, %.3f), max=(%.3f, %.3f, %.3f), center=(%f, %f, %f)\n", i, bounds_ok, world_radius,
-            world_aabb.lo[0], world_aabb.lo[1], world_aabb.lo[2],
-            world_aabb.hi[0], world_aabb.hi[1], world_aabb.hi[2],
-            world_center[0], world_center[1],world_center[2]
-        );
-
-        const float* minp = &obj_aabb.lo[0];
-        const float* maxp = &obj_aabb.hi[0];
-        // unit cube is [-1, 1]^3 so we need to scale only by 1/2 of the AABB axes to get that size
-        float scale[3] = {0.5f * (maxp[0] - minp[0]), 0.5f * (maxp[1] - minp[1]), 0.5f * (maxp[2] - minp[2])};
-        // compute midpoint
-        float mid[3] = {0.5f * (maxp[0] + minp[0]), 0.5f * (maxp[1] + minp[1]), 0.5f * (maxp[2] + minp[2])};
-        debugf("[node %lu] scale: (%.3f, %.3f, %.3f), mid: (%.3f, %.3f, %.3f)\n",
-            i,
-            scale[0], scale[1], scale[2],
-            mid[0], mid[1], mid[2]
-        );
-
-        // debugf("matrix %lu in\n", i);
-        // print_matrix(&city_scene.node_xforms[i]);
-        float* orig = &origins[3*i];
-        orig[0] = world_center[0];
-        orig[1] = world_center[1];
-        orig[2] = world_center[2];
-        radiuses[i] = world_radius;
-        aabbs[i] = world_aabb;
-
-        matrix_t old = city_scene.node_xforms[i];
-
-        matrix_t centerize = cpu_glTranslatef(mid[0], mid[1], mid[2]);
-        matrix_t scale_obb = cpu_glScalef(scale[0], scale[1], scale[2]);
-        matrix_t temp;
-        matrix_mult_full(&temp, &centerize, &scale_obb);
-        matrix_mult_full(&city_scene.node_xforms[i], &old, &temp);
     }
 
     debugf("num_nodes: %lu, num_occluders: %lu\n", s->num_nodes, s->num_occluders);
@@ -536,7 +549,7 @@ void render_aabb(const aabb_t* box) {
 
 void render_city_scene(surface_t* disp)
 {
-    long unsigned int anim_timer = 0; //g_num_frames;
+    long unsigned int anim_timer = g_num_frames;
     (void)anim_timer;
 
     glEnable(GL_LIGHTING);
@@ -577,9 +590,11 @@ void render_city_scene(surface_t* disp)
     //glEnable(GL_BLEND);
     //glBlendFunc(GL_ONE, GL_ONE);
 
+    prof_begin(REGION_FRUSTUM_CULL);
     static cull_result_t cull_results[CITY_SCENE_MAX_NODES]; // references Node* elements
     uint32_t num_visible = bvh_find_visible(&city_scene.bvh, culler->camera_pos, culler->clip_planes, cull_results, sizeof(cull_results) / sizeof(cull_results[0]));
     bool actually_visible[CITY_SCENE_MAX_NODES] = {};
+    prof_end(REGION_FRUSTUM_CULL);
 
     scene_stats.num_max = city_scene.num_nodes;
 
