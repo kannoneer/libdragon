@@ -462,6 +462,7 @@ float matrix_mult_z_only(const matrix_t *m, const float *v)
 }
 
 void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform, const occ_mesh_t* mesh,
+                                cpu_vtx_t* cached_cs_verts,
                                 uint16_t* tri_neighbors, occ_target_t* target, const occ_raster_flags_t flags,
                                 occ_raster_query_result_t* query_result)
 {
@@ -475,23 +476,30 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
     // Transform all vertices first
     prof_begin(REGION_TRANSFORM);
 
+    prof_begin(REGION_TRANSFORM_MVP);
     matrix_t* mvp = &occ->mvp;
     matrix_t* modelview = NULL;
     matrix_t mvp_new, modelview_new;
 
     if (!model_xform) {
         // No per-object global transform: use defaults
+        //debugf("using default for mesh %p\n", mesh);
         mvp = &occ->mvp;
         modelview = &occ->view_matrix;
     } else {
         // Otherwise compute new ModelView and MVP matrices
+        //debugf("computing for mesh %p\n", mesh);
+        //print_matrix(model_xform);
         mvp = &mvp_new;
         modelview = &modelview_new;
         matrix_mult_full(mvp, &occ->mvp, model_xform);
         matrix_mult_full(modelview, &occ->view_matrix, model_xform);
     }
+    prof_end(REGION_TRANSFORM_MVP);
 
-    cpu_vtx_t all_verts[OCC_MAX_MESH_VERTEX_COUNT] = {0};
+    prof_begin(REGION_TRANSFORM_DRAW);
+
+    cpu_vtx_t all_verts[OCC_MAX_MESH_VERTEX_COUNT];
     bool tri_faces_camera[OCC_MAX_MESH_INDEX_COUNT];
     bool tri_faces_camera_has_data = false;
 
@@ -501,7 +509,11 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         all_verts[i].obj_attributes.position[2] = mesh->vertices[i].position[2];
         all_verts[i].obj_attributes.position[3] = 1.0f; // Q: where does cpu pipeline set this?
 
-        cpu_vertex_pre_tr(&all_verts[i], mvp);
+        if (cached_cs_verts) {
+            all_verts[i] = cached_cs_verts[i];
+        } else {
+            cpu_vertex_pre_tr(&all_verts[i], mvp);
+        }
         cpu_vertex_calc_screenspace(&all_verts[i]);
     }
 
@@ -521,6 +533,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         tri_faces_camera_has_data = true;
     }
 
+    prof_end(REGION_TRANSFORM_DRAW);
     prof_end(REGION_TRANSFORM);
 
     int num_tris_drawn = 0;
@@ -702,6 +715,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
 void occ_draw_mesh(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t *mesh, const matrix_t *model_xform)
 {
 	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, mesh,
+        /* cached_vs_verts = */ NULL,
         /* mesh_neighbors = */ NULL,
         /* target = */ NULL,
         OCC_RASTER_FLAGS_DRAW,
@@ -712,7 +726,23 @@ void occ_draw_hull(occ_culler_t *occ, surface_t *zbuffer, const occ_hull_t* hull
 {
     occ_raster_flags_t raster_flags = OCC_RASTER_FLAGS_DRAW;
     if (flags & OCCLUDER_TWO_SIDED) raster_flags &= ~RASTER_FLAG_BACKFACE_CULL;
-	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, &hull->mesh, hull->neighbors, NULL, raster_flags, query);
+
+    bool rough_pass = true;
+    cpu_vtx_t cs_vertices[OCC_MAX_MESH_VERTEX_COUNT];
+    cpu_vtx_t* cached_cs_vertices = NULL;
+
+    if (flags & OCCLUDER_TEST_FIRST) {
+        occ_result_box_t box = {};
+
+        prof_begin(REGION_TEST_OCCLUDERS);
+        rough_pass = occ_check_mesh_visible_rough(occ, zbuffer, &hull->mesh, model_xform, &cs_vertices[0], &box);
+        cached_cs_vertices = &cs_vertices[0];
+        prof_end(REGION_TEST_OCCLUDERS);
+    }
+
+    if (rough_pass) {
+        occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, &hull->mesh, cached_cs_vertices, hull->neighbors, NULL, raster_flags, query);
+    }
 }
 
 vec2f rotate_xy_coords_45deg(float x, float y) {
@@ -774,7 +804,7 @@ bool occ_check_pixel_box_visible(occ_culler_t *occ, surface_t *zbuffer,
     return false; // Every box pixel was behind the Z-buffer
 }
 
-bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t* mesh, const matrix_t *model_xform, occ_result_box_t *out_box)
+bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t* mesh, const matrix_t *model_xform, cpu_vtx_t* cs_vertices, occ_result_box_t *out_box)
 {
     prof_begin(REGION_TESTING);
     // 1. transform and project each point to screen space
@@ -790,14 +820,15 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
     // 3. at query time, for each pixel, compute rotated unscaled rotated screen coordinates
     // 4. check pixel only if inside the rotated coords
 
+    prof_begin(REGION_TRANSFORM);
     matrix_t* mvp = NULL;
     matrix_t mvp_new;
 
     if (model_xform) {
-        prof_begin(REGION_TRANSFORM);
+        prof_begin(REGION_TRANSFORM_MVP);
         mvp = &mvp_new;
         matrix_mult_full(mvp, &occ->mvp, model_xform);
-        prof_end(REGION_TRANSFORM);
+        prof_end(REGION_TRANSFORM_MVP);
     } else {
         mvp = &occ->mvp;
     }
@@ -812,8 +843,8 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
     uint8_t clip_codes_all = 0xff;
     uint8_t clip_codes_any = 0x00;
 
+    prof_begin(REGION_TRANSFORM_ROUGH);
     for (int iv = 0; iv < mesh->num_vertices; iv++) {
-        prof_begin(REGION_TRANSFORM);
         cpu_vtx_t vert = {};
         vert.obj_attributes.position[0] = mesh->vertices[iv].position[0];
         vert.obj_attributes.position[1] = mesh->vertices[iv].position[1];
@@ -821,6 +852,11 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
         vert.obj_attributes.position[3] = 1.0f;
 
         cpu_vertex_pre_tr(&vert, mvp);
+
+        // Cache the transformed vertex if requested
+        if (cs_vertices) {
+            cs_vertices[iv] = vert;
+        }
 
         clip_codes_all &= vert.tr_code;
         clip_codes_any |= vert.tr_code;
@@ -850,8 +886,11 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
                 oct_box.hi.y = max(oct_box.hi.y, pr.y);
             }
         }
-        prof_end(REGION_TRANSFORM);
     }
+
+    prof_begin(REGION_TRANSFORM_ROUGH);
+    prof_end(REGION_TRANSFORM_ROUGH);
+    prof_end(REGION_TRANSFORM);
 
     // debugf("clip_codes_all: %x\n", clip_codes_all);
 
@@ -887,9 +926,6 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
         return false;
     }
 
-    // assert(minZ >= 0.0f);
-    // assert(minZ < 1.0f);
-
     uint16_t udepth = FLOAT_TO_U16(minZ);
     occ_box2df_t* rotated_box = NULL;
     if (g_octagon_test) {
@@ -908,7 +944,7 @@ bool occ_check_hull_visible_precise(occ_culler_t *occ, surface_t *zbuffer, const
         flags &= ~RASTER_FLAG_EARLY_OUT;
         flags |= RASTER_FLAG_WRITE_DEPTH;
     }
-    occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, &hull->mesh, NULL, target, flags, &result);
+    occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, &hull->mesh, NULL, NULL, target, flags, &result);
 
     if (out_result) {
         *out_result = result;
@@ -927,7 +963,7 @@ occ_target_t* target, occ_raster_query_result_t *out_result)
 
     // Do a rough check only if target was not visible last time.
     if (target->last_visible_frame != occ->frame - 1 || force_rough_only) {
-        pass = occ_check_mesh_visible_rough(occ, zbuffer, &hull->mesh, model_xform, &box);
+        pass = occ_check_mesh_visible_rough(occ, zbuffer, &hull->mesh, model_xform, NULL, &box);
 
         if (out_result) {
             out_result->visible = pass; // This may get overwritten by draw_tri() deeper in the call stack.

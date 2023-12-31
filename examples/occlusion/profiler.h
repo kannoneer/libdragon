@@ -12,7 +12,11 @@
 #define REGION_DRAW_OCCLUDERS (4)
 #define REGION_CULL_OCCLUDERS (5)
 #define REGION_PROBES (6)
-#define REGION_COUNT (7)
+#define REGION_TEST_OCCLUDERS (7)
+#define REGION_TRANSFORM_MVP (9)
+#define REGION_TRANSFORM_ROUGH (10)
+#define REGION_TRANSFORM_DRAW (11)
+#define REGION_COUNT (12)
 
 void prof_next_frame();
 void prof_begin(int region);

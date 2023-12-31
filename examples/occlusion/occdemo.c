@@ -89,6 +89,7 @@ static int config_show_bvh_boxes = 0;
 static int config_show_last_box = 0;
 static int config_cull_occluders = 1;
 static int config_enable_fog_probes = 1;
+static int config_test_occluders_after = 3;
 
 static const GLfloat light_diffuse[8][4] = {
     {1.0f, 1.0f, 1.0f, 1.0f},
@@ -308,6 +309,7 @@ struct city_scene_s
     occ_mesh_t occ_meshes[CITY_SCENE_MAX_OCCLUDERS];
     occ_hull_t occ_hulls[CITY_SCENE_MAX_OCCLUDERS];
     matrix_t occluder_xforms[CITY_SCENE_MAX_OCCLUDERS];
+    bool occluder_has_xform[CITY_SCENE_MAX_OCCLUDERS]; // true if xform is not identity
     float occ_origins[CITY_SCENE_MAX_OCCLUDERS*3];
     float occ_radiuses[CITY_SCENE_MAX_OCCLUDERS];
     aabb_t occ_aabbs[CITY_SCENE_MAX_OCCLUDERS];
@@ -407,6 +409,16 @@ bool extract_node_bounds(const model64_node_t* node, const matrix_t* world_xform
     return true;
 }
 
+bool matrix_is_identity(const matrix_t* mtx)
+{
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            if (mtx->m[i][j] != ((i == j) ? 1.0f : 0.0f)) return false;
+        }
+    }
+    return true;
+}
+
 void setup_city_scene()
 {
     //bool verbose=false;
@@ -463,9 +475,10 @@ void setup_city_scene()
                 debugf("Error: max occluders reached\n");
                 break;
             }
-            copy_to_matrix(&model->transforms[i].world_mtx[0], &city_scene.occluder_xforms[s->num_occluders]);
-
-            s->occluders[s->num_occluders] = node;
+            uint32_t idx = s->num_occluders;
+            copy_to_matrix(&model->transforms[i].world_mtx[0], &city_scene.occluder_xforms[idx]);
+            city_scene.occluder_has_xform[idx] = !matrix_is_identity(&city_scene.occluder_xforms[idx]);
+            s->occluders[idx] = node;
             s->num_occluders++;
         } else {
             if (s->num_nodes >= CITY_SCENE_MAX_NODES) {
@@ -623,7 +636,7 @@ void render_city_scene(surface_t* disp)
 
     if (config_enable_culling) {
         prof_begin(REGION_DRAW_OCCLUDERS);
-        const uint32_t max_occluders = 20;
+        const uint32_t max_occluders = 15;
 
         if (config_cull_occluders) {
             // debugf("HACK no occluders\n");
@@ -652,7 +665,15 @@ void render_city_scene(surface_t* disp)
 
                 uint16_t idx = occluder_cull_results[traverse_idx].idx;
                 occ_raster_query_result_t result = {};
-                occ_draw_hull(culler, sw_zbuffer, &city_scene.occ_hulls[idx], &city_scene.occluder_xforms[idx], &result, OCCLUDER_TWO_SIDED);
+                occ_occluder_flags_t flags = OCCLUDER_TWO_SIDED;
+                if (traverse_idx >= config_test_occluders_after) {
+                    flags |= OCCLUDER_TEST_FIRST;
+                }
+                matrix_t* model_xform_ptr = NULL;
+                if (city_scene.occluder_has_xform[idx]) {
+                    model_xform_ptr = &city_scene.occluder_xforms[idx];
+                }
+                occ_draw_hull(culler, sw_zbuffer, &city_scene.occ_hulls[idx], model_xform_ptr, &result, flags);
                 // debugf("occluder %lu visible: %d, inflags: 0x%x\n", i, visible, inflags);
                 scene_stats.num_occluders_drawn++;
             }
@@ -1153,6 +1174,9 @@ int main()
                 mu_checkbox(&mu_ctx, "Show last rough box", &config_show_last_box);
                 mu_checkbox(&mu_ctx, "Cull occluders", &config_cull_occluders);
                 mu_checkbox(&mu_ctx, "Enable fog probes", &config_enable_fog_probes);
+                float value = config_test_occluders_after;
+                mu_slider(&mu_ctx, &value, 0, 50);
+                config_test_occluders_after = value;
 
                 mu_end_window(&mu_ctx);
             }

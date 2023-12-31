@@ -73,6 +73,7 @@ typedef uint32_t occ_raster_flags_t;
 
 enum {
     OCCLUDER_TWO_SIDED = 1,
+    OCCLUDER_TEST_FIRST = 1 << 1,
 };
 typedef uint32_t occ_occluder_flags_t;
 
@@ -159,6 +160,7 @@ void draw_tri(
 #define OCC_MAX_MESH_INDEX_COUNT (30)
 
 void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform, const occ_mesh_t* mesh,
+                                cpu_vtx_t* cached_cs_verts,
                                 uint16_t* tri_neighbors, occ_target_t* target, const occ_raster_flags_t flags,
                                 occ_raster_query_result_t* query_result);
 
@@ -180,7 +182,7 @@ bool occ_check_pixel_box_visible(occ_culler_t *occ, surface_t *zbuffer,
                                  occ_box2df_t* in_rotated_box, occ_result_box_t *out_box);
 
 
-bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t* mesh, const matrix_t *model_xform, occ_result_box_t *out_box);
+bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t* mesh, const matrix_t *model_xform, cpu_vtx_t* cs_vertices, occ_result_box_t *out_box);
 
 
 bool occ_check_hull_visible_precise(occ_culler_t *occ, surface_t *zbuffer, const occ_hull_t *hull, const matrix_t *model_xform,

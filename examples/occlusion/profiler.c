@@ -32,16 +32,21 @@ void prof_print_stats()
     }
 
     #define PRINT_REGION(idx, name) \
-        debugf("%-16s %6.3f %%\n", name, (prof_times[idx] / (double)(total_ticks+1))*100);
+        debugf("%-16s %6.3f %% (%.3f ms)\n", name, (prof_times[idx] / (double)(total_ticks+1))*100, TICKS_TO_US(prof_times[idx])/1e3);
 
 
     PRINT_REGION(REGION_PROBES, "Fog probes");
     PRINT_REGION(REGION_TRANSFORM, "Transform")
+    PRINT_REGION(REGION_TRANSFORM_MVP, "  MVP")
+    PRINT_REGION(REGION_TRANSFORM_ROUGH, "  Rough");
+    PRINT_REGION(REGION_TRANSFORM_DRAW, "  Draw");
+
     PRINT_REGION(REGION_RASTERIZATION, "Rasterization")
     PRINT_REGION(REGION_TESTING, "Testing")
     PRINT_REGION(REGION_FRUSTUM_CULL, "Frustum culling")
     PRINT_REGION(REGION_DRAW_OCCLUDERS, "Draw occluders");
     PRINT_REGION(REGION_CULL_OCCLUDERS, "  Cull occluders");
+    PRINT_REGION(REGION_TEST_OCCLUDERS, "  Test occluders");
 
 }
 
