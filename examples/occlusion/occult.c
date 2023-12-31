@@ -126,7 +126,7 @@ void occ_clear_zbuffer(surface_t *zbuffer)
     }
 }
 
-bool isTopLeftEdge(vec2 a, vec2 b)
+static bool isTopLeftEdge(vec2 a, vec2 b)
 {
     // "In a counter-clockwise triangle, a top edge is an edge that is exactly horizontal
     //  and goes towards the left, i.e. its end point is left of its start point."
@@ -141,20 +141,30 @@ bool isTopLeftEdge(vec2 a, vec2 b)
     return false;
 }
 
-int orient2d_subpixel(vec2 a, vec2 b, vec2 c)
+static float orient2df(float* a, float* b, float* c)
+{
+    return ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]));
+}
+
+static int orient2d(vec2 a, vec2 b, vec2 c)
+{
+    return ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
+}
+
+static int orient2d_subpixel(vec2 a, vec2 b, vec2 c)
 {
     // We multiply two I.F fixed point numbers resulting in (I-F).2F format,
     // so we shift by F to the right to get the the result in I.F format again.
-    return ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) >> SUBPIXEL_BITS;
+    return orient2d(a, b, c) >> SUBPIXEL_BITS;
 }
 
 // Returns a normal vector pointing to the left of line segment ab. In screen space where y axis grows downwards.
-vec2 get_edge_normal(vec2 a, vec2 b)
+static vec2 get_edge_normal(vec2 a, vec2 b)
 {
 	return (vec2){ b.y - a.y, -(b.x - a.x) };
 }
 
-int compute_conservative_edge_bias(vec2 a, vec2 b, bool shrink)
+static int compute_conservative_edge_bias(vec2 a, vec2 b, bool shrink)
 {
     // See Tomas Akenine-Möller and Timo Aila, "A Simple Algorithm for Conservative and Tiled Rasterization", 2005.
     vec2 n = get_edge_normal(a, b);            // normal points inside the triangle, or the left of line segment 'ab'
