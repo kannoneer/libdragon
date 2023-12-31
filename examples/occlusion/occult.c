@@ -202,6 +202,11 @@ void draw_tri(
             SWAP(v1, v2);
             SWAP(Z1f, Z2f);
             area2x = -area2x;
+            // Swap shrink flags now that edge identities are different
+            occ_raster_flags_t new = flags & ~RASTER_FLAG_MASK_SHRINK;
+            new |= (flags & RASTER_FLAG_SHRINK_EDGE_01) << 2; // swap 01 -> 02=20
+            new |= (flags & RASTER_FLAG_SHRINK_EDGE_20) >> 2; // swap 20 -> 10=01
+            flags = new;
         } else {
             return;
         }
