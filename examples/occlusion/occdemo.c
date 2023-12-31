@@ -589,12 +589,14 @@ void render_city_scene(surface_t* disp)
 
     if (config_enable_culling) {
         prof_begin(REGION_DRAW_OCCLUDERS);
+        const uint32_t max_occluders = 10;
 
         if (config_cull_occluders) {
             // debugf("HACK no occluders\n");
             prof_begin(REGION_CULL_OCCLUDERS);
             static cull_result_t occluder_cull_results[CITY_SCENE_MAX_OCCLUDERS];
-            uint32_t num_visible = bvh_find_visible(&city_scene.occluder_bvh, culler->camera_pos, culler->clip_planes, occluder_cull_results, GET_ARRAY_SIZE(occluder_cull_results));
+            assert(max_occluders < GET_ARRAY_SIZE(occluder_cull_results));
+            uint32_t num_visible = bvh_find_visible(&city_scene.occluder_bvh, culler->camera_pos, culler->clip_planes, occluder_cull_results, max_occluders);
             prof_end(REGION_CULL_OCCLUDERS);
 
             // for (uint32_t i = 0; i < city_scene.num_occluders; i++) {

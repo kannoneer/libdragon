@@ -244,7 +244,7 @@ bool bvh_build(const float* origins, const float* radiuses, const aabb_t* aabbs,
     return true;
 }
 
-const static bool measure_perf = true;
+const static bool measure_perf = false;
 
 #include <timer.h>
 
