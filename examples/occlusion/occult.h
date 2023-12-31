@@ -72,7 +72,7 @@ enum {
 };
 typedef uint32_t occ_occluder_flags_t;
 
-#define OCC_RASTER_FLAGS_DRAW  (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_WRITE_DEPTH |RASTER_FLAG_ROUND_DEPTH_UP | RASTER_FLAG_DISCARD_FAR)
+#define OCC_RASTER_FLAGS_DRAW  (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_WRITE_DEPTH |RASTER_FLAG_ROUND_DEPTH_UP)
 #define OCC_RASTER_FLAGS_QUERY (RASTER_FLAG_BACKFACE_CULL | RASTER_FLAG_EARLY_OUT | RASTER_FLAG_REPORT_VISIBILITY | RASTER_FLAG_EXPAND_EDGE_01 | RASTER_FLAG_EXPAND_EDGE_12 | RASTER_FLAG_EXPAND_EDGE_20)
 
 typedef struct occ_culler_s {
@@ -156,8 +156,8 @@ void draw_tri(
 #define OCC_MAX_MESH_INDEX_COUNT (30)
 
 void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform, const occ_mesh_t* mesh,
-                                vec3f* tri_normals, uint16_t* tri_neighbors,
-                                occ_target_t* target, const occ_raster_flags_t flags, occ_raster_query_result_t* query_result);
+                                uint16_t* tri_neighbors, occ_target_t* target, const occ_raster_flags_t flags,
+                                occ_raster_query_result_t* query_result);
 
 
 void occ_draw_mesh(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t *mesh, const matrix_t *model_xform);

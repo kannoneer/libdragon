@@ -201,6 +201,7 @@ void draw_tri(
         } else if (area2x != 0) {
             SWAP(v1, v2);
             SWAP(Z1f, Z2f);
+            area2x = -area2x;
         } else {
             return;
         }
@@ -333,11 +334,6 @@ void draw_tri(
 
     assert(!((flags & RASTER_FLAG_NEG_SLOPE_BIAS) && (flags & RASTER_FLAG_POS_SLOPE_BIAS))); // Mutually exclusive flags
 
-    if (flags & RASTER_FLAG_REPORT_VISIBILITY) {
-        assert(result);
-        result->visible = false;
-    }
-
     if (super_verbose) {
         debugf("Z_row = %f, Z_row_fixed = %ld\n", Zf_row, Z_row_fixed);
     }
@@ -455,11 +451,15 @@ float matrix_mult_z_only(const matrix_t *m, const float *v)
 }
 
 void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const matrix_t *model_xform, const occ_mesh_t* mesh,
-                                vec3f* tri_normals, uint16_t* tri_neighbors,
-                                occ_target_t* target, const occ_raster_flags_t flags, occ_raster_query_result_t* query_result)
+                                uint16_t* tri_neighbors, occ_target_t* target, const occ_raster_flags_t flags,
+                                occ_raster_query_result_t* query_result)
 {
     assert(zbuffer->width == occ->viewport.width);
     assert(zbuffer->height == occ->viewport.height);
+
+    if (query_result) {
+        query_result->visible = false;
+    }
 
     // Transform all vertices first
     prof_begin(REGION_TRANSFORM);
@@ -482,16 +482,7 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
 
     cpu_vtx_t all_verts[OCC_MAX_MESH_VERTEX_COUNT] = {0};
     bool tri_faces_camera[OCC_MAX_MESH_INDEX_COUNT];
-
-    if (tri_normals) {
-        int num_tris = mesh->num_indices/3;
-        for (int i = 0; i < num_tris; i++) {
-            float n[4] = {tri_normals[i].x, tri_normals[i].y, tri_normals[i].z, 0.f};
-            //TODO use inverse transpose if non-uniform scale?
-            float view_z = matrix_mult_z_only(modelview, n);
-            tri_faces_camera[i] = view_z > 0;
-        }
-    }
+    bool tri_faces_camera_has_data = false;
 
     for (uint32_t i = 0; i < mesh->num_vertices; i++) {
         all_verts[i].obj_attributes.position[0] = mesh->vertices[i].position[0];
@@ -503,6 +494,22 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         cpu_vertex_calc_screenspace(&all_verts[i]);
     }
 
+    int num_tris = mesh->num_indices/3;
+
+    // Compute signed triangle areas only for occluders
+    if (tri_neighbors && config_shrink_silhouettes) {
+        for (int i = 0; i < num_tris; i++) {
+            float *a = &all_verts[mesh->indices[i * 3 + 0]].screen_pos[0];
+            float *b = &all_verts[mesh->indices[i * 3 + 1]].screen_pos[0];
+            float *c = &all_verts[mesh->indices[i * 3 + 2]].screen_pos[0];
+            float area = -orient2df(a, b, c);
+            tri_faces_camera[i] = area > 0;
+            // debugf("tri %d facing: %d with area: %f\n", i, tri_faces_camera[i], area);
+        }
+
+        tri_faces_camera_has_data = true;
+    }
+
     prof_end(REGION_TRANSFORM);
 
     int num_tris_drawn = 0;
@@ -512,9 +519,9 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
         target->last_visible_idx = 0;
     }
 
-    for (int is = 0; is < mesh->num_indices; is += 3) {
-        int wrapped_is = (is + ofs) % mesh->num_indices; // start from 'ofs' but render the whole mesh
-        const uint16_t *inds = &mesh->indices[wrapped_is];
+    for (int draw_idx = 0; draw_idx < mesh->num_indices; draw_idx += 3) {
+        int idx = (draw_idx + ofs) % mesh->num_indices; // start from 'ofs' but render the whole mesh
+        const uint16_t *inds = &mesh->indices[idx];
         cpu_vtx_t verts[3] = {all_verts[inds[0]], all_verts[inds[1]], all_verts[inds[2]]};
         cpu_vtx_t clipping_cache[CLIPPING_CACHE_SIZE];
         cpu_clipping_list_t clipping_list = {.count = 0};
@@ -549,21 +556,34 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
 
         uint32_t edge_flag_mask = 0;
 
-        if (tri_normals) {
-            int tri_idx = is/3;
-            if (!tri_faces_camera[tri_idx] && (flags & RASTER_FLAG_BACKFACE_CULL)) {
-                continue;
+        int tri_idx = idx/3;
+
+        if (false) {
+            // Workaround: Disable early backface culling because it seems unreliable near the screen edges.
+            if (flags & RASTER_FLAG_BACKFACE_CULL) {
+                assert(tri_faces_camera_has_data);
+                if (!tri_faces_camera[tri_idx]) {
+                    continue;
+                }
             }
 
-            if (tri_neighbors && config_shrink_silhouettes) {
-                // Silhouette edges join triangles with different view space Z signs
-                for (int j = 0; j < 3; j++) {
-                    uint16_t other = tri_neighbors[tri_idx * 3 + j];
-                    if (other != OCC_NO_EDGE_NEIGHBOR) {
-                        if (!tri_faces_camera[other]) {
-                            edge_flag_mask |= (RASTER_FLAG_SHRINK_EDGE_01 << j);
-                            break;
-                        }
+            if (!(flags & RASTER_FLAG_BACKFACE_CULL)) {
+                debugf("is=%d, tri_idx=%d, faces=%d\n", draw_idx, tri_idx, tri_faces_camera[tri_idx]);
+            }
+        }
+
+        if (tri_neighbors && config_shrink_silhouettes) {
+            assert(tri_faces_camera_has_data);
+
+            // Silhouette edges join triangles that face different directions
+            bool this_facing = tri_faces_camera[tri_idx];
+
+            for (int j = 0; j < 3; j++) {
+                uint16_t other = tri_neighbors[tri_idx * 3 + j];
+                if (other != OCC_NO_EDGE_NEIGHBOR) {
+                    if (this_facing != tri_faces_camera[other]) {
+                        edge_flag_mask |= (RASTER_FLAG_SHRINK_EDGE_01 << j);
+                        break;
                     }
                 }
             }
@@ -876,7 +896,7 @@ bool occ_check_hull_visible_precise(occ_culler_t *occ, surface_t *zbuffer, const
         flags &= ~RASTER_FLAG_EARLY_OUT;
         flags |= RASTER_FLAG_WRITE_DEPTH;
     }
-    occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, &hull->mesh, NULL, NULL, target, flags, &result);
+    occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, &hull->mesh, NULL, target, flags, &result);
 
     if (out_result) {
         *out_result = result;
