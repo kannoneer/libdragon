@@ -33,6 +33,7 @@ bool config_shrink_silhouettes = true; // detect edges with flipped viewspace Z 
 bool config_discard_based_on_tr_code = true;
 bool config_inflate_rough_bounds = true;
 bool config_report_near_clip_as_visible  = false; // if queried polygons clip the near plane, always report them as visible
+int config_force_rough_test_only = 0; // return screen space bounding box test result directly
 
 enum {
     CLIP_ACTION_REJECT = 0,
@@ -573,27 +574,28 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
             }
         }
 
-        if (clips_near) {
-            if (g_near_clipping_action == CLIP_ACTION_REJECT) {
-                continue;
-            } else if (g_near_clipping_action == CLIP_ACTION_DO_IT) {
-                // tr_code   = clip against screen bounds, used for rejection
-                // clip_code = clipped against guard bands, used for actual clipping
-                //
-                // We clip only against the near plane so they are the same.
+        if (clips_near && g_near_clipping_action == CLIP_ACTION_REJECT) {
+            continue;
+        } 
 
-                verts[0].clip_code = verts[0].tr_code;
-                verts[1].clip_code = verts[1].tr_code;
-                verts[2].clip_code = verts[2].tr_code;
+        assert(g_near_clipping_action == CLIP_ACTION_DO_IT);
 
-                cpu_gl_clip_triangle(&verts[0], &verts[1], &verts[2], (1 << NEAR_PLANE_INDEX), clipping_cache, &clipping_list);
-                // Workaround: Don't shrink edges. Clipping invalidates silhoutte checks we made above so just rasterize normally
-                //             to avoid cracks. This hack makes occluders cover too many pixels which may lead to culling errors.
-                edge_flag_mask = 0;
-            } else {
-                debugf("Invalid clip action %lu\n", g_near_clipping_action);
-                assert(false);
-            }
+        if (clips_near || clips_far) {
+            // tr_code   = clip against screen bounds, used for rejection
+            // clip_code = clipped against guard bands, used for actual clipping
+            //
+            // We clip only against the near and far plane so they are the same.
+
+            verts[0].clip_code = verts[0].tr_code;
+            verts[1].clip_code = verts[1].tr_code;
+            verts[2].clip_code = verts[2].tr_code;
+
+            const uint8_t plane_mask = (1 << NEAR_PLANE_INDEX) | (1 << FAR_PLANE_INDEX);
+            cpu_gl_clip_triangle(&verts[0], &verts[1], &verts[2], plane_mask, clipping_cache, &clipping_list);
+
+            // Workaround: Don't shrink edges. Clipping invalidates silhoutte checks we made above so just rasterize normally
+            //             to avoid cracks. This hack makes occluders cover too many pixels which may lead to culling errors.
+            edge_flag_mask = 0;
         }
 
         if (clips_far && (flags & RASTER_FLAG_DISCARD_FAR)) {
@@ -637,13 +639,18 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
             prof_end(REGION_RASTERIZATION);
         }
 
-        if (query_result) { query_result->num_tris_drawn = num_tris_drawn; }
+        if (query_result) {
+            query_result->num_tris_drawn = num_tris_drawn;
+            if (g_verbose_visibility_tracking) {
+                debugf("visible: %d\n", query_result->visible);
+            }
+        }
 
         // Early out from all triangles even if only one of them was visible
         if ((flags & RASTER_FLAG_EARLY_OUT) && query_result && query_result->visible) {
-            target->last_visible_idx = wrapped_is;
+            target->last_visible_idx = idx;
             if (target && g_verbose_visibility_tracking) {
-                debugf("was visible at wrapped_is = %d = (%d+%d) %% %lu\n", wrapped_is, is, ofs, mesh->num_indices);
+                debugf("was visible at wrapped_is = %d = (%d+%d) %% %lu\n", idx, draw_idx, ofs, mesh->num_indices);
             }
             return;
         }
@@ -653,7 +660,6 @@ void occ_draw_indexed_mesh_flags(occ_culler_t *occ, surface_t *zbuffer, const ma
 void occ_draw_mesh(occ_culler_t *occ, surface_t *zbuffer, const occ_mesh_t *mesh, const matrix_t *model_xform)
 {
 	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, mesh,
-        /* mesh_normals = */ NULL,
         /* mesh_neighbors = */ NULL,
         /* target = */ NULL,
         OCC_RASTER_FLAGS_DRAW,
@@ -664,7 +670,7 @@ void occ_draw_hull(occ_culler_t *occ, surface_t *zbuffer, const occ_hull_t* hull
 {
     occ_raster_flags_t raster_flags = OCC_RASTER_FLAGS_DRAW;
     if (flags & OCCLUDER_TWO_SIDED) raster_flags &= ~RASTER_FLAG_BACKFACE_CULL;
-	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, &hull->mesh, hull->tri_normals, hull->neighbors, NULL, raster_flags, query);
+	occ_draw_indexed_mesh_flags(occ, zbuffer, model_xform, &hull->mesh, hull->neighbors, NULL, raster_flags, query);
 }
 
 vec2f rotate_xy_coords_45deg(float x, float y) {
@@ -776,7 +782,7 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
 
         clip_codes_all &= vert.tr_code;
         clip_codes_any |= vert.tr_code;
-        debugf("[%d] vert.tr_code: %x\n", iv, vert.tr_code);
+        // debugf("[%d] vert.tr_code: %x\n", iv, vert.tr_code);
 
         // An optimization: If a single vertex was behind the near plane then we don't
         // care about the computed garbage bounds anyway. We can only check the clipping
@@ -805,7 +811,7 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
         prof_end(REGION_TRANSFORM);
     }
 
-    debugf("clip_codes_all: %x\n", clip_codes_all);
+    // debugf("clip_codes_all: %x\n", clip_codes_all);
 
     if (clip_codes_all != 0) {
         // If all vertices were behind some clip plane then the object can't be visible.
@@ -875,14 +881,14 @@ occ_target_t* target, occ_raster_query_result_t *out_result)
     // debugf("%s mesh=%p, model_xform=%p, target=%p, out_result=%p\n", __FUNCTION__, mesh, model_xform, target ,out_result);
     occ_result_box_t box = {};
     bool pass = true;
-    const bool force_rough_only = false;
+    const bool force_rough_only = config_force_rough_test_only;
 
     // Do a rough check only if target was not visible last time.
     if (target->last_visible_frame != occ->frame - 1 || force_rough_only) {
         pass = occ_check_mesh_visible_rough(occ, zbuffer, &hull->mesh, model_xform, &box);
 
         if (out_result) {
-            out_result->visible = pass; //TODO does this get overwritten?
+            out_result->visible = pass; // This may get overwritten by draw_tri() deeper in the call stack.
             out_result->x = box.hitX;
             out_result->y = box.hitY;
             out_result->depth = box.udepth;

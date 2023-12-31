@@ -44,6 +44,7 @@ extern bool config_shrink_silhouettes; // detect edges with flipped viewspace Z 
 extern bool config_discard_based_on_tr_code;
 extern bool config_inflate_rough_bounds;
 extern bool config_report_near_clip_as_visible; // if queried polygons clip the near plane, always report them as visible
+extern int config_force_rough_test_only; // return screen space bounding box test result directly
 
 enum {
     RASTER_FLAG_BACKFACE_CULL = 1,
@@ -107,6 +108,7 @@ typedef struct occ_raster_query_result_s {
     int y;
     uint16_t depth;
     int num_tris_drawn;
+    occ_result_box_t box;
 } occ_raster_query_result_t;
 
 typedef struct occ_mesh_s {
