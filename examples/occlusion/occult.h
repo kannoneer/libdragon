@@ -1,6 +1,8 @@
 // occult
 // Z-Buffer Renderer and Occlusion Tester Library
 //
+#ifndef OCCULT_H
+#define OCCULT_H
 
 #include "vertex.h"
 #include "cpumath.h"
@@ -114,7 +116,7 @@ typedef struct occ_raster_query_result_s {
 } occ_raster_query_result_t;
 
 typedef struct occ_mesh_s {
-    vertex_t *vertices;
+    cvertex_t *vertices;
     uint16_t *indices;
     uint32_t num_vertices;
     uint32_t num_indices;
@@ -197,8 +199,10 @@ bool occ_hull_from_flat_mesh(const occ_mesh_t* mesh_in, occ_hull_t* hull_out);
 
 bool model_to_occ_mesh(model64_t* model, mesh_t* mesh_in, occ_mesh_t* mesh_out);
 
-uint32_t uncompress_model64_verts(primitive_t* prim, vertex_t* vertices_out);
+uint32_t uncompress_model64_verts(primitive_t* prim, cvertex_t* vertices_out);
 
 bool compute_mesh_bounds(const mesh_t* mesh_in, const matrix_t* to_world,
     float* out_obj_radius, aabb_t* out_obj_aabb,
     float* out_world_radius, aabb_t* out_world_aabb, float* out_world_center);
+
+#endif // OCCULT_H

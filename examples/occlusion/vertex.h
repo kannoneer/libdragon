@@ -1,5 +1,5 @@
-#ifndef VERTEX
-#define VERTEX
+#ifndef VERTEX_H
+#define VERTEX_H
 
 #include <stdint.h>
 
@@ -10,4 +10,8 @@ typedef struct {
     uint32_t color;
 } vertex_t;
 
-#endif
+typedef struct {
+    float position[3];
+} cvertex_t;
+
+#endif // VERTEX_H

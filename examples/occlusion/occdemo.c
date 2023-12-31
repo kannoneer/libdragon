@@ -242,10 +242,10 @@ void setup()
 
     // Convert cube mesh to a 'hull' that's optimized for culling
     occ_mesh_t cube_mesh = {
-        .vertices = (vertex_t*)cube_vertices,
+        .vertices = (cvertex_t*)cube_cvertices,
         .indices = (uint16_t*)cube_indices,
-        .num_vertices = sizeof(cube_vertices) / sizeof(cube_vertices[0]),
-        .num_indices = sizeof(cube_indices) / sizeof(cube_indices[0]),
+        .num_vertices = GET_ARRAY_SIZE(cube_vertices),
+        .num_indices = GET_ARRAY_SIZE(cube_indices),
     };
 
     bool conversion_success = occ_hull_from_flat_mesh(&cube_mesh, &cube_hull);
@@ -254,10 +254,10 @@ void setup()
     }
 
     occ_mesh_t unit_cube_mesh = {
-        .vertices = (vertex_t*)unit_cube_vertices,
+        .vertices = (cvertex_t*)unit_cube_cvertices,
         .indices = (uint16_t*)unit_cube_indices,
-        .num_vertices = sizeof(unit_cube_vertices) / sizeof(unit_cube_vertices[0]),
-        .num_indices = sizeof(unit_cube_indices) / sizeof(unit_cube_indices[0]),
+        .num_vertices = GET_ARRAY_SIZE(unit_cube_vertices),
+        .num_indices = GET_ARRAY_SIZE(unit_cube_indices),
     };
     conversion_success = occ_hull_from_flat_mesh(&unit_cube_mesh, &unit_cube_hull);
     if (!conversion_success) {

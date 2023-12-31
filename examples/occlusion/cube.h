@@ -45,6 +45,45 @@ static const vertex_t cube_vertices[] = {
     { .position = { cube_size, -cube_size, -cube_size}, .texcoord = {1.f, 0.f}, .normal = { 0.f,  0.f, -1.f}, .color = 0xFFFF00FF },
 };
 
+static const cvertex_t cube_cvertices[] = {
+    // +X
+    { .position = { cube_size, -cube_size, -cube_size} },
+    { .position = { cube_size,  cube_size, -cube_size} },
+    { .position = { cube_size,  cube_size,  cube_size} },
+    { .position = { cube_size, -cube_size,  cube_size} },
+
+    // -X
+    { .position = {-cube_size, -cube_size, -cube_size} },
+    { .position = {-cube_size, -cube_size,  cube_size} },
+    { .position = {-cube_size,  cube_size,  cube_size} },
+    { .position = {-cube_size,  cube_size, -cube_size} },
+
+    // +Y
+    { .position = {-cube_size,  cube_size, -cube_size} },
+    { .position = {-cube_size,  cube_size,  cube_size} },
+    { .position = { cube_size,  cube_size,  cube_size} },
+    { .position = { cube_size,  cube_size, -cube_size} },
+
+    // -Y
+    { .position = {-cube_size, -cube_size, -cube_size} },
+    { .position = { cube_size, -cube_size, -cube_size} },
+    { .position = { cube_size, -cube_size,  cube_size} },
+    { .position = {-cube_size, -cube_size,  cube_size} },
+
+    // +Z
+    { .position = {-cube_size, -cube_size,  cube_size} },
+    { .position = { cube_size, -cube_size,  cube_size} },
+    { .position = { cube_size,  cube_size,  cube_size} },
+    { .position = {-cube_size,  cube_size,  cube_size} },
+
+    // -Z
+    { .position = {-cube_size, -cube_size, -cube_size} },
+    { .position = {-cube_size,  cube_size, -cube_size} },
+    { .position = { cube_size,  cube_size, -cube_size} },
+    { .position = { cube_size, -cube_size, -cube_size} },
+};
+
+
 static const uint16_t cube_indices[] = {
      0,  1,  2,  0,  2,  3,
      4,  5,  6,  4,  6,  7,
@@ -94,6 +133,45 @@ static const vertex_t unit_cube_vertices[] = {
     { .position = { 1.0f,  1.0f, -1.0f}, .texcoord = {1.f, 1.f}, .normal = { 0.f,  0.f, -1.f}, .color = 0xFFFF00FF },
     { .position = { 1.0f, -1.0f, -1.0f}, .texcoord = {1.f, 0.f}, .normal = { 0.f,  0.f, -1.f}, .color = 0xFFFF00FF },
 };
+
+static const cvertex_t unit_cube_cvertices[] = {
+    // +X
+    { .position = { 1.0f, -1.0f, -1.0f} },
+    { .position = { 1.0f,  1.0f, -1.0f} },
+    { .position = { 1.0f,  1.0f,  1.0f} },
+    { .position = { 1.0f, -1.0f,  1.0f} },
+
+    // -X
+    { .position = {-1.0f, -1.0f, -1.0f} },
+    { .position = {-1.0f, -1.0f,  1.0f} },
+    { .position = {-1.0f,  1.0f,  1.0f} },
+    { .position = {-1.0f,  1.0f, -1.0f} },
+
+    // +Y
+    { .position = {-1.0f,  1.0f, -1.0f} },
+    { .position = {-1.0f,  1.0f,  1.0f} },
+    { .position = { 1.0f,  1.0f,  1.0f} },
+    { .position = { 1.0f,  1.0f, -1.0f} },
+
+    // -Y
+    { .position = {-1.0f, -1.0f, -1.0f} },
+    { .position = { 1.0f, -1.0f, -1.0f} },
+    { .position = { 1.0f, -1.0f,  1.0f} },
+    { .position = {-1.0f, -1.0f,  1.0f} },
+
+    // +Z
+    { .position = {-1.0f, -1.0f,  1.0f} },
+    { .position = { 1.0f, -1.0f,  1.0f} },
+    { .position = { 1.0f,  1.0f,  1.0f} },
+    { .position = {-1.0f,  1.0f,  1.0f} },
+
+    // -Z
+    { .position = {-1.0f, -1.0f, -1.0f} },
+    { .position = {-1.0f,  1.0f, -1.0f} },
+    { .position = { 1.0f,  1.0f, -1.0f} },
+    { .position = { 1.0f, -1.0f, -1.0f} },
+};
+
 
 static const uint16_t unit_cube_indices[] = {
      0,  1,  2,  0,  2,  3,

@@ -10,7 +10,7 @@
 
 #include "cpumath.h"
 #include "cpu_3d.h" 
-#include "vertex.h" // for vertex_t
+#include "vertex.h"
 #include "profiler.h"
 #include "defer.h"
 
@@ -977,7 +977,7 @@ occ_target_t* target, occ_raster_query_result_t *out_result)
 bool occ_hull_from_flat_mesh(const occ_mesh_t* mesh_in, occ_hull_t* hull_out)
 {
     occ_mesh_t* m = &hull_out->mesh;
-    vertex_t* scratch = malloc(sizeof(vertex_t) * OCC_MAX_MESH_VERTEX_COUNT);
+    cvertex_t* scratch = malloc(sizeof(cvertex_t) * OCC_MAX_MESH_VERTEX_COUNT);
     DEFER(free(scratch));
     int* old_to_new = malloc(sizeof(int) * mesh_in->num_vertices);
     DEFER(free(old_to_new));
@@ -1033,8 +1033,8 @@ bool occ_hull_from_flat_mesh(const occ_mesh_t* mesh_in, occ_hull_t* hull_out)
         m->indices[m->num_indices++] = old_to_new[mesh_in->indices[i]];
     }
 
-    m->vertices = malloc(m->num_vertices * sizeof(vertex_t));
-    memcpy(m->vertices, scratch, m->num_vertices * sizeof(vertex_t));
+    m->vertices = malloc(m->num_vertices * sizeof(m->vertices[0]));
+    memcpy(m->vertices, scratch, m->num_vertices * sizeof(m->vertices[0]));
 
     if (verbose) {
         debugf("index buffer:\n");
@@ -1221,7 +1221,7 @@ bool model_to_occ_mesh(model64_t* model, mesh_t* mesh_in, occ_mesh_t* mesh_out)
     return true;
 }
 
-uint32_t uncompress_model64_verts(primitive_t* prim, vertex_t* vertices_out) {
+uint32_t uncompress_model64_verts(primitive_t* prim, cvertex_t* vertices_out) {
     assert(prim->position.type == GL_HALF_FIXED_N64);
     assert(prim->position.size == 3);
     assert(prim->mode == GL_TRIANGLES);
@@ -1280,7 +1280,7 @@ bool compute_mesh_bounds(const mesh_t* mesh_in, const matrix_t* to_world,
     }
     assert(mesh_in->num_primitives == 1 && "we can handle only a single primitive per mesh");
 
-    vertex_t* vertices =  malloc(prim->num_vertices * sizeof(vertex_t));
+    cvertex_t* vertices =  malloc(prim->num_vertices * sizeof(cvertex_t));
     DEFER(free(vertices));
 
     uint32_t count = uncompress_model64_verts(prim, vertices);
