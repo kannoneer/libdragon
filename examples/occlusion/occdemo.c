@@ -109,7 +109,8 @@ static fog_probe_t fog_probes[] = {
     };
 
 enum Fonts {
-    FONT_SCIFI = 1
+    FONT_SCIFI = 1,
+    FONT_SCIFI_GREEN = 2,
 };
 
 static const char *texture_path[4] = {
@@ -231,8 +232,18 @@ void setup()
 
         glSpriteTextureN64(GL_TEXTURE_2D, sprites[i], &(rdpq_texparms_t){.s.repeats = REPEAT_INFINITE, .t.repeats = REPEAT_INFINITE});
     }
-
-    rdpq_text_register_font(FONT_SCIFI, rdpq_font_load("rom:/FerriteCoreDX.font64"));
+    
+    rdpq_font_t *fnt1 = rdpq_font_load("rom:/FerriteCoreDX.font64");
+    rdpq_font_style(fnt1, 0, &(rdpq_fontstyle_t){
+        .color = RGBA32(0xff, 0xff, 0xff, 0xFF),
+    });
+    rdpq_font_style(fnt1, 1, &(rdpq_fontstyle_t){
+        .color = RGBA32(0x88, 0xff, 0x88, 0xFF),
+    });
+    rdpq_font_style(fnt1, 2, &(rdpq_fontstyle_t){
+        .color = RGBA32(0xff, 0x88, 0x88, 0xFF),
+    });
+    rdpq_text_register_font(FONT_SCIFI, fnt1);
 
     // Convert cube mesh to a 'hull' that's optimized for culling
     occ_mesh_t cube_mesh = {
@@ -600,6 +611,13 @@ void render_scaled_unit_cube(matrix_t* mtx, float scale) {
     glPopMatrix();
 }
 
+void render_positioned_sphere(float x, float y, float z) {
+    glPushMatrix();
+    glTranslatef(x, y, z);
+    draw_sphere();
+    glPopMatrix();
+}
+
 void render_aabb(const aabb_t* box) {
     float center[3];
     float size[3];
@@ -729,7 +747,10 @@ void render_scene(surface_t* disp)
             occ_raster_query_result_t result = {};
             // debugf("occlusion testing node '%s'\n", scene.node_names[idx]);
             // occ_draw_hull(culler, sw_zbuffer, &unit_cube_hull, &scene.node_xforms[idx], &result, 0);
+
+            prof_begin(REGION_TEST_OBJECTS);
             visible = occ_check_target_visible(culler, sw_zbuffer, &unit_cube_hull, &scene.node_xforms[idx], &scene.targets[idx], &result);
+            prof_end(REGION_TEST_OBJECTS);
             if (visible) last_visible_result = result;
         }
 
@@ -933,6 +954,16 @@ void render_scene(surface_t* disp)
         glDisable(GL_BLEND);
     }
 
+    if (config_top_down_view) {
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ONE);
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_TEXTURE_2D);
+        render_positioned_sphere(fps_camera.pos[0], fps_camera.pos[1], fps_camera.pos[2]);
+        glDisable(GL_BLEND);
+        glEnable(GL_DEPTH_TEST);
+    }
+
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
 }
@@ -1068,13 +1099,22 @@ void render(double delta)
         // debugf("filled (%d, %d, %d, %d)\n", box->minX, box->minY, box->maxX, box->maxY);
     }
 
+    const int fh = 18;
+
+    rdpq_set_mode_standard();
+    rdpq_set_env_color((color_t){0, 0, 0, 64});
+    rdpq_mode_combiner(RDPQ_COMBINER1((0, 0, 0, ENV), (0, 0, 0, ENV)));
+    rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY);
+    rdpq_fill_rectangle(CULL_W + 8 - 4, 20-8-8, CULL_W + 8 + 450, 20-8 + 5*fh);
     rspq_flush();
 
-    const int fh = 18;
-    rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 20, config_enable_culling ? "occlusion culling: ON" : "occlusion culling: OFF");
-    rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 20+1*fh, config_show_wireframe ? "show culled: ON" : "show culled: OFF");
-    rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 20+2*fh, "visible: %d/%d objects, %d occluders", scene_stats.num_drawn, scene_stats.num_max, scene_stats.num_occluders_drawn);
-    rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 7, 20+3*fh, "% 4.1f ms, %.1f fps", delta*1000, 1.0/delta);
+    rspq_profile_next_frame();
+
+    rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 20, "%s %s", config_enable_culling ? "occlusion culling: ^01 ON" : "occlusion culling: ^02 OFF", config_show_wireframe ? "(culled shown)" : "");
+    rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 20+1*fh, "visible: %d/%d objects, %d occluders", scene_stats.num_drawn, scene_stats.num_max, scene_stats.num_occluders_drawn);
+    rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 20+2*fh, "frame: % 4.1f ms, %.1f fps", delta*1000, 1.0/delta);
+    rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 20+3*fh, "zdraw: % 4.1f ms", prof_get_ms(REGION_DRAW_OCCLUDERS));
+    rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 20+4*fh, "ztest: % 4.1f ms", prof_get_ms(REGION_TEST_OBJECTS));
 
     mu64_end_frame();
     if (config_menu_open) {
@@ -1083,7 +1123,6 @@ void render(double delta)
     
     rdpq_detach_show();
 
-    rspq_profile_next_frame();
 
     if (((g_num_frames) % 60) == 0) {
         rspq_profile_dump();
@@ -1232,6 +1271,7 @@ int main()
 
         if (pressed.l) {
             config_top_down_view = !config_top_down_view;
+            config_show_wireframe = config_top_down_view ;
             debugf("top down view: %d\n", config_top_down_view);
         }
 

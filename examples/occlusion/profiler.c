@@ -24,6 +24,10 @@ void prof_end(int region)
     prof_times[region] += (uint64_t)delta;
 }
 
+float prof_get_ms(int region) {
+    return TICKS_TO_US(prof_times[region]) / 1e3f;
+}
+
 void prof_print_stats()
 {
     uint64_t total_ticks = 0;
@@ -35,18 +39,19 @@ void prof_print_stats()
         debugf("%-16s %6.3f %% (%.3f ms)\n", name, (prof_times[idx] / (double)(total_ticks+1))*100, TICKS_TO_US(prof_times[idx])/1e3);
 
 
-    PRINT_REGION(REGION_PROBES, "Fog probes");
+    PRINT_REGION(REGION_FRUSTUM_CULL, "Frustum culling")
+    PRINT_REGION(REGION_TEST_OBJECTS, "Test objects");
+    PRINT_REGION(REGION_DRAW_OCCLUDERS, "Draw occluders");
+    PRINT_REGION(REGION_CULL_OCCLUDERS, "  Cull occluders");
+    PRINT_REGION(REGION_TEST_OCCLUDERS, "  Test occluders");
     PRINT_REGION(REGION_TRANSFORM, "Transform")
     PRINT_REGION(REGION_TRANSFORM_MVP, "  MVP")
     PRINT_REGION(REGION_TRANSFORM_ROUGH, "  Rough");
     PRINT_REGION(REGION_TRANSFORM_DRAW, "  Draw");
 
+    PRINT_REGION(REGION_PROBES, "Fog probes");
     PRINT_REGION(REGION_RASTERIZATION, "Rasterization")
     PRINT_REGION(REGION_TESTING, "Testing")
-    PRINT_REGION(REGION_FRUSTUM_CULL, "Frustum culling")
-    PRINT_REGION(REGION_DRAW_OCCLUDERS, "Draw occluders");
-    PRINT_REGION(REGION_CULL_OCCLUDERS, "  Cull occluders");
-    PRINT_REGION(REGION_TEST_OCCLUDERS, "  Test occluders");
 
 }
 

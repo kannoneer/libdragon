@@ -16,11 +16,13 @@
 #define REGION_TRANSFORM_MVP (9)
 #define REGION_TRANSFORM_ROUGH (10)
 #define REGION_TRANSFORM_DRAW (11)
-#define REGION_COUNT (12)
+#define REGION_TEST_OBJECTS (12)
+#define REGION_COUNT (13)
 
 void prof_next_frame();
 void prof_begin(int region);
 void prof_end(int region);
+float prof_get_ms(int region);
 void prof_print_stats();
 void prof_reset_stats();
 
