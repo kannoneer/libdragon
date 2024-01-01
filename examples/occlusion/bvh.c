@@ -310,7 +310,8 @@ uint32_t bvh_find_visible(const sphere_bvh_t* bvh, const float* camera_pos, cons
                 uint16_t flags = plane_mask;
                 if (camera_is_inside) { flags |= VISIBLE_CAMERA_INSIDE; }
 
-                float score = -squared_distance(camera_pos, n->pos);
+                float dist_sqr = squared_distance(camera_pos, n->pos);
+                float score = n->radius_sqr / dist_sqr;
                 out_data_inds[num++] = (cull_result_t){.idx=n->idx, .flags=flags, .score=score};
             } else {
                 return; // early out if output array size was reached

@@ -82,7 +82,7 @@ static int config_show_last_box = 0;
 static int config_cull_occluders = 1;
 static int config_enable_fog_probes = 1;
 static int config_test_occluders_after = 3;
-static int config_max_occluders = 15;
+static int config_max_occluders = 10;
 
 static const GLfloat light_diffuse[8][4] = {
     {1.0f, 1.0f, 1.0f, 1.0f},
@@ -643,8 +643,6 @@ void render_scene(surface_t* disp)
 
             int compare_descending(const void *a, const void *b)
             {
-                //float fa = occluder_cull_results[(*(cull_result_t *)a)].score;
-                //float fb = occluder_cull_results[(*(cull_result_t *)b)].score;
                 float fa = ((cull_result_t*)a)->score;
                 float fb = ((cull_result_t*)b)->score;
                 // debugf("%f < %f\n", fa, fb);
@@ -662,23 +660,12 @@ void render_scene(surface_t* disp)
             qsort(&occluder_cull_results[0], num_visible, sizeof(occluder_cull_results[0]), compare_descending);
 
             uint32_t max_occluders = min(num_visible, config_max_occluders);
-            // for (uint32_t i = 0; i < scene.num_occluders; i++) {
+
+            // for (uint32_t traverse_idx = 0; traverse_idx < num_visible; traverse_idx++) {
+            //     debugf("[%lu] %s %f\n", traverse_idx, traverse_idx < max_occluders ? "*" : " ", occluder_cull_results[traverse_idx].score);
+            // }
+
             for (uint32_t traverse_idx = 0; traverse_idx < max_occluders; traverse_idx++) {
-                // debugf("testing %lu (%f, %f, %f), rad_sqr=%f\n",
-                //         i,
-                //        scene.occ_origins[3 * i],
-                //        scene.occ_origins[3 * i + 1],
-                //        scene.occ_origins[3 * i + 2],
-                //        scene.occ_radiuses_sqr[i]);
-
-                // bool visible = true;
-                // if (config_cull_occluders) {
-                //     uint8_t inflags = 0x00;
-                //     float radius = scene.occ_radiuses[i];
-                //     plane_side_t side = is_sphere_inside_frustum(culler->clip_planes, &scene.occ_origins[3 * i], radius*radius, &inflags);
-                //     visible = side != SIDE_OUT;
-                // }
-
                 uint16_t idx = occluder_cull_results[traverse_idx].idx;
                 occ_raster_query_result_t result = {};
                 occ_occluder_flags_t flags = OCCLUDER_TWO_SIDED;
