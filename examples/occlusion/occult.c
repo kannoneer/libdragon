@@ -843,6 +843,8 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
     uint8_t clip_codes_all = 0xff;
     uint8_t clip_codes_any = 0x00;
 
+    bool found = false;
+
     prof_begin(REGION_TRANSFORM_ROUGH);
     for (int iv = 0; iv < mesh->num_vertices; iv++) {
         cpu_vtx_t vert = {};
@@ -885,10 +887,27 @@ bool occ_check_mesh_visible_rough(occ_culler_t *occ, surface_t *zbuffer, const o
                 oct_box.hi.x = max(oct_box.hi.x, pr.x);
                 oct_box.hi.y = max(oct_box.hi.y, pr.y);
             }
+
+            //HACK: test vertex directly from buffer
+            const int last_visible_iv = 0;
+            if (last_visible_iv == 0) {
+                int x = vert.screen_pos[0];
+                int y = vert.screen_pos[1];
+                if (vert.depth > 0.0f && vert.depth < 1.0f && x >= 0 && y>= 0 && x < zbuffer->width && y < zbuffer->height) {
+                    u_uint16_t *buf = ZBUFFER_UINT_PTR_AT(zbuffer, x, y);
+                    uint16_t memdepth = *buf;
+                    uint16_t depth = FLOAT_TO_U16(vert.depth);
+                    if (depth <= memdepth) {
+                         //debugf("early out %u <= %u\n", depth, memdepth);
+                         found = true;
+                     }
+                }
+            }
         }
     }
 
-    prof_begin(REGION_TRANSFORM_ROUGH);
+    if (found) return true;
+
     prof_end(REGION_TRANSFORM_ROUGH);
     prof_end(REGION_TRANSFORM);
 

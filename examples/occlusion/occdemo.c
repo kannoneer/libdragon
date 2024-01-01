@@ -303,6 +303,7 @@ struct city_scene_s
     matrix_t node_xforms[CITY_SCENE_MAX_NODES];
     matrix_t node_world_xforms[CITY_SCENE_MAX_NODES];
     bool node_should_test[CITY_SCENE_MAX_NODES];
+    // bool node_has_xform[CITY_SCENE_MAX_NODES]; // node unit cubes need to be transformed anyway so we can't skip them
     const char* node_names[CITY_SCENE_MAX_NODES];
 
     model64_node_t* occluders[CITY_SCENE_MAX_OCCLUDERS];
@@ -485,13 +486,16 @@ void setup_city_scene()
                 debugf("Error: max nodes reached\n");
                 break;
             }
+            uint32_t idx = s->num_nodes;
 
             if (strstr(node->name, "occluder") == NULL) {
-                city_scene.node_should_test[s->num_nodes] = true;
+                city_scene.node_should_test[idx] = true;
             }
-            copy_to_matrix(&model->transforms[i].world_mtx[0], &city_scene.node_world_xforms[s->num_nodes]);
-            s->nodes[s->num_nodes] = node;
-            city_scene.node_names[s->num_nodes] = node->name;
+
+            copy_to_matrix(&model->transforms[i].world_mtx[0], &city_scene.node_world_xforms[idx]);
+            // city_scene.node_has_xform[idx] = !matrix_is_identity(&city_scene.node_world_xforms[idx]);
+            s->nodes[idx] = node;
+            city_scene.node_names[idx] = node->name;
             s->num_nodes++;
         }
     }
