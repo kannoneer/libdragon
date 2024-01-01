@@ -217,9 +217,9 @@ void setup()
 
     // Convert cube mesh to a 'hull' that's optimized for culling
     occ_mesh_t cube_mesh = {
-        .vertices = (vertex_t*)cube_vertices,
+        .vertices = (cvertex_t*)cube_cvertices,
         .indices = (uint16_t*)cube_indices,
-        .num_vertices = sizeof(cube_vertices) / sizeof(cube_vertices[0]),
+        .num_vertices = sizeof(cube_cvertices) / sizeof(cube_cvertices[0]),
         .num_indices = sizeof(cube_indices) / sizeof(cube_indices[0]),
     };
 
@@ -229,9 +229,9 @@ void setup()
     }
 
     occ_mesh_t unit_cube_mesh = {
-        .vertices = (vertex_t*)unit_cube_vertices,
+        .vertices = (cvertex_t*)unit_cube_cvertices,
         .indices = (uint16_t*)unit_cube_indices,
-        .num_vertices = sizeof(unit_cube_vertices) / sizeof(unit_cube_vertices[0]),
+        .num_vertices = sizeof(unit_cube_cvertices) / sizeof(unit_cube_cvertices[0]),
         .num_indices = sizeof(unit_cube_indices) / sizeof(unit_cube_indices[0]),
     };
     conversion_success = occ_hull_from_flat_mesh(&unit_cube_mesh, &unit_cube_hull);
@@ -284,9 +284,9 @@ void render_door_scene(surface_t* disp)
     // occ_draw_mesh(culler, sw_zbuffer, &plane_mesh, NULL);
 
     occ_mesh_t cube_mesh = {
-        .vertices = (vertex_t*)cube_vertices,
+        .vertices = (cvertex_t*)cube_cvertices,
         .indices = (uint16_t*)cube_indices,
-        .num_vertices = sizeof(cube_vertices) / sizeof(cube_vertices[0]),
+        .num_vertices = sizeof(cube_cvertices) / sizeof(cube_cvertices[0]),
         .num_indices = sizeof(cube_indices) / sizeof(cube_indices[0]),
     };
 
@@ -541,12 +541,12 @@ struct city_scene_s
 
     sphere_bvh_t bvh;
     matrix_t bvh_xforms[CITY_SCENE_MAX_BVH_SIZE];
-} city_scene = {};
+} scene = {};
 
 void setup_city_scene()
 {
     //bool verbose=false;
-    struct city_scene_s* s = &city_scene;
+    struct city_scene_s* s = &scene;
 
     model64_t* model = model64_load("rom://room1.model64");
     if (!model) {
@@ -579,7 +579,7 @@ void setup_city_scene()
                 debugf("Error: max occluders reached\n");
                 break;
             }
-            copy_to_matrix(&model->transforms[i].world_mtx[0], &city_scene.occluder_xforms[s->num_occluders]);
+            copy_to_matrix(&model->transforms[i].world_mtx[0], &scene.occluder_xforms[s->num_occluders]);
 
             s->occluders[s->num_occluders] = node;
             s->num_occluders++;
@@ -590,11 +590,11 @@ void setup_city_scene()
             }
 
             if (strstr(node->name, "detail") != NULL) {
-                city_scene.node_should_test[s->num_nodes] = true;
+                scene.node_should_test[s->num_nodes] = true;
             }
-            copy_to_matrix(&model->transforms[i].world_mtx[0], &city_scene.node_xforms[s->num_nodes]);
+            copy_to_matrix(&model->transforms[i].world_mtx[0], &scene.node_xforms[s->num_nodes]);
             s->nodes[s->num_nodes] = node;
-            city_scene.node_names[s->num_nodes] = node->name;
+            scene.node_names[s->num_nodes] = node->name;
             s->num_nodes++;
             debugf("wrote node node=%p", s->nodes[s->num_nodes - 1]);
         }
@@ -610,20 +610,20 @@ void setup_city_scene()
 
     uint64_t start_ticks = get_ticks();
 
-    float* origins = malloc(city_scene.num_nodes * sizeof(float) * 3);
-    float* radiuses = malloc(city_scene.num_nodes * sizeof(float));
-    aabb_t* aabbs = malloc(city_scene.num_nodes * sizeof(aabb_t));
+    float* origins = malloc(scene.num_nodes * sizeof(float) * 3);
+    float* radiuses = malloc(scene.num_nodes * sizeof(float));
+    aabb_t* aabbs = malloc(scene.num_nodes * sizeof(aabb_t));
     DEFER(free(origins));
     DEFER(free(radiuses));
     DEFER(free(aabbs));
 
-    for (uint32_t i = 0; i < city_scene.num_nodes; i++) {
+    for (uint32_t i = 0; i < scene.num_nodes; i++) {
         GLuint list = glGenLists(1);
         glNewList(list, GL_COMPILE);
-        city_scene.node_dplists[i] = list;
+        scene.node_dplists[i] = list;
         glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &mat_diffuse[4*(i%4)]);
-        model64_node_t* node = city_scene.nodes[i];
-        model64_draw_node(city_scene.mdl_room, node);
+        model64_node_t* node = scene.nodes[i];
+        model64_draw_node(scene.mdl_room, node);
         glEndList();
 
         float obj_radius = 0.0f;
@@ -632,7 +632,7 @@ void setup_city_scene()
         aabb_t obj_aabb={};
         aabb_t world_aabb={};
         float world_center[3]={};
-        bool bounds_ok = compute_mesh_bounds(node->mesh, &city_scene.node_xforms[i], &obj_radius, &obj_aabb, &world_radius, &world_aabb, &world_center[0]);
+        bool bounds_ok = compute_mesh_bounds(node->mesh, &scene.node_xforms[i], &obj_radius, &obj_aabb, &world_radius, &world_aabb, &world_center[0]);
         debugf("[node %lu] OK: %d, obj_radius=%f, min=(%.3f, %.3f, %.3f), max=(%.3f, %.3f, %.3f)\n", i, bounds_ok, obj_radius,
             obj_aabb.lo[0], obj_aabb.lo[1], obj_aabb.lo[2],
             obj_aabb.hi[0], obj_aabb.hi[1], obj_aabb.hi[2]
@@ -656,7 +656,7 @@ world_center[0], world_center[1],world_center[2]
         );
 
         debugf("matrix %lu\n", i);
-        print_matrix(&city_scene.node_xforms[i]);
+        print_matrix(&scene.node_xforms[i]);
         float* orig = &origins[3*i];
         orig[0] = world_center[0];
         orig[1] = world_center[1];
@@ -665,23 +665,23 @@ world_center[0], world_center[1],world_center[2]
         aabbs[i] = world_aabb;
 
         matrix_t temp = cpu_glScalef(scale[0], scale[1], scale[2]);
-        matrix_t old = city_scene.node_xforms[i];
-        matrix_mult_full(&city_scene.node_xforms[i], &old, &temp);
-        old = city_scene.node_xforms[i];
+        matrix_t old = scene.node_xforms[i];
+        matrix_mult_full(&scene.node_xforms[i], &old, &temp);
+        old = scene.node_xforms[i];
         temp = cpu_glTranslatef(mid[0], mid[1], mid[2]);
-        matrix_mult_full(&city_scene.node_xforms[i], &old, &temp);
+        matrix_mult_full(&scene.node_xforms[i], &old, &temp);
     }
 
     debugf("num_nodes: %lu, num_occluders: %lu\n", s->num_nodes, s->num_occluders);
 
-    for (uint32_t i=0;i<city_scene.num_occluders;i++) {
-        bool success = model_to_occ_mesh(model, s->occluders[i]->mesh, &city_scene.occ_meshes[i]);
+    for (uint32_t i=0;i<scene.num_occluders;i++) {
+        bool success = model_to_occ_mesh(model, s->occluders[i]->mesh, &scene.occ_meshes[i]);
         if (!success) {
             debugf("conversion of occluder %lu failed\n", i);
             assert(success);
         }
-        occ_hull_t* hullp = &city_scene.occ_hulls[i];
-        success = occ_hull_from_flat_mesh(&city_scene.occ_meshes[i], hullp);
+        occ_hull_t* hullp = &scene.occ_hulls[i];
+        success = occ_hull_from_flat_mesh(&scene.occ_meshes[i], hullp);
         if (!success) {
             debugf("conversion of hull %lu failed\n", i);
             assert(success);
@@ -689,7 +689,7 @@ world_center[0], world_center[1],world_center[2]
     }
 
     debugf("input origins and rads:\n");
-    for (uint32_t i = 0; i < city_scene.num_nodes; i++) {
+    for (uint32_t i = 0; i < scene.num_nodes; i++) {
         float r = radiuses[i];
         float* p = &origins[3*i];
 
@@ -699,7 +699,7 @@ world_center[0], world_center[1],world_center[2]
     uint64_t bvh_start_ticks = get_ticks();
 
     sphere_bvh_t bvh = {};
-    bool success = bvh_build(origins, radiuses, aabbs, city_scene.num_nodes, &bvh);
+    bool success = bvh_build(origins, radiuses, aabbs, scene.num_nodes, &bvh);
     if (!success) {
         debugf("BVH building failed\n");
         return;
@@ -710,7 +710,7 @@ world_center[0], world_center[1],world_center[2]
     debugf("bvh.num_nodes=%lu\n", bvh.num_nodes);
     bool ok = bvh_validate(&bvh);
     assert(bvh.num_nodes < CITY_SCENE_MAX_BVH_SIZE);
-    city_scene.bvh = bvh;
+    scene.bvh = bvh;
     assert(ok);
 
     debugf("creating node matrices\n");
@@ -722,7 +722,7 @@ world_center[0], world_center[1],world_center[2]
 
         matrix_t scale = cpu_glScalef(r, r, r);
         matrix_t translate = cpu_glTranslatef(n->pos[0], n->pos[1], n->pos[2]);
-        matrix_mult_full(&city_scene.bvh_xforms[i], &translate, &scale);
+        matrix_mult_full(&scene.bvh_xforms[i], &translate, &scale);
     }
 
 //wait_for_button();
@@ -774,10 +774,10 @@ void render_city_scene(surface_t* disp)
     // Draw occluders
 
     if (config_enable_culling) {
-        for (uint32_t i = 0; i < city_scene.num_occluders; i++) {
+        for (uint32_t i = 0; i < scene.num_occluders; i++) {
             debugf("drawing occluder %lu\n", i);
             occ_raster_query_result_t result = {};
-            occ_draw_hull(culler, sw_zbuffer, &city_scene.occ_hulls[i], &city_scene.occluder_xforms[i], &result, OCCLUDER_TWO_SIDED);
+            occ_draw_hull(culler, sw_zbuffer, &scene.occ_hulls[i], &scene.occluder_xforms[i], &result, OCCLUDER_TWO_SIDED);
         }
     }
 
@@ -801,7 +801,7 @@ void render_city_scene(surface_t* disp)
         //glBlendFunc(GL_ONE, GL_ONE);
 
     static cull_result_t cull_results[CITY_SCENE_MAX_NODES]; // references Node* elements
-    uint32_t num_visible = bvh_find_visible(&city_scene.bvh, culler->camera_pos, culler->clip_planes, cull_results, sizeof(cull_results) / sizeof(cull_results[0]));
+    uint32_t num_visible = bvh_find_visible(&scene.bvh, culler->camera_pos, culler->clip_planes, cull_results, sizeof(cull_results) / sizeof(cull_results[0]));
 
     for (uint32_t res_idx = 0; res_idx < num_visible; res_idx++) {
         cull_result_t res = cull_results[res_idx];
@@ -810,16 +810,16 @@ void render_city_scene(surface_t* disp)
 
         bool visible = true;
 
-        if (config_enable_culling && !(res.flags & VISIBLE_CAMERA_INSIDE) && city_scene.node_should_test[idx]) {
-            debugf("occlusion testing node '%s'\n", city_scene.node_names[idx]);
+        if (config_enable_culling && !(res.flags & VISIBLE_CAMERA_INSIDE) && scene.node_should_test[idx]) {
+            debugf("occlusion testing node '%s'\n", scene.node_names[idx]);
             occ_raster_query_result_t result = {};
             //occ_draw_hull(culler, sw_zbuffer, &unit_cube_hull, &city_scene.node_xforms[i], &result, 0);
-            visible = occ_check_target_visible(culler, sw_zbuffer, &unit_cube_hull, &city_scene.node_xforms[idx], &city_scene.targets[idx], &result);
+            visible = occ_check_target_visible(culler, sw_zbuffer, &unit_cube_hull, &scene.node_xforms[idx], &scene.targets[idx], &result);
         }
 
         if (visible) {
             glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &mat_diffuse[4*(idx%4)]);
-            glCallList(city_scene.node_dplists[idx]);
+            glCallList(scene.node_dplists[idx]);
             scene_stats.num_drawn++;
         }
     }
@@ -869,9 +869,9 @@ void render_city_scene(surface_t* disp)
 
         glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, &white[0]);
 
-        for (uint32_t i = 0; i < city_scene.num_nodes; i++) {
-            if (city_scene.targets[i].last_visible_frame == culler->frame) {
-                render_posed_unit_cube(&city_scene.node_xforms[i]);
+        for (uint32_t i = 0; i < scene.num_nodes; i++) {
+            if (scene.targets[i].last_visible_frame == culler->frame) {
+                render_posed_unit_cube(&scene.node_xforms[i]);
                 // glPushMatrix();
                 // glMultMatrixf(&city_scene.node_xforms[i].m[0][0]);
                 // draw_unit_cube();
@@ -898,8 +898,8 @@ void render_city_scene(surface_t* disp)
         GLfloat blu[4] = {0.1f, 0.1f, 0.4f, 0.2f};
         GLfloat green[4] = {0.1f, 0.4f, 0.1f, 0.2f};
 
-        for (uint32_t i=0;i<city_scene.bvh.num_nodes;i++) {
-            bvh_node_t* n = &city_scene.bvh.nodes[i];
+        for (uint32_t i=0;i<scene.bvh.num_nodes;i++) {
+            bvh_node_t* n = &scene.bvh.nodes[i];
             bool is_leaf = bvh_node_is_leaf(n);
 
             if (g_show_node >= 0 && i != g_show_node) {
@@ -929,7 +929,7 @@ void render_city_scene(surface_t* disp)
 
             //if (is_leaf) continue;
             glPushMatrix();
-            glMultMatrixf(&city_scene.bvh_xforms[i].m[0][0]);
+            glMultMatrixf(&scene.bvh_xforms[i].m[0][0]);
             // if (clips) {
             // glCullFace(GL_FRONT);
             // } else {
@@ -942,7 +942,7 @@ void render_city_scene(surface_t* disp)
 
             // render_aabb(&city_scene.bvh.node_aabbs[i]);
             if (!is_leaf) {
-                aabb_t planebox = city_scene.bvh.node_aabbs[i];
+                aabb_t planebox = scene.bvh.node_aabbs[i];
                 uint32_t ax = bvh_node_get_axis(n);
                 planebox.lo[ax] = n->pos[ax] - 1e-3;
                 planebox.hi[ax] = n->pos[ax] + 1e-3;
