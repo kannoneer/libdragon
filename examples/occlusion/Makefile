@@ -32,7 +32,7 @@ $(BUILD_DIR)/occtests.dfs: $(assets_conv)
 $(BUILD_DIR)/occdemo.elf: $(demo_src:%.c=$(BUILD_DIR)/%.o) $(lib_src:%.c=$(BUILD_DIR)/%.o)
 $(BUILD_DIR)/occtests.elf: $(tests_src:%.c=$(BUILD_DIR)/%.o)
 
-filesystem/FerriteCoreDX.font64: MKFONT_FLAGS+=--size 12
+filesystem/FerriteCoreDX.font64: MKFONT_FLAGS+=--size 16
 filesystem/KidsDraw.font64: MKFONT_FLAGS+=--size 14
 
 occdemo.z64: N64_ROM_TITLE="Occlusion Demo"

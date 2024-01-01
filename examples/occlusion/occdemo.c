@@ -1041,9 +1041,16 @@ void render(double delta)
     // rdpq_attach(disp, NULL);
     if (config_depth_view_mode > 0) {
         rdpq_set_mode_standard(); // Can't use copy mode if we need a 16-bit -> 32-bit conversion
+        if (config_depth_view_mode == 1) {
+            rdpq_set_prim_color((color_t){0, 0, 255, 255});
+            rdpq_set_env_color((color_t){255, 128, 0, 255});
+            rdpq_mode_combiner(RDPQ_COMBINER2((TEX0, 0, ENV, PRIM), (0, 0, 0, ENV), (COMBINED,0,COMBINED,0), (0,0,0,COMBINED)));
+        }
         if (config_depth_view_mode == 2) {
-            rdpq_set_env_color((color_t){0, 0, 0, 160});
-            rdpq_mode_combiner(RDPQ_COMBINER1((0, 0, 0, TEX0), (0, 0, 0, ENV)));
+            rdpq_set_prim_color((color_t){0, 0, 255, 255});
+            rdpq_set_env_color((color_t){255, 128, 0, 160});
+            // rdpq_mode_combiner(RDPQ_COMBINER1((0, 0, 0, TEX0), (0, 0, 0, ENV)));
+            rdpq_mode_combiner(RDPQ_COMBINER2((TEX0, 0, ENV, PRIM), (0, 0, 0, ENV), (COMBINED,0,COMBINED,0), (0,0,0,COMBINED)));
             rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY);
             params.scale_x = SCREEN_WIDTH / CULL_W;
             params.scale_y = SCREEN_HEIGHT / CULL_H;
@@ -1063,10 +1070,11 @@ void render(double delta)
 
     rspq_flush();
 
+    const int fh = 18;
     rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 20, config_enable_culling ? "occlusion culling: ON" : "occlusion culling: OFF");
-    rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 30, config_show_wireframe ? "show culled: ON" : "show culled: OFF");
-    rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 40, "visible: %d/%d objects, %d occluders", scene_stats.num_drawn, scene_stats.num_max, scene_stats.num_occluders_drawn);
-    rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 50, "delta: % 6.3f ms, %.1f fps", delta*1000, 1.0/delta);
+    rdpq_text_print(NULL, FONT_SCIFI, CULL_W + 8, 20+1*fh, config_show_wireframe ? "show culled: ON" : "show culled: OFF");
+    rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 8, 20+2*fh, "visible: %d/%d objects, %d occluders", scene_stats.num_drawn, scene_stats.num_max, scene_stats.num_occluders_drawn);
+    rdpq_text_printf(NULL, FONT_SCIFI, CULL_W + 7, 20+3*fh, "% 4.1f ms, %.1f fps", delta*1000, 1.0/delta);
 
     mu64_end_frame();
     if (config_menu_open) {
