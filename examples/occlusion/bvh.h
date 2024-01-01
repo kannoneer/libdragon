@@ -43,6 +43,7 @@ typedef uint16_t cull_flags_t;
 typedef struct cull_result_e {
     uint16_t idx;
     cull_flags_t flags;
+    float score;
 } cull_result_t;
 
 inline bool bvh_node_is_leaf(const bvh_node_t* n) { return (n->flags & BVH_FLAGS_CHILD_MASK) == 0; }

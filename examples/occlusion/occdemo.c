@@ -638,12 +638,32 @@ void render_scene(surface_t* disp)
             // debugf("HACK no occluders\n");
             prof_begin(REGION_CULL_OCCLUDERS);
             static cull_result_t occluder_cull_results[SCENE_MAX_OCCLUDERS];
-            uint32_t max_occluders = min(GET_ARRAY_SIZE(occluder_cull_results), config_max_occluders);
-            uint32_t num_visible = bvh_find_visible(&scene.occluder_bvh, culler->camera_pos, culler->clip_planes, occluder_cull_results, max_occluders);
+            uint32_t num_visible = bvh_find_visible(&scene.occluder_bvh, culler->camera_pos, culler->clip_planes, occluder_cull_results, GET_ARRAY_SIZE(occluder_cull_results));
             prof_end(REGION_CULL_OCCLUDERS);
 
+            int compare_descending(const void *a, const void *b)
+            {
+                //float fa = occluder_cull_results[(*(cull_result_t *)a)].score;
+                //float fb = occluder_cull_results[(*(cull_result_t *)b)].score;
+                float fa = ((cull_result_t*)a)->score;
+                float fb = ((cull_result_t*)b)->score;
+                // debugf("%f < %f\n", fa, fb);
+                if (fa > fb) {
+                    return -1;
+                }
+                else if (fa < fb) {
+                    return 1;
+                }
+                else {
+                    return 0;
+                }
+            }
+
+            qsort(&occluder_cull_results[0], num_visible, sizeof(occluder_cull_results[0]), compare_descending);
+
+            uint32_t max_occluders = min(num_visible, config_max_occluders);
             // for (uint32_t i = 0; i < scene.num_occluders; i++) {
-            for (uint32_t traverse_idx = 0; traverse_idx < num_visible; traverse_idx++) {
+            for (uint32_t traverse_idx = 0; traverse_idx < max_occluders; traverse_idx++) {
                 // debugf("testing %lu (%f, %f, %f), rad_sqr=%f\n",
                 //         i,
                 //        scene.occ_origins[3 * i],
@@ -771,7 +791,7 @@ void render_scene(surface_t* disp)
         GLfloat blu[4] = {0.1f, 0.1f, 0.4f, 0.2f};
         GLfloat green[4] = {0.1f, 0.4f, 0.1f, 0.2f};
 
-        if (mu_begin_window_ex(&mu_ctx, "BVH", mu_rect(220, 40, 300, 340), MU_OPT_NOCLOSE)) {
+        if (mu_begin_window_ex(&mu_ctx, "BVH", mu_rect(220, 40, 300, 340), 0)) {
             static int show_leaf_boxes;
             static int show_inner_boxes;
             static int show_obb;
@@ -844,12 +864,12 @@ void render_scene(surface_t* disp)
             }
 
             traverse(0);
+            mu_end_window(&mu_ctx);
         }
 
         glEnable(GL_DEPTH_TEST);
         glDisable(GL_BLEND);
 
-        mu_end_window(&mu_ctx);
     }
 
     bool show_bvh = g_show_node >= -1;
@@ -1162,7 +1182,7 @@ int main()
         mu64_set_mouse_speed(0.10f * (float)delta); // keep cursor speed constant
 
         if (config_menu_open) {
-            if (mu_begin_window_ex(&mu_ctx, "Settings", mu_rect(10, 40, 140, 120), MU_OPT_NOCLOSE)) {
+            if (mu_begin_window_ex(&mu_ctx, "Settings", mu_rect(10, 40, 160, 150), MU_OPT_NOCLOSE)) {
                 mu_layout_row(&mu_ctx, 1, (int[]){-1}, 0);
                 mu_label(&mu_ctx, "Background");
                 mu_checkbox(&mu_ctx, "Show BVH boxes", &config_show_bvh_boxes);
@@ -1170,12 +1190,15 @@ int main()
                 mu_checkbox(&mu_ctx, "Show last rough box", &config_show_last_box);
                 mu_checkbox(&mu_ctx, "Cull occluders", &config_cull_occluders);
                 mu_checkbox(&mu_ctx, "Enable fog probes", &config_enable_fog_probes);
+                mu_label(&mu_ctx, "Test occluders after");
                 float value = config_test_occluders_after;
                 mu_slider(&mu_ctx, &value, 0, 50);
                 config_test_occluders_after = value;
-                value = config_max_occluders;
-                mu_slider(&mu_ctx, &value, 0, 50);
-                config_max_occluders = value;
+
+                mu_label(&mu_ctx, "Max occluders");
+                float max_occluders = config_max_occluders;
+                mu_slider(&mu_ctx, &max_occluders, 0, 30);
+                config_max_occluders = max_occluders;
 
                 mu_end_window(&mu_ctx);
             }
