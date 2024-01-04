@@ -31,9 +31,9 @@
 // Update these when changing code that writes to the output file
 // IMPORTANT: Do not attempt to move these values to a header that is shared by mkmodel and runtime code!
 //            These values must reflect what the tool actually outputs.
-#define HEADER_SIZE         80
+#define HEADER_SIZE         88
 #define MESH_SIZE           8
-#define PRIMITIVE_SIZE      108
+#define PRIMITIVE_SIZE      112
 #define NODE_SIZE           128
 #define SKIN_SIZE           8
 #define ANIM_SIZE           40
@@ -86,6 +86,48 @@ typedef struct ordered_keyframe_array_s {
     uint32_t count;
     ordered_keyframe_t *data;
 } ordered_keyframe_array_t;
+
+// Texture path tracking
+
+#define MAX_TEXTURES 100
+
+struct {
+    const char *paths[MAX_TEXTURES];
+    uint32_t num;
+} all_textures = {};
+
+void init_texture_table()
+{
+    memset(&all_textures, 0, sizeof(all_textures));
+}
+
+void free_texture_table()
+{
+    for (uint32_t i = 0; i < all_textures.num; i++) {
+        free((char*)all_textures.paths[i]);
+    }
+}
+
+uint32_t get_texture_index(const char* path)
+{
+    for (uint32_t i = 0; i < all_textures.num; i++) {
+        if (strcmp(all_textures.paths[i], path) == 0) {
+            printf("mapped path '%s' at index %u\n", path, i);
+            return i;
+        }
+    }
+
+    // Not in table, add it.
+    size_t size = strlen(path) + 1;
+    char *new = malloc(size);
+    strncpy(new, path, size); // TODO: use strdup?
+
+    uint32_t idx = all_textures.num++;
+    all_textures.paths[idx] = new;
+    printf("added path '%s' at index %u as '%s'\n", path, idx, new);
+    return idx;
+}
+
 
 int flag_anim_stream = 1;
 int flag_verbose = 0;
@@ -339,6 +381,10 @@ void model64_write_header(model64_data_t *model, FILE *out)
     } else {
         w32(out, 0);
     }
+
+    w32(out, all_textures.num);
+    w32_placeholderf(out, "textures");
+
     assert(ftell(out)-start_ofs == HEADER_SIZE);
 }
 
@@ -466,6 +512,7 @@ void model64_write_meshes(model64_data_t *model, FILE *out)
             w32(out, primitive->index_type);
             w32(out, primitive->num_vertices);
             w32(out, primitive->num_indices);
+            w32(out, primitive->texture_idx);
             w32_placeholderf(out, "mesh%d_primitive%d_index", i, j);
             assert(ftell(out)-start_ofs == PRIMITIVE_SIZE);
         }
@@ -560,6 +607,44 @@ void model64_write_anims(model64_data_t *model, FILE *out, FILE *anim_out)
     }
 }
 
+void model64_write_textures(model64_data_t *model, FILE *out) {
+    walign(out, 4);
+    placeholder_set(out, "textures");
+    for (uint32_t i = 0; i < all_textures.num; i++) {
+        w32_placeholderf(out, "texture%d_path", i);
+    }
+    for (uint32_t i = 0; i < all_textures.num; i++) {
+        placeholder_set(out, "texture%d_path", i);
+        fwrite(all_textures.paths[i], strlen(all_textures.paths[i])+1, 1, out);
+    }
+
+
+#if 0
+
+
+    walign(out, 4);
+    placeholder_set(out, "nodes");
+    for(uint32_t i=0; i<model->num_nodes; i++) {
+        // w32_placeholderf(out, "node%d_name", index);
+        model64_write_node(model, out, i);
+    }
+    for(uint32_t i=0; i<model->num_nodes; i++) {
+        placeholder_set(out, "node%d_children", i);
+        for(uint32_t j=0; j<model->nodes[i].num_children; j++) {
+            w32(out, model->nodes[i].children[j]);
+        }
+    }
+    for(uint32_t i=0; i<model->num_nodes; i++)
+    {
+        if(model->nodes[i].name) {
+            placeholder_set(out, "node%d_name", i);
+            fwrite(model->nodes[i].name, strlen(model->nodes[i].name)+1, 1, out);
+        }
+    }
+    #endif
+
+}
+
 void model64_write(model64_data_t *model, FILE *out, FILE *anim_out)
 {
     model64_write_header(model, out);
@@ -567,6 +652,7 @@ void model64_write(model64_data_t *model, FILE *out, FILE *anim_out)
     model64_write_nodes(model, out);
     model64_write_skins(model, out);
     model64_write_anims(model, out, anim_out);
+    model64_write_textures(model, out);
     placeholder_clear();
 }
 
@@ -702,6 +788,17 @@ void simplify_mtx_index_buffer(attribute_t *mtx_index_attr, attribute_t *weight_
     free(mtx_index_attr->pointer);
     mtx_index_attr->pointer = new_buffer;
     mtx_index_attr->size = 1;
+}
+
+static bool check_image_uri_is_path(const char *uri) {
+    // FIXME please put in proper validation
+    if (strlen(uri) > 5) {
+        if (strstr(uri, "data:") != NULL) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 int convert_primitive(cgltf_primitive *in_primitive, primitive_t *out_primitive)
@@ -884,6 +981,26 @@ int convert_primitive(cgltf_primitive *in_primitive, primitive_t *out_primitive)
 
         free(temp_indices);
     }
+
+    // Convert materials to textures
+    out_primitive->texture_idx = INVALID_TEXTURE_INDEX;
+
+    if (in_primitive->material) {
+        cgltf_texture* texture = in_primitive->material->pbr_metallic_roughness.base_color_texture.texture;
+
+        if (texture && texture->image) {
+            const char* uri = texture->image->uri;
+            printf("found image URI '%s'\n", uri);
+            if (!check_image_uri_is_path(uri)) {
+                fprintf(stderr, "Error: Image URI %s wasn't a path.\n", uri);
+                free(weight_attr.pointer);
+                return 1;
+            }
+
+            out_primitive->texture_idx = get_texture_index(uri);
+        }
+    }
+
     free(weight_attr.pointer);
     return 0;
 }
@@ -1669,8 +1786,11 @@ int convert(const char *infn, const char *outfn)
         fprintf(stderr, "Error: input file contains no meshes\n");
         goto error;
     }
+
+    init_texture_table();
     
     // Convert meshes
+
     model->num_meshes = data->meshes_count;
     model->meshes = calloc(data->meshes_count, sizeof(mesh_t));
     for (size_t i = 0; i < data->meshes_count; i++)
@@ -1692,6 +1812,7 @@ int convert(const char *infn, const char *outfn)
             goto error;
         }
     }
+
     // Convert skins
     model->num_skins = data->skins_count;
     if(model->num_skins != 0) {
@@ -1783,11 +1904,13 @@ int convert(const char *infn, const char *outfn)
     model64_write(model, out, anim_out);
     fclose(out);
 
+    free_texture_table();
     model64_free(model);
     cgltf_free(data);
     return 0;
 
 error:
+    free_texture_table();
     model64_free(model);
     cgltf_free(data);
     return 1;

@@ -15,6 +15,133 @@
 
 #include "model64_catmull.h"
 
+// Texture loading
+
+#include "sprite.h"
+#include "rdpq_tex.h"
+
+#define MAX_SHARED_TEXTURES 30
+
+typedef struct texture_entry_s {
+    char *path;
+    sprite_t *sprite;
+    GLuint obj;
+    int ref_count;
+} texture_entry_t;
+
+typedef struct texture_table_s {
+    texture_entry_t *entries;
+    uint32_t num;
+} texture_table_t;
+
+static texture_table_t* shared_textures;
+
+void init_texture_table()
+{
+    free(shared_textures);
+    shared_textures = calloc(1, sizeof(texture_table_t));
+    shared_textures->entries = calloc(MAX_SHARED_TEXTURES, sizeof(shared_textures->entries[0]));
+}
+
+void free_texture_entry(texture_entry_t *entry) {
+    assert(entry->ref_count == 0);
+    free(entry->path);
+    sprite_free(entry->sprite);
+    glDeleteTextures(1, &entry->obj);
+}
+
+void free_texture_table()
+{
+    for (uint32_t i = 0; i < shared_textures->num; i++) {
+        free_texture_entry(&shared_textures->entries[i]);
+    }
+    free(shared_textures->entries);
+    free(shared_textures);
+}
+
+uint32_t get_texture_index(const char* path)
+{
+    debugf("shared textures: %p\n", shared_textures);
+    for (uint32_t i = 0; i < shared_textures->num; i++) {
+        if (strcmp(shared_textures->entries[i].path, path) == 0) {
+            debugf("mapped path '%s' at index %lu\n", path, i);
+            return i;
+        }
+    }
+
+    // Not in table, try to load and add it.
+
+    if (shared_textures->num >= MAX_SHARED_TEXTURES) {
+        debugf("Error: Max shared texture count %d reached\n", MAX_SHARED_TEXTURES);
+        return INVALID_TEXTURE_INDEX;
+    }
+
+    // FIXME: do the .png -> .sprite path name conversion in mkmodel
+    uint32_t idx = shared_textures->num;
+    char prefixed[100] = {'\0'};
+    strcat(prefixed, "rom://");
+    strcat(prefixed, path);
+    prefixed[strlen(prefixed)-3] = '\0';
+    strcat(prefixed, "sprite");
+    debugf("loading '%s'\n", prefixed);
+    
+    sprite_t *sprite = sprite_load(prefixed);
+
+    if (!sprite) {
+        debugf("Failed to load texture %s\n", path);
+        return INVALID_TEXTURE_INDEX;
+    }
+
+    size_t size = strlen(path) + 1;
+    char *new = malloc(size);
+    strncpy(new, path, size);
+
+    texture_entry_t* entry = &shared_textures->entries[idx];
+    glGenTextures(1, &entry->obj);
+    glBindTexture(GL_TEXTURE_2D, entry->obj);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+
+    glSpriteTextureN64(GL_TEXTURE_2D, sprite, &(rdpq_texparms_t){.s.repeats = REPEAT_INFINITE, .t.repeats = REPEAT_INFINITE});
+
+    shared_textures->entries[idx].path = new;
+    shared_textures->entries[idx].sprite = sprite;
+    // We don't set refcount to 1 here because it's the callers responsibility, only they know if a reference was stored.
+    shared_textures->entries[idx].ref_count = 0;
+    shared_textures->num++;
+
+    printf("added path '%s' at index %lu as '%s'\n", path, idx, new);
+
+    return idx;
+}
+
+void increase_texture_refcount(uint32_t idx)
+{
+    assert(idx != INVALID_TEXTURE_INDEX);
+    assert(idx < MAX_SHARED_TEXTURES);
+    assert(shared_textures->entries[idx].ref_count >= 0);
+    shared_textures->entries[idx].ref_count++;
+}
+
+void decrease_texture_refcount(uint32_t idx)
+{
+    assert(idx != INVALID_TEXTURE_INDEX);
+    assert(idx < MAX_SHARED_TEXTURES);
+
+    texture_entry_t* entry = &shared_textures->entries[idx];
+    assert(entry->ref_count > 0);
+
+    if (--entry->ref_count == 0) {
+        free_texture_entry(entry);
+        // Cheesy garbage collection: free the slot if this was the last one.
+        if (idx + 1 == shared_textures->num) {
+            shared_textures->num--;
+        }
+        // FIXME: Also reuse the holes that are left if the idx wasn't last one.
+    }
+}
+
 #define PTR_DECODE(model, ptr)    ((void*)(((uint8_t*)(model)) + (uint32_t)(ptr)))
 #define PTR_ENCODE(model, ptr)    ((void*)(((uint8_t*)(ptr)) - (uint32_t)(model)))
 
@@ -30,6 +157,8 @@ static model64_data_t *load_model_data_buf(void *buf, int sz)
     model->meshes = PTR_DECODE(model, model->meshes);
     model->skins = PTR_DECODE(model, model->skins);
     model->anims = PTR_DECODE(model, model->anims);
+    debugf("textures ofs %p\n", model->texture_paths);
+    model->texture_paths = PTR_DECODE(model, model->texture_paths);
     for(uint32_t i=0; i<model->num_skins; i++)
     {
         model->skins[i].joints = PTR_DECODE(model, model->skins[i].joints);
@@ -50,6 +179,13 @@ static model64_data_t *load_model_data_buf(void *buf, int sz)
             model->nodes[i].skin = PTR_DECODE(model, model->nodes[i].skin);
         }
     }
+    init_texture_table(); // TODO where should we do it? and only if num_textures >0
+    debugf("textures ptr %p\n", model->texture_paths);
+    for (uint32_t i = 0; i < model->num_textures; i++)
+    {
+        debugf("path %lu texture_paths ofs %p\n", i, model->texture_paths[i]);
+        model->texture_paths[i] = PTR_DECODE(model, model->texture_paths[i]);
+    }
     for (uint32_t i = 0; i < model->num_meshes; i++)
     {
         model->meshes[i].primitives = PTR_DECODE(model, model->meshes[i].primitives);
@@ -62,6 +198,11 @@ static model64_data_t *load_model_data_buf(void *buf, int sz)
             primitive->normal.pointer = PTR_DECODE(model, primitive->normal.pointer);
             primitive->mtx_index.pointer = PTR_DECODE(model, primitive->mtx_index.pointer);
             primitive->indices = PTR_DECODE(model, primitive->indices);
+            uint32_t before_index = primitive->texture_idx;
+            debugf("primitive %lu\n", before_index);
+            debugf("texture_paths[%lu]: %s\n", before_index, model->texture_paths[before_index]);
+            primitive->texture_idx = get_texture_index(model->texture_paths[primitive->texture_idx]);
+            debugf("primitive te xind %lu -> %lu\n", before_index, primitive->texture_idx);
         }
     }
     for (uint32_t i = 0; i < model->num_anims; i++)
@@ -76,6 +217,7 @@ static model64_data_t *load_model_data_buf(void *buf, int sz)
             model->anims[i].keyframes = PTR_DECODE(model, model->anims[i].keyframes);
         }
     }
+
     model->magic = MODEL64_MAGIC_LOADED;
     model->ref_count = 1;
     data_cache_hit_writeback(model, sz);
@@ -192,6 +334,11 @@ static model64_t *make_model_instance(model64_data_t *model_data)
     instance->data = model_data;
     instance->transforms = (node_transform_state_t *)&instance[1];
     init_model_transforms(instance);
+
+    debugf("%s\n", __FUNCTION__);
+    for (uint32_t i=0;i<model_data->num_textures;i++) {
+        debugf("[%lu] texture '%s'\n", i, model_data->texture_paths[i]);
+    }
     return instance;
 }
 
@@ -425,6 +572,11 @@ primitive_t *model64_get_primitive(mesh_t *mesh, uint32_t primitive_index)
 
 void model64_draw_primitive(primitive_t *primitive)
 {
+    if (primitive->texture_idx != INVALID_TEXTURE_INDEX) {
+        glEnable(GL_TEXTURE_2D);
+        glBindTexture(GL_TEXTURE_2D, shared_textures->entries[primitive->texture_idx].obj);
+    }
+
     if (primitive->position.size > 0) {
         glEnableClientState(GL_VERTEX_ARRAY);
         if (primitive->position.type == GL_HALF_FIXED_N64) {

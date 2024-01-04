@@ -11,13 +11,15 @@
 /** @brief model64 owned model buffer magic */
 #define MODEL64_MAGIC_OWNED     0x4D444C4F // "MDLO"
 /** @brief Current version of model64 */
-#define MODEL64_VERSION         1
+#define MODEL64_VERSION         2
 
 #define ANIM_COMPONENT_POS 0
 #define ANIM_COMPONENT_ROT 1
 #define ANIM_COMPONENT_SCALE 2
 
 #define MAX_ACTIVE_ANIMS 4
+
+#define INVALID_TEXTURE_INDEX 0xffffff
 
 /** @brief Parameters for a single vertex attribute (part of #primitive_t) */
 typedef struct attribute_s {
@@ -40,6 +42,7 @@ typedef struct primitive_s {
     uint32_t index_type;            ///< Data type of indices (for example GL_UNSIGNED_SHORT)
     uint32_t num_vertices;          ///< Number of vertices
     uint32_t num_indices;           ///< Number of indices
+    uint32_t texture_idx;
     void *indices;                  ///< Pointer to the first index value. If NULL, indices are not used
 } primitive_t;
 
@@ -109,6 +112,11 @@ typedef struct model64_anim_s {
     uint16_t *tracks;               ///< Top 2 bits: target component; lowest 14 bits: target node
 } model64_anim_t;
 
+// typedef struct texture_list_s {
+    // char **paths;
+    // uint32_t num;
+// } texture_list_t;
+
 /** @brief A model64 file containing a model */
 typedef struct model64_data_s {
     uint32_t magic;             ///< Magic header (MODEL64_MAGIC)
@@ -131,6 +139,8 @@ typedef struct model64_data_s {
     model64_anim_t *anims;      ///< Pointer to first animation
     uint32_t max_tracks;        ///< Maximum number of tracks for animation
     void *anim_data_handle;     ///< Handle for animation data (0 means animations are not streamed)
+    uint32_t num_textures;
+    char **texture_paths;
 } model64_data_t;
 
 /** @brief Decoded data for a keyframe */
