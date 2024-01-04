@@ -63,12 +63,17 @@ static const char *texture_path[4] = {
 
 static sprite_t *sprites[4];
 
+static model64_t* mdl;
+
 void setup()
 {
     camera.distance = -10.0f;
     camera.rotation = 0.0f;
 
     zbuffer = surface_alloc(FMT_RGBA16, display_get_width(), display_get_height());
+
+    mdl = model64_load("rom:/abbox.model64");
+
 
     for (uint32_t i = 0; i < 4; i++)
     {
@@ -175,17 +180,19 @@ void render()
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
     
-    render_plane();
-    render_decal();
-    render_cube();
-    render_skinned(&camera, animation);
+    // render_plane();
+    // render_decal();
+    // render_cube();
+    // render_skinned(&camera, animation);
 
-    glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
-    render_sphere(rotation);
+    // glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
+    // render_sphere(rotation);
 
-    glDisable(GL_TEXTURE_2D);
-    glDisable(GL_LIGHTING);
-    render_primitives(rotation);
+    // glDisable(GL_TEXTURE_2D);
+    // glDisable(GL_LIGHTING);
+    // render_primitives(rotation);
+
+    model64_draw(mdl);
 
     gl_context_end();
 
