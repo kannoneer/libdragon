@@ -30,10 +30,12 @@ static GLuint textures[4];
 static GLenum shade_model = GL_SMOOTH;
 static bool fog_enabled = false;
 
-static const GLfloat environment_color[] = { 0.1f, 0.03f, 0.2f, 1.f };
+static const GLfloat environment_color[] = { 0.05f, 0.05f, 0.05f, 1.f };
 
-static const GLfloat light_pos[8][4] = {
-    { 1, 0, 0, 0 },
+#define NUM_LIGHTS (0)
+
+static GLfloat light_pos[8][4] = {
+    { 0, 2, 0, 1 },
     { -1, 0, 0, 0 },
     { 0, 0, 1, 0 },
     { 0, 0, -1, 0 },
@@ -44,7 +46,7 @@ static const GLfloat light_pos[8][4] = {
 };
 
 static const GLfloat light_diffuse[8][4] = {
-    { 1.0f, 0.0f, 0.0f, 1.0f },
+    { 1.0f, 1.0f, 1.0f, 1.0f },
     { 0.0f, 1.0f, 0.0f, 1.0f },
     { 0.0f, 0.0f, 1.0f, 1.0f },
     { 1.0f, 1.0f, 0.0f, 1.0f },
@@ -55,7 +57,7 @@ static const GLfloat light_diffuse[8][4] = {
 };
 
 static const char *texture_path[4] = {
-    "rom:/circle0.sprite",
+    "rom:/bumped.ia8.sprite",
     "rom:/diamond0.sprite",
     "rom:/pentagon0.sprite",
     "rom:/triangle0.sprite",
@@ -99,7 +101,7 @@ void setup()
 
     float light_radius = 10.0f;
 
-    for (uint32_t i = 0; i < 8; i++)
+    for (uint32_t i = 0; i < NUM_LIGHTS; i++)
     {
         glEnable(GL_LIGHT0 + i);
         glLightfv(GL_LIGHT0 + i, GL_DIFFUSE, light_diffuse[i]);
@@ -139,9 +141,9 @@ void setup()
 void set_light_positions(float rotation)
 {
     glPushMatrix();
-    glRotatef(rotation*5.43f, 0, 1, 0);
+    glRotatef(rotation, 0, 1, 0);
 
-    for (uint32_t i = 0; i < 8; i++)
+    for (uint32_t i = 0; i < NUM_LIGHTS; i++)
     {
         glLightfv(GL_LIGHT0 + i, GL_POSITION, light_pos[i]);
     }
@@ -164,7 +166,14 @@ void render()
 
     float rotation = animation * 0.5f;
 
-    set_light_positions(rotation);
+    static float angle;
+    angle = fmodf(angle + 0.05f, M_PI * 2);
+    angle = -camera.rotation/360.f*(M_PI*2);
+    // set_light_positions(angle);
+
+    const float ds = 3.0f;
+    float lpos[] = {ds*cos(angle), 2.0f, ds*sin(angle), 1.0f};
+    glLightfv(GL_LIGHT0 , GL_POSITION, lpos);
 
     // Set some global render modes that we want to apply to all models
     glEnable(GL_LIGHTING);
@@ -174,26 +183,88 @@ void render()
 
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
-    
-    render_plane();
-    render_decal();
+
+    if (true) {
+        render_cube(); // HACK: Draw something so that old texture size will stay in effect for RDPQ
+        glEnable(GL_RDPQ_TEXTURING_N64);
+
+        glBindTexture(GL_TEXTURE_2D, textures[0]);
+
+        // rdpq_tex_reuse
+        // rdpq_tex_multi_begin();
+        // rdpq_texparms_t parms = {};
+        // (void)parms;
+        // rdpq_sprite_upload(TILE0, sprites[0], NULL);
+
+        const float sz = 1.5f;
+
+        surface_t surf = sprite_get_lod_pixels(sprites[0], 0);
+        rdpq_tex_multi_begin();
+        rdpq_tex_upload(TILE0, &surf, &(rdpq_texparms_t){.s.repeats = REPEAT_INFINITE, .t.repeats = REPEAT_INFINITE, .s.scale_log = 0, .t.scale_log = 0});
+        rdpq_texparms_t parms = {.s.repeats = REPEAT_INFINITE, .t.repeats = REPEAT_INFINITE,
+            .s.scale_log = 0, .t.scale_log = 0,
+            .t.translate = sz * cos(angle), .s.translate = sz * sin(angle)};
+        debugf("angle: %f, tx: %f, ty: %f\n", angle, parms.s.translate, parms.t.translate);
+        rdpq_tex_reuse(TILE1, &parms);
+        rdpq_tex_multi_end();
+
+        // rdpq_set_tile(
+        //  rdpq_sprite_upload(TILE1, sprite1, NULL);
+        //  rdpq_tex_multi_end();
+
+        glEnable(GL_RDPQ_MATERIAL_N64);
+        rdpq_set_mode_standard();
+        rdpq_mode_filter(FILTER_BILINEAR);
+        rdpq_mode_mipmap(MIPMAP_NONE, 1);
+        uint8_t env = 100;
+        uint8_t prim = 255;
+        rdpq_set_env_color((color_t){env, env, env, 255});
+        rdpq_set_prim_color((color_t){prim, prim, prim, 255});
+        rdpq_set_fog_color((color_t){255, 0, 0, 255});
+        rdpq_set_blend_color((color_t){255, 255, 255, 255});
+        // rdpq_set_tile(1, sprite_get_format(sprites[0]), 0, 256, NULL);
+        // rdpq_texparms_t parms = {};
+        // rdpq_tex_reuse(1, &parms);
+
+        //rdpq_mode_combiner(RDPQ_COMBINER2((0, 0, 0, TEX0), (0, 0, 0, 1), (COMBINED, TEX1, PRIM, 0), (0, 0, 0, COMBINED)));
+        rdpq_mode_combiner(RDPQ_COMBINER2(
+            (TEX0, SHADE, ENV, 0), (0, 0, 0, TEX0),
+            (0, 0, 0, COMBINED), (COMBINED, TEX1, PRIM, 0)));
+        // rdpq_mode_combiner(
+        // rdpq_mode_combiner( RDPQ_COMBINER1((0, 0, 0, TEX0), (0, 0, 0, TEX0)));
+        //RDPQ_COMBINER2( (0, 0, 0, TEX0), (0, 0, 0, TEX0),
+        //   (0, 0, 0, TEX1), (0, 0, 0, TEX1));
+        // Can't use 2-pass blender because it forces B=INV_MUX_ALPHA so we couldn't actually add to color
+        rdpq_mode_blender(RDPQ_BLENDER((BLEND_RGB, IN_ALPHA, IN_RGB, 1))); 
+        // rdpq_mode_combiner(RDPQ_COMBINER2(
+        //     (TEX0, 0, SHADE, ENV), (0, 0, 0, 1),
+        //     (COMBINED, ENV, PRIM, COMBINED), (0, 0, 0, COMBINED)));
+        // rdpq_mode_fog(RDPQ_FOG_STANDARD);
+    } else {
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    }
+
+
+    // render_plane();
+    // render_decal();
     render_cube();
     render_skinned(&camera, animation);
 
     glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
-    render_sphere(rotation);
+    // render_sphere(rotation);
 
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
-    render_primitives(rotation);
+    // render_primitives(rotation);
 
     gl_context_end();
 
     rdpq_detach_wait();
 
-    char buf[80];
-    sprintf(buf, "Memory: %d MiB", get_memory_size() >> 20);
-    graphics_draw_text(disp, 30, 30, buf);
+    // char buf[80];
+    // sprintf(buf, "Memory: %d MiB", get_memory_size() >> 20);
+    // graphics_draw_text(disp, 30, 30, buf);
 
     display_show(disp);
 
