@@ -518,6 +518,9 @@ GL_TnL:
     #define vtexsize     $v06
     #define vtexoffset   $v07
     #define vstrq        $v08
+    
+    # HACK: Move red channel to alpha
+    vmov vrgba.e3, vrgba.e0
 
     ldv vstrq,  PRIM_VTX_TEX_S,vtx     # S + T + R + Q
     suv vrgba,  SCREEN_VTX_RGBA,vtx

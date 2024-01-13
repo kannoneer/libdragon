@@ -29,10 +29,11 @@ static GLuint textures[4];
 
 static GLenum shade_model = GL_SMOOTH;
 static bool fog_enabled = false;
+static bool bumps_enabled = true;
 
-static const GLfloat environment_color[] = { 0.05f, 0.05f, 0.05f, 1.f };
+static const GLfloat environment_color[] = { 0.05f, 0.05f, 0.075f, 1.f };
 
-#define NUM_LIGHTS (0)
+#define NUM_LIGHTS (1)
 
 static GLfloat light_pos[8][4] = {
     { 0, 2, 0, 1 },
@@ -46,7 +47,7 @@ static GLfloat light_pos[8][4] = {
 };
 
 static const GLfloat light_diffuse[8][4] = {
-    { 1.0f, 1.0f, 1.0f, 1.0f },
+    { 0.8f , 0.7f, 0.6f, 1.0f },
     { 0.0f, 1.0f, 0.0f, 1.0f },
     { 0.0f, 0.0f, 1.0f, 1.0f },
     { 1.0f, 1.0f, 0.0f, 1.0f },
@@ -57,7 +58,7 @@ static const GLfloat light_diffuse[8][4] = {
 };
 
 static const char *texture_path[4] = {
-    "rom:/bumped.ia8.sprite",
+    "rom:/bumped2.ia8.sprite",
     "rom:/diamond0.sprite",
     "rom:/pentagon0.sprite",
     "rom:/triangle0.sprite",
@@ -67,7 +68,7 @@ static sprite_t *sprites[4];
 
 void setup()
 {
-    camera.distance = -10.0f;
+    camera.distance = -4.0f;
     camera.rotation = 0.0f;
 
     zbuffer = surface_alloc(FMT_RGBA16, display_get_width(), display_get_height());
@@ -167,12 +168,12 @@ void render()
     float rotation = animation * 0.5f;
 
     static float angle;
-    angle = fmodf(angle + 0.05f, M_PI * 2);
-    angle = -camera.rotation/360.f*(M_PI*2);
+    angle = fmodf(angle + 0.02f, M_PI * 2);
+    // angle = -camera.rotation/360.f*(M_PI*2);
     // set_light_positions(angle);
 
-    const float ds = 3.0f;
-    float lpos[] = {ds*cos(angle), 2.0f, ds*sin(angle), 1.0f};
+    const float ds = 2.5f;
+    float lpos[] = {ds*cos(-angle - M_PI/2), 1.0f, ds*sin(-angle - M_PI/2), 1.0f};
     glLightfv(GL_LIGHT0 , GL_POSITION, lpos);
 
     // Set some global render modes that we want to apply to all models
@@ -185,8 +186,10 @@ void render()
     glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
 
     if (true) {
-        render_cube(); // HACK: Draw something so that old texture size will stay in effect for RDPQ
+        // render_cube(); // HACK: Draw something so that old texture size will stay in effect for RDPQ
+        render_plane();
         glEnable(GL_RDPQ_TEXTURING_N64);
+        glEnable(GL_RDPQ_MATERIAL_N64);
 
         glBindTexture(GL_TEXTURE_2D, textures[0]);
 
@@ -204,7 +207,7 @@ void render()
         rdpq_texparms_t parms = {.s.repeats = REPEAT_INFINITE, .t.repeats = REPEAT_INFINITE,
             .s.scale_log = 0, .t.scale_log = 0,
             .t.translate = sz * cos(angle), .s.translate = sz * sin(angle)};
-        debugf("angle: %f, tx: %f, ty: %f\n", angle, parms.s.translate, parms.t.translate);
+        //debugf("angle: %f, tx: %f, ty: %f\n", angle, parms.s.translate, parms.t.translate);
         rdpq_tex_reuse(TILE1, &parms);
         rdpq_tex_multi_end();
 
@@ -212,7 +215,6 @@ void render()
         //  rdpq_sprite_upload(TILE1, sprite1, NULL);
         //  rdpq_tex_multi_end();
 
-        glEnable(GL_RDPQ_MATERIAL_N64);
         rdpq_set_mode_standard();
         rdpq_mode_filter(FILTER_BILINEAR);
         rdpq_mode_mipmap(MIPMAP_NONE, 1);
@@ -221,35 +223,55 @@ void render()
         rdpq_set_env_color((color_t){env, env, env, 255});
         rdpq_set_prim_color((color_t){prim, prim, prim, 255});
         rdpq_set_fog_color((color_t){255, 0, 0, 255});
-        rdpq_set_blend_color((color_t){255, 255, 255, 255});
+        float dim = 0.9f;
+        rdpq_set_blend_color((color_t){dim*light_diffuse[0][0]*255, dim*light_diffuse[0][1]*255, dim*light_diffuse[0][2]*255, 255});
         // rdpq_set_tile(1, sprite_get_format(sprites[0]), 0, 256, NULL);
         // rdpq_texparms_t parms = {};
         // rdpq_tex_reuse(1, &parms);
 
         //rdpq_mode_combiner(RDPQ_COMBINER2((0, 0, 0, TEX0), (0, 0, 0, 1), (COMBINED, TEX1, PRIM, 0), (0, 0, 0, COMBINED)));
-        rdpq_mode_combiner(RDPQ_COMBINER2(
-            (TEX0, SHADE, ENV, 0), (0, 0, 0, TEX0),
-            (0, 0, 0, COMBINED), (COMBINED, TEX1, PRIM, 0)));
-        // rdpq_mode_combiner(
-        // rdpq_mode_combiner( RDPQ_COMBINER1((0, 0, 0, TEX0), (0, 0, 0, TEX0)));
-        //RDPQ_COMBINER2( (0, 0, 0, TEX0), (0, 0, 0, TEX0),
-        //   (0, 0, 0, TEX1), (0, 0, 0, TEX1));
-        // Can't use 2-pass blender because it forces B=INV_MUX_ALPHA so we couldn't actually add to color
-        rdpq_mode_blender(RDPQ_BLENDER((BLEND_RGB, IN_ALPHA, IN_RGB, 1))); 
-        // rdpq_mode_combiner(RDPQ_COMBINER2(
-        //     (TEX0, 0, SHADE, ENV), (0, 0, 0, 1),
-        //     (COMBINED, ENV, PRIM, COMBINED), (0, 0, 0, COMBINED)));
-        // rdpq_mode_fog(RDPQ_FOG_STANDARD);
+
+        if (bumps_enabled) {
+            //  Hacked OpenGL ucode puts lit vertex red channel to alpha for us
+            rdpq_mode_combiner(RDPQ_COMBINER2(
+                (TEX0, 0, SHADE, 0), (0, 0, 0, TEX0),
+                (0, 0, 0, COMBINED), (COMBINED, TEX1, SHADE, 0)));
+            // rdpq_mode_combiner(RDPQ_COMBINER2(
+            //     (TEX0, 0, SHADE, 0), (TEX0, 0, SHADE, 0),
+            //     (0, 0, 0, COMBINED), (0,0,0, COMBINED)));
+            // rdpq_mode_combiner(
+            // rdpq_mode_combiner( RDPQ_COMBINER1((0, 0, 0, TEX0), (0, 0, 0, TEX0)));
+            // RDPQ_COMBINER2( (0, 0, 0, TEX0), (0, 0, 0, TEX0),
+            //   (0, 0, 0, TEX1), (0, 0, 0, TEX1));
+            // Can't use 2-pass blender because it forces B=INV_MUX_ALPHA so we couldn't actually add to color
+            rdpq_mode_blender(RDPQ_BLENDER((BLEND_RGB, IN_ALPHA, IN_RGB, 1)));
+            // rdpq_mode_blender(RDPQ_BLENDER((BLEND_RGB, IN_ALPHA, IN_RGB, 0)));
+            // rdpq_mode_combiner(RDPQ_COMBINER2(
+            //     (TEX0, 0, SHADE, ENV), (0, 0, 0, 1),
+            //     (COMBINED, ENV, PRIM, COMBINED), (0, 0, 0, COMBINED)));
+            // rdpq_mode_fog(RDPQ_FOG_STANDARD);
+        }
+        else {
+            rdpq_mode_combiner(RDPQ_COMBINER2(
+                (TEX0, 0, SHADE, 0), (0, 0, 0, 1),
+                (0, 0, 0, COMBINED), (0, 0, 0, COMBINED)));
+            rdpq_mode_blender(RDPQ_BLENDER((IN_RGB, IN_ALPHA, IN_RGB, 0)));
+        }
     } else {
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDisable(GL_RDPQ_MATERIAL_N64);
+        glDisable(GL_RDPQ_TEXTURING_N64);
+        // glEnable(GL_BLEND);
+        // glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     }
 
+    // render_cube();
 
-    // render_plane();
+    // glDisable(GL_RDPQ_MATERIAL_N64);
+    // glDisable(GL_RDPQ_TEXTURING_N64);
+    //glDisable(GL_TEXTURE_2D);
+    render_plane();
     // render_decal();
-    render_cube();
-    render_skinned(&camera, animation);
+    // render_skinned(&camera, animation);
 
     glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
     // render_sphere(rotation);
@@ -262,9 +284,19 @@ void render()
 
     rdpq_detach_wait();
 
-    // char buf[80];
-    // sprintf(buf, "Memory: %d MiB", get_memory_size() >> 20);
-    // graphics_draw_text(disp, 30, 30, buf);
+    static bool last_bumps_enabled;
+    static int last_counter;
+
+    if (last_bumps_enabled != bumps_enabled) {
+        last_counter = 0;
+        last_bumps_enabled = bumps_enabled;
+    }
+
+    if (last_counter++ < 60) {
+        char buf[80];
+        sprintf(buf, "Emboss Bump Mapping %s", bumps_enabled ? "Enabled" : "Disabled");
+        graphics_draw_text(disp, 30, 30, buf);
+    }
 
     display_show(disp);
 
@@ -285,6 +317,7 @@ int main()
     dfs_init(DFS_DEFAULT_LOCATION);
 
     display_init(RESOLUTION_320x240, DEPTH_16_BPP, 3, GAMMA_NONE, FILTERS_RESAMPLE_ANTIALIAS_DEDITHER);
+    //display_init(RESOLUTION_640x480, DEPTH_16_BPP, 3, GAMMA_NONE, FILTERS_RESAMPLE_ANTIALIAS_DEDITHER);
 
     rdpq_init();
     gl_init();
@@ -327,12 +360,7 @@ int main()
         }
 
         if (pressed.l) {
-            fog_enabled = !fog_enabled;
-            if (fog_enabled) {
-                glEnable(GL_FOG);
-            } else {
-                glDisable(GL_FOG);
-            }
+            bumps_enabled = !bumps_enabled;
         }
 
         if (pressed.c_up) {
