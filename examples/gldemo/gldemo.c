@@ -27,10 +27,12 @@ static uint64_t frames = 0;
 
 static GLuint textures[4];
 
+static model64_t* model;
+
 static GLenum shade_model = GL_SMOOTH;
 static bool fog_enabled = false;
 
-static const GLfloat environment_color[] = { 0.1f, 0.03f, 0.2f, 1.f };
+static const GLfloat environment_color[] = { 1.0f, 1.00f, 1.0f, 1.f };
 
 static const GLfloat light_pos[8][4] = {
     { 1, 0, 0, 0 },
@@ -99,7 +101,7 @@ void setup()
 
     float light_radius = 10.0f;
 
-    for (uint32_t i = 0; i < 8; i++)
+    for (uint32_t i = 0; i < 0; i++)
     {
         glEnable(GL_LIGHT0 + i);
         glLightfv(GL_LIGHT0 + i, GL_DIFFUSE, light_diffuse[i]);
@@ -167,25 +169,36 @@ void render()
     set_light_positions(rotation);
 
     // Set some global render modes that we want to apply to all models
+    // glEnable(GL_LIGHTING);
+    // glEnable(GL_NORMALIZE);
+    // glEnable(GL_DEPTH_TEST);
+    // glEnable(GL_CULL_FACE);
+
+    // glEnable(GL_TEXTURE_2D);
+    // glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
+    
+    // render_plane();
+    // render_decal();
+    // render_cube();
+    // render_skinned(&camera, animation);
+
+    // glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
+    // render_sphere(rotation);
+
+    // glDisable(GL_TEXTURE_2D);
+    // glDisable(GL_LIGHTING);
+    // render_primitives(rotation);
+
     glEnable(GL_LIGHTING);
+    //glDisable(GL_LIGHTING);
     glEnable(GL_NORMALIZE);
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
 
-    glEnable(GL_TEXTURE_2D);
-    glBindTexture(GL_TEXTURE_2D, textures[texture_index]);
-    
-    render_plane();
-    render_decal();
-    render_cube();
-    render_skinned(&camera, animation);
+    glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+    glEnable(GL_COLOR_MATERIAL);
 
-    glBindTexture(GL_TEXTURE_2D, textures[(texture_index + 1)%4]);
-    render_sphere(rotation);
-
-    glDisable(GL_TEXTURE_2D);
-    glDisable(GL_LIGHTING);
-    render_primitives(rotation);
+    model64_draw(model);
 
     gl_context_end();
 
@@ -222,6 +235,8 @@ int main()
     joypad_init();
 
     rspq_profile_start();
+
+    model = model64_load("rom://baked_cube.model64");
 
 #if !DEBUG_RDP
     while (1)
