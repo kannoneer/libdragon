@@ -10,9 +10,12 @@
 
 #include <libdragon.h>
 #include "rsp_blend_constants.h"
+#include "rsp_fill_constants.h"
 
 static uint32_t ovl_id;
+static uint32_t ovl_fill_id;
 static void rsp_blend_assert_handler(rsp_snapshot_t *state, uint16_t code);
+static void rsp_fill_assert_handler(rsp_snapshot_t *state, uint16_t code);
 
 enum {
     // Overlay commands. This must match the command table in the RSP code
@@ -24,12 +27,16 @@ enum {
 DEFINE_RSP_UCODE(rsp_blend,
     .assert_handler = rsp_blend_assert_handler);
 
-void rsp_blend_init(void) {
+DEFINE_RSP_UCODE(rsp_fill,
+    .assert_handler = rsp_fill_assert_handler);
+
+void rsp_overlays_init(void) {
     // Initialize if rspq (if it isn't already). It's best practice to let all overlays
     // always call rspq_init(), so that they can be themselves initialized in any order
     // by the user.
     rspq_init();
     ovl_id = rspq_overlay_register(&rsp_blend);
+    ovl_fill_id = rspq_overlay_register(&rsp_fill);
 }
 
 void rsp_blend_assert_handler(rsp_snapshot_t *state, uint16_t code) {
@@ -39,6 +46,30 @@ void rsp_blend_assert_handler(rsp_snapshot_t *state, uint16_t code) {
             state->gpr[8]); // read current width from t0 (reg #8): we know it's there at assert point
         return;
     }
+}
+
+void rsp_fill_assert_handler(rsp_snapshot_t *state, uint16_t code) {
+    switch (code) {
+    case ASSERT_FAIL:
+        printf("t0 was (%ld)\n",
+            state->gpr[8]); // read current width from t0 (reg #8): we know it's there at assert point
+        return;
+    }
+}
+
+void rsp_fill_set_screen_size(surface_t *dst) {
+
+    assertf(surface_get_format(dst) == FMT_RGBA16, "rsp_fill only handles RGB555 surfaces");
+    rspq_write(ovl_fill_id, RSP_FILL_CMD_SET_SCREEN_SIZE, 0, (dst->width << 16) | dst->height, dst->stride);
+    // rspq_write(ovl_fill_id, RSP_FILL_CMD_SET_SCREEN_SIZE, (uint32_t)(123), 0);
+}
+
+void rsp_fill_draw_constant_color(surface_t *dst, int x, int y, color_t color) {
+    assertf(surface_get_format(dst) == FMT_RGBA16, "rsp_fill only handles RGB555 surfaces");
+    uintptr_t address = PhysicalAddr(dst->buffer) + (y * dst->stride) + (x * sizeof(uint16_t));
+    uint16_t rgb555 = color_to_packed16(color);
+    rspq_write(ovl_fill_id, RSP_FILL_CMD_DRAW_CONSTANT, 0, address, rgb555);
+
 }
 
 void rsp_blend_set_source(surface_t *src) {
@@ -77,7 +108,7 @@ int main(void) {
     surface_t bkgsurf = sprite_get_pixels(bkg);
     surface_t flrsurf = sprite_get_pixels(flare1);
 
-    rsp_blend_init();  // init our custom overlay
+    rsp_overlays_init();  // init our custom overlay
 
     bool use_rdp = false;
 
@@ -114,11 +145,14 @@ int main(void) {
             // with the RSP.
             rdpq_fence();
 
-            // Configure source surface
-            rsp_blend_set_source(&flrsurf);
+            rsp_fill_set_screen_size(screen);
+            rsp_fill_draw_constant_color(screen, 60, 80, (color_t){255,0,128,255});
 
-            // Apply blending
-            rsp_blend_process_line(screen, 30, 60, flrsurf.height);
+            // Configure source surface
+            // rsp_blend_set_source(&flrsurf);
+
+            // // Apply blending
+            // rsp_blend_process_line(screen, 30, 60, flrsurf.height);
 
             // Wait for RSP to finish processing
             rspq_wait();

@@ -1,0 +1,64 @@
+include "rsp_queue.inc"
+
+#define TILE_W 16
+#define TILE_H 16
+#define TILE_NUM_PIXELS 256
+#define TILE_NUM_BYTES 512
+
+state {
+  vec16 SCREEN_SIZE_VEC;
+  u16 SCREEN_STRIDE;
+
+  alignas(16)
+  u16 TILE_COLORS[TILE_NUM_PIXELS];
+}
+
+command<0> FillCmd_SetScreenSize(u32 unused, u32 sizeXY, u32 stride)
+{
+  u32 sizeX = sizeXY >> 16;
+  u32 sizeY = sizeXY & 0xFFFF;
+
+  vec16 screenSize;
+  screenSize.x = sizeX;
+  screenSize.y = sizeY;
+  store(screenSize, SCREEN_SIZE_VEC);
+  store(stride, SCREEN_STRIDE);
+  //printf("size: %u, stride: %u\n", screenSize, stride);
+}
+
+//   t0: transfer size as width/height (use DMA_SIZE macro)
+//   t1: pitch (ignored if height==1)
+//   s0: RDRAM address
+//   s4: DMEM address. After DMA, updated with unalignment
+function DMAOut(u32<$s4> dmem, u32<$s0> rdram, u32<$t0> size, u32<$t1> pitch);
+
+command<1> FillCmd_DrawConstant(u32 unused, u32 startAddress, u32 color)
+{
+    
+    // 16x16 pixel tiles with 16 bits per pixel
+    u32<$s0> dest = startAddress;
+    u32<$s4> src = TILE_COLORS;
+    u32<$t0> size;
+    asm("li $t0, DMA_SIZE(32,16)");
+    u32<$t1> pitch = load(SCREEN_STRIDE);
+    
+    // printf("startAddress: 0x%x, color: 0x%x\n", startAddress, color);
+
+    vec16 rgb555 = color;
+    u32 out = TILE_COLORS;
+    u16 rows = TILE_H;
+    
+    while (rows > 0) {
+         store(rgb555, out, 0);
+         store(rgb555, out, 16);
+         out = out + 32;
+         rows = rows - 1;
+    }
+
+    // // printf("size: 0x%x, pitch: 0x%x\n", size, pitch);
+
+    // // asm("li $t0, DMA_SIZE3(32,16,1280)");
+    // // asm("li $t1, 1280");
+    
+    DMAOut(src, dest, size, pitch);
+}

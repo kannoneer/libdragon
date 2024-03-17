@@ -2,7 +2,7 @@ BUILD_DIR=build
 include $(N64_INST)/include/n64.mk
 
 src = pixelshader.c
-asm = rsp_blend.S
+asm = rsp_blend.S rsp_fill.S
 assets_ttf = $(wildcard assets/*.ttf)
 assets_png = $(wildcard assets/*.png)
 
