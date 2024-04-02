@@ -64,11 +64,23 @@ void rsp_fill_set_screen_size(surface_t *dst) {
     // rspq_write(ovl_fill_id, RSP_FILL_CMD_SET_SCREEN_SIZE, (uint32_t)(123), 0);
 }
 
-void rsp_fill_draw_constant_color(surface_t *dst, int x, int y, color_t color) {
+void rsp_fill_draw_constant_color(surface_t *dst, int x, int y, color_t color)
+{
     assertf(surface_get_format(dst) == FMT_RGBA16, "rsp_fill only handles RGB555 surfaces");
     uintptr_t address = PhysicalAddr(dst->buffer) + (y * dst->stride) + (x * sizeof(uint16_t));
     uint16_t rgb555 = color_to_packed16(color);
     rspq_write(ovl_fill_id, RSP_FILL_CMD_DRAW_CONSTANT, 0, address, rgb555);
+}
+
+void rsp_fill_downsample_tile(surface_t *dst, surface_t *src, int srcx, int srcy, int dstx, int dsty, uint8_t bias)
+{
+    assertf(surface_get_format(dst) == FMT_RGBA16, "rsp_fill only handles RGB555 surfaces");
+    assertf(surface_get_format(src) == FMT_RGBA16, "rsp_fill only handles RGB555 surfaces");
+    uintptr_t dst_address = PhysicalAddr(dst->buffer) + (dsty * dst->stride) + (dstx * sizeof(uint16_t));
+    uintptr_t src_address = PhysicalAddr(src->buffer) + (srcy * src->stride) + (srcx * sizeof(uint16_t));
+
+    // command<2> FillCmd_Downsample(u32 biasIn, u32 dstAddress, u32 srcAddress, u32 dstSrcStride)
+    rspq_write(ovl_fill_id, RSP_FILL_CMD_DOWNSAMPLE, bias & 0x000000ff, dst_address, src_address, (dst->stride << 16) | src->stride);
 
 }
 
@@ -108,6 +120,8 @@ int main(void) {
     surface_t bkgsurf = sprite_get_pixels(bkg);
     surface_t flrsurf = sprite_get_pixels(flare1);
 
+    surface_t downscaled = surface_alloc(FMT_RGBA16, display_get_width()/2, display_get_height()/2);
+
     rsp_overlays_init();  // init our custom overlay
 
     bool use_rdp = false;
@@ -121,14 +135,15 @@ int main(void) {
         surface_t *screen = display_get();
         rdpq_attach(screen, NULL);
 
+        // Draw the background
+        rdpq_set_mode_copy(true);
+        rdpq_tex_blit(&bkgsurf, 0, 0, NULL);
+
         // Draw help text on the top of the screen
         rdpq_set_mode_fill(RGBA32(0,0,0,0));
         rdpq_fill_rectangle(0, 0, screen->width, 30);
         rdpq_text_printf(NULL, MYFONT, 40, 20, "Additive blending with %s (press A to toggle) -- %d us", use_rdp ? "RDP" : "RSP", TIMER_MICROS(last_frame));
         
-        // Draw the background
-        rdpq_set_mode_copy(true);
-        rdpq_tex_blit(&bkgsurf, 0, 30, NULL);
 
         if (use_rdp) {
             // Draw the flare using RDP additive blending (will overflow)
@@ -156,6 +171,17 @@ int main(void) {
 
             // Wait for RSP to finish processing
             rspq_wait();
+            for (int x=0;x<10;x++) {
+                int y = 100;
+                rsp_fill_downsample_tile(&downscaled, screen, x*16, y*16, x*8, y*8, 0);
+            }
+            rspq_wait();
+
+            rdpq_attach(screen, NULL);
+            rdpq_set_mode_copy(false);
+            rdpq_tex_blit(&downscaled, 0, 0, NULL);
+            rdpq_fence();
+            rdpq_detach();
 
             // Draw the flare using RSP additive blending (will not overflow)
             display_show(screen);

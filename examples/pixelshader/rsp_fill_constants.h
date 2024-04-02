@@ -6,5 +6,6 @@ enum {
     // Overlay commands. This must match the command table in the RSP code
     RSP_FILL_CMD_SET_SCREEN_SIZE   = 0x0,
     RSP_FILL_CMD_DRAW_CONSTANT          = 0x1,
+    RSP_FILL_CMD_DOWNSAMPLE          = 0x2,
 };
 #endif

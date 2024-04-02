@@ -77,7 +77,7 @@ void render(int cur_frame)
     rdpq_debug_log_msg("tiles");
     rdpq_set_mode_copy(false);
     // rdpq_set_mode_standard();
-    rspq_block_run(tiles_block);
+    //rspq_block_run(tiles_block);
     
     // Draw the brew sprites. Use standard mode because copy mode cannot handle
     // scaled sprites.
@@ -86,12 +86,16 @@ void render(int cur_frame)
     rdpq_mode_filter(FILTER_BILINEAR);
     rdpq_mode_alphacompare(1);                // colorkey (draw pixel with alpha >= 1)
 
-    for (uint32_t i = 0; i < num_objs; i++)
-    {
-        rdpq_sprite_blit(brew_sprite, objects[i].x, objects[i].y, &(rdpq_blitparms_t){
-            .scale_x = objects[i].scale_factor, .scale_y = objects[i].scale_factor,
-        });
-    }
+    const float fac = 2.0f;
+    rdpq_sprite_blit(brew_sprite, 0, 0, &(rdpq_blitparms_t){
+        .scale_x = fac, .scale_y = fac, .filtering=true});
+
+    //for (uint32_t i = 0; i < num_objs; i++)
+    //{
+    //    rdpq_sprite_blit(brew_sprite, objects[i].x, objects[i].y, &(rdpq_blitparms_t){
+    //        .scale_x = objects[i].scale_factor, .scale_y = objects[i].scale_factor,
+    //    });
+    //}
 
     rdpq_detach_show();
 }
@@ -114,7 +118,7 @@ int main()
     rdpq_init();
     rdpq_debug_start();
 
-    brew_sprite = sprite_load("rom:/n64brew.sprite");
+    brew_sprite = sprite_load("rom:/rachel_buch_moor.sprite");
 
     obj_max_x = display_width - brew_sprite->width;
     obj_max_y = display_height - brew_sprite->height;

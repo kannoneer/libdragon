@@ -4,13 +4,17 @@ include "rsp_queue.inc"
 #define TILE_H 16
 #define TILE_NUM_PIXELS 256
 #define TILE_NUM_BYTES 512
+#define SMALL_NUM_PIXELS 64
+#define SMALL_NUM_BYTES 128
 
 state {
   vec16 SCREEN_SIZE_VEC;
   u16 SCREEN_STRIDE;
 
   alignas(16)
-  u16 TILE_COLORS[TILE_NUM_PIXELS];
+  u16 TILE_BUFFER[TILE_NUM_PIXELS];
+  alignas(16)
+  u16 SMALL_BUFFER[SMALL_NUM_PIXELS];
 }
 
 command<0> FillCmd_SetScreenSize(u32 unused, u32 sizeXY, u32 stride)
@@ -31,13 +35,13 @@ command<0> FillCmd_SetScreenSize(u32 unused, u32 sizeXY, u32 stride)
 //   s0: RDRAM address
 //   s4: DMEM address. After DMA, updated with unalignment
 function DMAOut(u32<$s4> dmem, u32<$s0> rdram, u32<$t0> size, u32<$t1> pitch);
+function DMAIn(u32<$s4> dmem, u32<$s0> rdram, u32<$t0> size, u32<$t1> pitch);
 
 command<1> FillCmd_DrawConstant(u32 unused, u32 startAddress, u32 color)
 {
-    
     // 16x16 pixel tiles with 16 bits per pixel
     u32<$s0> dest = startAddress;
-    u32<$s4> src = TILE_COLORS;
+    u32<$s4> src = TILE_BUFFER;
     u32<$t0> size;
     asm("li $t0, DMA_SIZE(32,16)");
     u32<$t1> pitch = load(SCREEN_STRIDE);
@@ -45,7 +49,7 @@ command<1> FillCmd_DrawConstant(u32 unused, u32 startAddress, u32 color)
     // printf("startAddress: 0x%x, color: 0x%x\n", startAddress, color);
 
     vec16 rgb555 = color;
-    u32 out = TILE_COLORS;
+    u32 out = TILE_BUFFER;
     u16 rows = TILE_H;
     
     while (rows > 0) {
@@ -61,4 +65,45 @@ command<1> FillCmd_DrawConstant(u32 unused, u32 startAddress, u32 color)
     // // asm("li $t1, 1280");
     
     DMAOut(src, dest, size, pitch);
+}
+
+// 0, dst_address, src_address, dst->stride, src->stride, bias
+command<2> FillCmd_Downsample(u32 biasIn, u32 dstAddress, u32 srcAddress, u32 dstSrcStride)
+{
+    u32<$s0> dest = srcAddress;
+    u32<$s4> src = TILE_BUFFER;
+    u32<$t0> size;
+    asm("li $t0, DMA_SIZE(32,16)");
+    u32<$t1> pitch = dstSrcStride;
+    pitch &= 0x0000ffff;
+
+    printf("In:  src: 0x%x, dest: 0x%x, pitch: %v, size: %v\n", src, dest, pitch, size);
+    u32 bias = biasIn & 0xff;
+    @Barrier("read") DMAIn(src, dest, size, pitch);
+    
+    u16 rows = 8;
+    u32 in = TILE_BUFFER;
+    u32 out = SMALL_BUFFER;
+    u32 color = 0x8fff;
+    vec16 v = color;
+
+
+    while (rows > 0) {
+         //@Barrier("read") v = load(in);
+         printf("[%u] %v\n", rows, v);
+         @Barrier("write") store(v, out, 0);
+         // @Barrier("write") v = load(out);
+         // printf("[%u] %v after\n", rows, v);
+         out = out + 16;
+         in = in + 32;
+         rows = rows - 1;
+    }
+
+    dest = dstAddress;
+    src = SMALL_BUFFER;
+    asm("li $t0, DMA_SIZE(16,8)");
+    pitch = dstSrcStride;
+    pitch >>= 16;
+    printf("Out: src: 0x%x, dest: 0x%x, pitch: %v, size: %v\n", src, dest, pitch, size);
+    @Barrier("write") DMAOut(src, dest, size, pitch);
 }
