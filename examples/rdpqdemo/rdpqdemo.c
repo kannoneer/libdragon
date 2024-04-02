@@ -66,7 +66,14 @@ void render(int cur_frame)
 {
     // Attach and clear the screen
     surface_t *disp = display_get();
-    rdpq_attach_clear(disp, NULL);
+    //rdpq_attach_clear(disp, NULL);
+    rdpq_attach(disp, NULL);
+
+    if (true) {
+        rdpq_set_color_image(disp);
+        rdpq_set_mode_fill(color_from_packed32(0x001122FF));
+        rdpq_fill_rectangle(0, 0, disp->width, disp->height);
+    }
 
     // Draw the tile background, by playing back the compiled block.
     // This is using copy mode by default, but notice how it can switch
@@ -86,9 +93,15 @@ void render(int cur_frame)
     rdpq_mode_filter(FILTER_BILINEAR);
     rdpq_mode_alphacompare(1);                // colorkey (draw pixel with alpha >= 1)
 
+#if 0
     const float fac = 2.0f;
     rdpq_sprite_blit(brew_sprite, 0, 0, &(rdpq_blitparms_t){
         .scale_x = fac, .scale_y = fac, .filtering=true});
+#else
+    const float fac = 1.0f;
+    rdpq_sprite_blit(brew_sprite, 0, 0, &(rdpq_blitparms_t){
+        .scale_x = fac, .scale_y = fac, .filtering=false});
+        #endif
 
     //for (uint32_t i = 0; i < num_objs; i++)
     //{
@@ -100,12 +113,165 @@ void render(int cur_frame)
     rdpq_detach_show();
 }
 
+
+/** @brief Register uncached location in memory of VI */
+#define VI_REGISTERS_ADDR       0xA4400000
+/** @brief Number of useful 32-bit registers at the register base */
+#define VI_REGISTERS_COUNT      14
+
+/**
+ * @brief Video Interface register structure
+ *
+ * Whenever trying to configure VI registers, 
+ * this struct and its index definitions below can be very useful 
+ * in writing comprehensive and verbose code.
+ */
+typedef struct vi_config_s{
+    uint32_t regs[VI_REGISTERS_COUNT];
+} vi_config_t;
+
+/** @brief Base pointer to hardware Video interface registers that control various aspects of VI configuration.
+ * Shouldn't be used by itself, use VI_ registers to get/set their values. */
+#define VI_REGISTERS      ((volatile uint32_t*)VI_REGISTERS_ADDR)
+/** @brief VI Index register of controlling general display filters/bitdepth configuration */
+#define VI_CTRL           (&VI_REGISTERS[0])
+/** @brief VI Index register of RDRAM base address of the video output Frame Buffer. This can be changed as needed to implement double or triple buffering. */
+#define VI_ORIGIN         (&VI_REGISTERS[1])
+/** @brief VI Index register of width in pixels of the frame buffer. */
+#define VI_WIDTH          (&VI_REGISTERS[2])
+/** @brief VI Index register of vertical interrupt. */
+#define VI_V_INTR         (&VI_REGISTERS[3])
+/** @brief VI Index register of the current half line, sampled once per line. */
+#define VI_V_CURRENT      (&VI_REGISTERS[4])
+/** @brief VI Index register of sync/burst values */
+#define VI_BURST          (&VI_REGISTERS[5])
+/** @brief VI Index register of total visible and non-visible lines. 
+ * This should match either NTSC (non-interlaced: 0x20D, interlaced: 0x20C) or PAL (non-interlaced: 0x271, interlaced: 0x270) */
+#define VI_V_SYNC         (&VI_REGISTERS[6])
+/** @brief VI Index register of total width of a line */
+#define VI_H_SYNC         (&VI_REGISTERS[7])
+/** @brief VI Index register of an alternate scanline length for one scanline during vsync. */
+#define VI_H_SYNC_LEAP    (&VI_REGISTERS[8])
+/** @brief VI Index register of start/end of the active video image, in screen pixels */
+#define VI_H_VIDEO        (&VI_REGISTERS[9])
+/** @brief VI Index register of start/end of the active video image, in screen half-lines. */
+#define VI_V_VIDEO        (&VI_REGISTERS[10])
+/** @brief VI Index register of start/end of the color burst enable, in half-lines. */
+#define VI_V_BURST        (&VI_REGISTERS[11])
+/** @brief VI Index register of horizontal subpixel offset and 1/horizontal scale up factor. */
+#define VI_X_SCALE        (&VI_REGISTERS[12])
+/** @brief VI Index register of vertical subpixel offset and 1/vertical scale up factor. */
+#define VI_Y_SCALE        (&VI_REGISTERS[13])
+
+/** @brief VI register by index (0-13)*/
+#define VI_TO_REGISTER(index) (((index) >= 0 && (index) <= VI_REGISTERS_COUNT)? &VI_REGISTERS[index] : NULL)
+
+/** @brief VI index from register */
+#define VI_TO_INDEX(reg) ((reg) - VI_REGISTERS)
+
+
+/** @brief VI_CTRL Register setting: enable dedither filter. */
+#define VI_DEDITHER_FILTER_ENABLE           (1<<16)
+/** @brief VI_CTRL Register setting: default value for pixel advance. */
+#define VI_PIXEL_ADVANCE_DEFAULT            (0b0011 << 12)
+/** @brief VI_CTRL Register setting: default value for pixel advance on iQue. */
+#define VI_PIXEL_ADVANCE_BBPLAYER           (0b0001 << 12)
+/** @brief VI_CTRL Register setting: disable AA / resamp. */
+#define VI_AA_MODE_NONE                     (0b11 << 8)
+/** @brief VI_CTRL Register setting: disable AA / enable resamp. */
+#define VI_AA_MODE_RESAMPLE                 (0b10 << 8)
+/** @brief VI_CTRL Register setting: enable AA / enable resamp, fetch pixels when needed. */
+#define VI_AA_MODE_RESAMPLE_FETCH_NEEDED    (0b01 << 8)
+/** @brief VI_CTRL Register setting: enable AA / enable resamp, fetch pixels always. */
+#define VI_AA_MODE_RESAMPLE_FETCH_ALWAYS    (0b00 << 8)
+/** @brief VI_CTRL Register setting: enable interlaced output. */
+#define VI_CTRL_SERRATE                     (1<<6)
+/** @brief VI_CTRL Register setting: enable divot filter (fixes 1 pixel holes after AA). */
+#define VI_DIVOT_ENABLE                     (1<<4)
+/** @brief VI_CTRL Register setting: enable gamma correction filter. */
+#define VI_GAMMA_ENABLE                     (1<<3)
+/** @brief VI_CTRL Register setting: enable gamma correction filter and hardware dither the least significant color bit on output. */
+#define VI_GAMMA_DITHER_ENABLE              (1<<2)
+/** @brief VI_CTRL Register setting: framebuffer source format */
+#define VI_CTRL_TYPE                        (0b11)
+/** @brief VI_CTRL Register setting: set the framebuffer source as 32-bit. */
+#define VI_CTRL_TYPE_32_BPP                 (0b11)
+/** @brief VI_CTRL Register setting: set the framebuffer source as 16-bit (5-5-5-3). */
+#define VI_CTRL_TYPE_16_BPP                 (0b10)
+/** @brief VI_CTRL Register setting: set the framebuffer source as blank (no data and no sync, TV screens will either show static or nothing). */
+#define VI_CTRL_TYPE_BLANK                  (0b00)
+
+/** Under VI_ORIGIN  */
+/** @brief VI_ORIGIN Register: set the address of a framebuffer. */
+#define VI_ORIGIN_SET(value)                ((value & 0xFFFFFF) << 0)
+
+/** Under VI_WIDTH   */
+/** @brief VI_ORIGIN Register: set the width of a framebuffer. */
+#define VI_WIDTH_SET(value)                 ((value & 0xFFF) << 0)
+
+/** Under VI_V_CURRENT  */
+/** @brief VI_V_CURRENT Register: default value for vblank begin line. */
+#define VI_V_CURRENT_VBLANK                 2
+
+/** Under VI_V_INTR    */
+/** @brief VI_V_INTR Register: set value for vertical interrupt. */
+#define VI_V_INTR_SET(value)                ((value & 0x3FF) << 0)
+/** @brief VI_V_INTR Register: default value for vertical interrupt. */
+#define VI_V_INTR_DEFAULT                   0x3FF
+
+/** Under VI_BURST     */
+/** @brief VI_BURST Register: set start of color burst in pixels from hsync. */
+#define VI_BURST_START(value)               ((value & 0x3F) << 20)
+/** @brief VI_BURST Register: set vertical sync width in half lines. */
+#define VI_VSYNC_WIDTH(value)               ((value & 0x7)  << 16)
+/** @brief VI_BURST Register: set color burst width in pixels. */
+#define VI_BURST_WIDTH(value)               ((value & 0xFF) << 8)
+/** @brief VI_BURST Register: set horizontal sync width in pixels. */
+#define VI_HSYNC_WIDTH(value)               ((value & 0xFF) << 0)
+
+/** @brief VI_BURST Register: NTSC default start of color burst in pixels from hsync. */
+#define VI_BURST_START_NTSC                 62
+/** @brief VI_BURST Register: NTSC default vertical sync width in half lines. */
+#define VI_VSYNC_WIDTH_NTSC                 5
+/** @brief VI_BURST Register: NTSC default color burst width in pixels. */
+#define VI_BURST_WIDTH_NTSC                 34
+/** @brief VI_BURST Register: NTSC default horizontal sync width in pixels. */
+#define VI_HSYNC_WIDTH_NTSC                 57
+
+/** @brief VI_BURST Register: PAL default start of color burst in pixels from hsync. */
+#define VI_BURST_START_PAL                  64
+/** @brief VI_BURST Register: PAL default vertical sync width in half lines. */
+#define VI_VSYNC_WIDTH_PAL                  4
+/** @brief VI_BURST Register: PAL default color burst width in pixels.  */
+#define VI_BURST_WIDTH_PAL                  35
+/** @brief VI_BURST Register: PAL default horizontal sync width in pixels. */
+#define VI_HSYNC_WIDTH_PAL                  58
+
+/** @brief VI period for showing one NTSC and MPAL picture in ms. */
+#define VI_PERIOD_NTSC_MPAL                 ((float)1000/60)
+/** @brief VI period for showing one PAL picture in ms. */
+#define VI_PERIOD_PAL                       ((float)1000/50)
+
+/**  Under VI_X_SCALE   */
+/** @brief VI_X_SCALE Register: set 1/horizontal scale up factor (value is converted to 2.10 format) */
+#define VI_X_SCALE_SET(value)               (( 1024*(value) + 320 ) / 640)
+
+/**  Under VI_Y_SCALE   */
+/** @brief VI_Y_SCALE Register: set 1/vertical scale up factor (value is converted to 2.10 format) */
+#define VI_Y_SCALE_SET(value)               (( 1024*(value) + 120 ) / 240)
+
+inline void my_vi_write_safe(volatile uint32_t *reg, uint32_t value){
+    assert(reg); /* This should never happen */
+    *reg = value;
+    MEMORY_BARRIER();
+}
+
 int main()
 {
     debug_init_isviewer();
     debug_init_usblog();
 
-    display_init(RESOLUTION_320x240, DEPTH_16_BPP, 3, GAMMA_NONE, FILTERS_RESAMPLE);
+    display_init(RESOLUTION_640x480, DEPTH_16_BPP, 3, GAMMA_NONE, FILTERS_RESAMPLE);
 
     joypad_init();
     timer_init();
@@ -118,7 +284,8 @@ int main()
     rdpq_init();
     rdpq_debug_start();
 
-    brew_sprite = sprite_load("rom:/rachel_buch_moor.sprite");
+    // brew_sprite = sprite_load("rom:/rachel_buch_moor.sprite");
+    brew_sprite = sprite_load("rom:/dither.sprite");
 
     obj_max_x = display_width - brew_sprite->width;
     obj_max_y = display_height - brew_sprite->height;
@@ -181,12 +348,26 @@ int main()
     new_timer(TIMER_TICKS(1000000 / 60), TF_CONTINUOUS, update);
 
     int cur_frame = 0;
+    uint32_t shift = 512;
     while (1)
     {
-        render(cur_frame);
-
         joypad_poll();
         joypad_buttons_t ckeys = joypad_get_buttons_pressed(JOYPAD_PORT_1);
+
+        if (ckeys.a) {
+            shift = shift + 16;
+        }
+        if (ckeys.b) {
+            shift = shift - 16;
+        }
+
+        debugf("shift: %lu\n", shift);
+
+        uint32_t ofs = (shift)<<16;
+        my_vi_write_safe(VI_X_SCALE, VI_X_SCALE_SET(640) | ofs);
+        my_vi_write_safe(VI_Y_SCALE, VI_Y_SCALE_SET(480) | ofs);
+        render(cur_frame);
+
 
         if (ckeys.c_up && num_objs < NUM_OBJECTS) {
             ++num_objs;
