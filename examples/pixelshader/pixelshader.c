@@ -84,8 +84,21 @@ void rsp_fill_downsample_tile(surface_t *dst, surface_t *src, int srcx, int srcy
 
 }
 
-void rsp_fill_cachetest() {
-    rspq_write(ovl_fill_id, RSP_FILL_CMD_CACHETEST, 0);
+void rsp_fill_cachetest(surface_t *tex, uint32_t ofs) {
+    ofs = 4; // offset in bytes
+    uint16_t data[] = {999,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
+    void* ptr = data;
+    data_cache_hit_writeback(data, sizeof(data));
+
+    uint16_t right_answer = *((u_uint16_t*)(((void*)ptr) + ofs));
+    debugf("C-side read value: %u\n", right_answer);
+    uintptr_t address = PhysicalAddr(ptr);
+    rspq_write(ovl_fill_id, RSP_FILL_CMD_CACHETEST, 0, address + ofs);
+
+    // uint16_t right_answer = *((u_uint16_t*)(((void*)ptr) + ofs));
+    // debugf("C-side read value: %u\n", right_answer);
+    // uintptr_t address = PhysicalAddr(tex->buffer);
+    // rspq_write(ovl_fill_id, RSP_FILL_CMD_CACHETEST, 0, address + ofs);
 }
 
 
@@ -122,14 +135,16 @@ int main(void) {
 
     sprite_t* bkg = sprite_load("rom:/background.sprite");
     sprite_t* flare1 = sprite_load("rom:/flare1.sprite");
+    sprite_t* texture = sprite_load("rom:/texture.rgba16.sprite");
     rdpq_font_t *font = rdpq_font_load("rom:/encode.font64");
     enum { MYFONT = 1 };
     rdpq_text_register_font(MYFONT, font);
 
     surface_t bkgsurf = sprite_get_pixels(bkg);
     surface_t flrsurf = sprite_get_pixels(flare1);
+    surface_t texsurf = sprite_get_pixels(texture);
 
-    surface_t downscaled = surface_alloc(FMT_RGBA16, display_get_width()/2, display_get_height()/2);
+    // surface_t downscaled = surface_alloc(FMT_RGBA16, display_get_width()/2, display_get_height()/2);
 
     rsp_overlays_init();  // init our custom overlay
 
@@ -184,7 +199,7 @@ int main(void) {
             //    int y = 100;
             //    rsp_fill_downsample_tile(&downscaled, screen, x*16, y*16, x*8, y*8, 0);
             //}
-            rsp_fill_cachetest();
+            rsp_fill_cachetest(&texsurf, 4);
             rspq_wait();
 
             // rdpq_attach(screen, NULL);

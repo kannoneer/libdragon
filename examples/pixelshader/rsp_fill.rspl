@@ -7,6 +7,18 @@ include "rsp_queue.inc"
 #define SMALL_NUM_PIXELS 64
 #define SMALL_NUM_BYTES 128
 
+#define RESULT_MISS 0xffff
+#define KEY_EMPTY 0x7fff
+
+#define CACHE_NUM_LINES 8
+#define CACHE_LINE_NUM_BYTES 32
+#define CACHE_LINE_SIZE_BITS 4
+#define CACHE_SIZE_BYTES 256
+
+#define MASK_TAG  0x000ffff0
+#define MASK_OFS  0x0000000f
+#define MASK_BASE 0xfff00000
+
 state {
   vec16 SCREEN_SIZE_VEC;
   u16 SCREEN_STRIDE;
@@ -16,11 +28,20 @@ state {
   alignas(16)
   u16 SMALL_BUFFER[SMALL_NUM_PIXELS];
   
-  u16 CACHE_TEMP[16];
   alignas(16)
+  u16 CACHE[CACHE_LINE_NUM_BYTES];
+  alignas(4)
+  vec16 TEMP_VEC;
+  alignas(4)
   vec16 LANE_INDS = {7,6,5,4,3,2,1,0};
-  vec16 TEST_ADDR = {128, 506, 32, 1024, 1056, 96, 256, 8};
-  vec16 TEST_KEYS = {100,200,300,456,500,600,700};
+  alignas(4)
+  vec16 TEST_KEYS = {100,200,300,456,500,KEY_EMPTY,700};
+  alignas(4)
+  vec16 TEST_VALUES = {128, 506, 32, 1024, 1056, 96, 256, 8};
+  u16 LAST_KEY = {KEY_EMPTY};
+  u16 LAST_SLOT = {0};
+  
+  u32 DATA_START = {0};
 }
 
 command<0> FillCmd_SetScreenSize(u32 unused, u32 sizeXY, u32 stride)
@@ -136,15 +157,13 @@ macro sumXYZW_u16(vec16 res, vec16 a)
   // result is in res.x
 }
 
-command<3> FillCmd_CacheTest(u32 _)
+macro keyLookup(vec16 keys, vec16 values, u16 queryScalar, u16 output)
 {
-  vec16 keys = load(TEST_KEYS);
-  u16 ptr=456;
-  vec16 query = ptr;
+  vec16 query = queryScalar;
   
   vec16 masked;
   {
-    vec16 values = load(TEST_ADDR);
+    //vec16 values = load(TEST_ADDR);
     vec16 zeros = 0;
     masked = keys == query ? values : zeros;
     printf("keys:   %v\n", keys);
@@ -152,20 +171,120 @@ command<3> FillCmd_CacheTest(u32 _)
     printf("values: %v\n", values);
     printf("masked: %v\n", masked);
   }
-  
-  //vec16 result = keys == query;
 
   u16 vcc = get_vcc();
   vcc = vcc & 0xff;
   printf("vcc: %v\n", vcc);
   if (vcc != 0) {
-    vec16 addr;
-    sumXYZW_u16(addr, masked);
+    vec16 found;
+    sumXYZW_u16(found, masked);
     // found a hit on some lane
-    printf("addr:  %v\n", addr);
+    // printf("addr:  %v\n", addr);
+    output = found.x;
   } else {
-    printf("no hit\n");
+    printf("cache miss\n");
+    output = RESULT_MISS;
   }
+}
+
+command<3> FillCmd_CacheTest(u32 _, u32 dataAddress)
+{
+  u32<$s0> rdram_addr;
+  u32<$s4> dmem_addr;
+    
+  vec16 keys = load(TEST_KEYS);
+  vec16 values = load(TEST_VALUES);
+  
+  //TODO split rdram into data_table + 20-bit offset
+  rdram_addr = dataAddress;
+  printf("\n");
+  printf("rdram_addr: %v\n", rdram_addr);
+  
+  u16 tag = rdram_addr & MASK_TAG;
+  u16 ofs = rdram_addr & MASK_OFS;
+  tag = tag >> CACHE_LINE_SIZE_BITS;
+  rdram_addr = rdram_addr & MASK_BASE;
+  store(rdram_addr, DATA_START);
+  
+  printf("tag:   %v\n", tag);
+  printf("ofs:   %v\n", ofs);
+  printf("start: %v\n", rdram_addr);
+ 
+  //u16 ptr = 456;
+  u16<$t1> addr = 1;
+  keyLookup(keys, values, tag, addr);
+  printf("lookup found: %v\n", addr);
+  
+  
+  if (addr == RESULT_MISS) {
+    // fetch
+    // pick a cache slot. round robin for now
+    u16 slot = load(LAST_SLOT);
+    slot += 1;
+    slot = slot & 0x7;
+    store(slot, LAST_SLOT);
+    
+    printf("slot: %v\n", slot);
+    
+    dmem_addr = slot;
+    // load data from RDRAM to DMEM to matching cache line
+    dmem_addr <<= CACHE_LINE_SIZE_BITS;
+    dmem_addr += CACHE;
+    printf("dmem_addr: %v\n", dmem_addr);
+    
+    // u32<$s0> addr_ram;
+    // u32<$s4> addr_dmem = VARIABLE;
+    // dma_in(addr_dmem, addr_ram, 32);
+    // u32 addr_dmem_end = addr_dmem + 32;
+    
+    rdram_addr = load(DATA_START);
+    tag <<= CACHE_LINE_SIZE_BITS;
+    rdram_addr |= tag;
+    tag >>= CACHE_LINE_SIZE_BITS;
+    printf("dma_in(%v, %v, ...)\n", dmem_addr, rdram_addr);
+    dma_in(dmem_addr, rdram_addr, CACHE_LINE_NUM_BYTES);
+
+    // update the key
+    slot *= 2; // slot is a 16-bit word index
+    u16 tempaddr = TEST_KEYS;
+    tempaddr += slot;
+    store(tag, tempaddr);
+    
+     // update 'addr' in memory and for below
+    addr = dmem_addr;
+    tempaddr = TEST_VALUES;
+    tempaddr += slot;
+    store(addr, tempaddr);
+    
+    // update the "last active"
+    store(tag, LAST_KEY);
+    
+  } else {
+    printf("cache hit!\n");
+  }
+  
+  // load the word from DMEM
+  {
+    addr += ofs;
+    printf("addr: %v, (ofs: %v)\n", addr, ofs);
+    u16 word = load(addr);
+    printf("word: %v\n", word);
+    addr -= ofs;
+  }
+  
+  {
+    u16 counter=16;
+    printf("data:\n");
+    while (counter > 0) {
+      u16 data = load(addr);
+      printf(" [%v] = %v\n", addr, data);
+      counter = counter - 1;
+      addr += 2;
+    }
+    printf("\n");
+    
+  }
+  
 
 }
 
