@@ -84,6 +84,11 @@ void rsp_fill_downsample_tile(surface_t *dst, surface_t *src, int srcx, int srcy
 
 }
 
+void rsp_fill_cachetest() {
+    rspq_write(ovl_fill_id, RSP_FILL_CMD_CACHETEST, 0);
+}
+
+
 void rsp_blend_set_source(surface_t *src) {
     assertf(surface_get_format(src) == FMT_RGBA16, 
         "rsp_blend only handles RGB555 surfaces");
@@ -101,6 +106,10 @@ void rsp_blend_process_line(surface_t *dest, int x0, int y0, int numlines) {
         line += dest->stride;
     }
 }
+
+
+
+
 
 int main(void) {
     debug_init_isviewer();
@@ -171,17 +180,18 @@ int main(void) {
 
             // Wait for RSP to finish processing
             rspq_wait();
-            for (int x=0;x<10;x++) {
-                int y = 100;
-                rsp_fill_downsample_tile(&downscaled, screen, x*16, y*16, x*8, y*8, 0);
-            }
+            //for (int x=0;x<10;x++) {
+            //    int y = 100;
+            //    rsp_fill_downsample_tile(&downscaled, screen, x*16, y*16, x*8, y*8, 0);
+            //}
+            rsp_fill_cachetest();
             rspq_wait();
 
-            rdpq_attach(screen, NULL);
-            rdpq_set_mode_copy(false);
-            rdpq_tex_blit(&downscaled, 0, 0, NULL);
-            rdpq_fence();
-            rdpq_detach();
+            // rdpq_attach(screen, NULL);
+            // rdpq_set_mode_copy(false);
+            // rdpq_tex_blit(&downscaled, 0, 0, NULL);
+            // rdpq_fence();
+            // rdpq_detach();
 
             // Draw the flare using RSP additive blending (will not overflow)
             display_show(screen);
