@@ -15,6 +15,12 @@ state {
   u16 TILE_BUFFER[TILE_NUM_PIXELS];
   alignas(16)
   u16 SMALL_BUFFER[SMALL_NUM_PIXELS];
+  
+  u16 CACHE_TEMP[16];
+  alignas(16)
+  vec16 LANE_INDS = {7,6,5,4,3,2,1,0};
+  vec16 TEST_NUMBERS = {400,300,200,100,100,200,300,400};
+  vec16 TEST_KEYS = {100,200,300,456,500,600,700};
 }
 
 command<0> FillCmd_SetScreenSize(u32 unused, u32 sizeXY, u32 stride)
@@ -107,3 +113,43 @@ command<2> FillCmd_Downsample(u32 biasIn, u32 dstAddress, u32 srcAddress, u32 ds
     printf("Out: src: 0x%x, dest: 0x%x, pitch: %v, size: %v\n", src, dest, pitch, size);
     @Barrier("write") DMAOut(src, dest, size, pitch);
 }
+
+
+macro dotXYZW_u16(vec16 res, vec16 a, vec16 b)
+{
+  res:sint = a * b;
+  vec16 tmp:sint = res + res.yyyyYYYY;
+  tmp:sint += res.zzzzZZZZ;
+  tmp:sint += res.wwwwWWWW;
+  // then sum X to x, so we get a sum of the two products
+  res:sint = tmp + tmp.X;
+  // result is in res.x
+}
+
+command<3> FillCmd_CacheTest(u32 _)
+{
+  vec16 keys = load(TEST_KEYS);
+  u16 ptr=456;
+  vec16 query = ptr;
+  
+  vec16 result = keys == query;
+
+  
+  u16 vcc = get_vcc();
+  vcc = vcc & 0xff;
+
+  printf("%v x %v =\n%v\n", keys, query, vcc);
+  
+  if (vcc != 0) {
+    // found a hit on some lane
+    u16 v = load(CACHE_TEMP, 0);
+    //u16 xxx = load(CACHE_TEMP, 0);
+  }
+  vec16 dotti = 0;
+  vec16 a = load(LANE_INDS);
+  vec16 b = load(TEST_NUMBERS);
+  printf("a: %v, b: %v\n", a, b);
+  dotXYZW_u16(dotti, a, b);
+  printf("dotti: %v\n", dotti);
+}
+
