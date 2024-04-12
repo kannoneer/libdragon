@@ -85,20 +85,16 @@ void rsp_fill_downsample_tile(surface_t *dst, surface_t *src, int srcx, int srcy
 }
 
 void rsp_fill_cachetest(surface_t *tex, uint32_t ofs) {
-    ofs = 4; // offset in bytes
-    uint16_t data[] = {999,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
-    void* ptr = data;
-    data_cache_hit_writeback(data, sizeof(data));
+    // ofs = 4; // offset in bytes
+    // uint16_t data[] = {999,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
+    // data_cache_hit_writeback(data, sizeof(data));
+
+    void* ptr = tex->buffer;
 
     uint16_t right_answer = *((u_uint16_t*)(((void*)ptr) + ofs));
     debugf("C-side read value: %u\n", right_answer);
     uintptr_t address = PhysicalAddr(ptr);
     rspq_write(ovl_fill_id, RSP_FILL_CMD_CACHETEST, 0, address + ofs);
-
-    // uint16_t right_answer = *((u_uint16_t*)(((void*)ptr) + ofs));
-    // debugf("C-side read value: %u\n", right_answer);
-    // uintptr_t address = PhysicalAddr(tex->buffer);
-    // rspq_write(ovl_fill_id, RSP_FILL_CMD_CACHETEST, 0, address + ofs);
 }
 
 
