@@ -15,9 +15,9 @@ include "rsp_queue.inc"
 #define CACHE_LINE_SIZE_BITS 4
 #define CACHE_SIZE_BYTES 256
 
-#define MASK_TAG  0x000ffff0
+#define MASK_TAG  0x0007fff0  // largest tag is 32767-1 so we can use vector ops
 #define MASK_OFS  0x0000000f
-#define MASK_BASE 0xfff00000
+#define MASK_BASE 0xfff80000
 
 state {
   vec16 SCREEN_SIZE_VEC;
@@ -35,11 +35,11 @@ state {
   alignas(4)
   vec16 LANE_INDS = {7,6,5,4,3,2,1,0};
   alignas(4)
-  vec16 TEST_KEYS = {100,200,300,456,500,KEY_EMPTY,700};
+  vec16 TEST_KEYS = {KEY_EMPTY,KEY_EMPTY,KEY_EMPTY,KEY_EMPTY,KEY_EMPTY,KEY_EMPTY,KEY_EMPTY,KEY_EMPTY};
   alignas(4)
-  vec16 TEST_VALUES = {128, 506, 32, 1024, 1056, 96, 256, 8};
+  vec16 TEST_VALUES = {0,0,0,0,0,0,0,0};
   u16 LAST_KEY = {KEY_EMPTY};
-  u16 LAST_SLOT = {0};
+  u16 LAST_SLOT = {7};
   
   u32 DATA_START = {0};
 }
