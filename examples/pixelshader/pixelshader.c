@@ -225,7 +225,7 @@ int main(void) {
             // rsp_fill_cachetest(&texsurf, 512+8);
             // rsp_fill_cachetest(&texsurf, 512+10);
 
-            uint16_t* tex = (uint16_t*)texsurf.buffer;
+            assertf(surface_get_format(&texsurf) == FMT_RGBA16, "RGB555 expected");
             //for (int i=0;i<8;i++) {
             //    tex[i] = i;
             //}
@@ -242,8 +242,17 @@ int main(void) {
             }
 
             uint16_t offsets[16*16]={0};
-            for (int i=0;i<8;i++) {
-                offsets[i] = (7-i) * 2;
+            const int TEXW=16;
+            const int TEXH=16;
+            const int TILEW=16;
+            const int TILEH=16;
+            uint16_t counter =0;
+            for (int y=0;y<TILEH;y++) {
+            for (int x=0;x<TILEW;x++) {
+                offsets[counter]=2*counter;
+                counter++;
+                //offsets[y*TILEH+x] = y*TEXH+x;
+            }
             }
             data_cache_hit_writeback(offsets, sizeof(offsets));
 
@@ -251,11 +260,21 @@ int main(void) {
             uint16_t tile[16*16]={0};
             data_cache_hit_writeback_invalidate(tile, sizeof(tile));
             rsp_fill_store_tile(tile);
+
+            uint32_t dsty=100;
+            uint32_t dstx=70;
+            rsp_fill_store_tile(tile);
             rspq_wait();
+
+            for (int y=0;y<16;y++) {
+                memcpy(screen->buffer + (screen->stride*(dsty+y)+dstx), &tile[y*16], sizeof(uint16_t)*16);
+            }
+            
             debugf("tile:\n");
             for (int i=0;i<8;i++) {
                 debugf("tile[%d] 0x%x\n", i, tile[i]);
             }
+
 
 
             // rdpq_attach(screen, NULL);

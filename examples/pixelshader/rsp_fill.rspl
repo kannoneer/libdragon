@@ -321,13 +321,14 @@ macro gather8(vec16 dest, vec16 dmemAddresses)
 command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
 {
   u32 rdram = dataAddress;
-  dma_in(ADDRESS_BUFFER, rdram);
+  dma_in(ADDRESS_BUFFER, rdram, TILE_NUM_BYTES);
   vec16 values;
   vec16 addr;
   
-  addr:sint = load(ADDRESS_BUFFER);
-  printf("addr1: %v\n", addr);
-
+  u32 counter=32;
+  u32 dmemAddressSource = ADDRESS_BUFFER;
+  u32 dmemDest = TILE_BUFFER;
+  
   vec16 ofs;
   u16 from = TEXTURE_BUFFER;
   ofs.x = from; // FIXME DMEM address constant offset
@@ -338,13 +339,24 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
   ofs.Y = from;
   ofs.Z = from;
   ofs.W = from;
-  addr:sint = addr:sint + ofs:sint;
-  printf("ofs:  %v\n", ofs);
-  printf("addr: %v\n", addr);
-  
-  gather8(values, addr);
-  printf("values: %v\n", values);
-  store(values, TILE_BUFFER);
+
+  while (counter > 0) {
+    printf("counter: %v\n", counter);
+    addr:sint = load(dmemAddressSource);
+    printf("dmemAddressSource: %v, addr1: %v\n", dmemAddressSource, addr);
+
+    addr:sint = addr:sint + ofs:sint;
+    printf("ofs:  %v\n", ofs);
+    printf("addr: %v\n", addr);
+    
+    gather8(values, addr);
+    printf("values: %v\n", values);
+    store(values, dmemDest);
+    
+    dmemAddressSource = dmemAddressSource + 16;
+    dmemDest = dmemDest + 16;
+    counter = counter - 1;
+  }
 }
 
 command<5> FillCmd_LoadTexture(u32 _, u32 dataAddress)
