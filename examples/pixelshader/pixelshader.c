@@ -176,6 +176,7 @@ int main(void) {
 
     while (1) {
         cur_frame = TICKS_READ();
+        float time = get_ticks_ms() / 1000.0f;
 
         surface_t *screen = display_get();
         rdpq_attach(screen, NULL);
@@ -187,7 +188,7 @@ int main(void) {
         // Draw help text on the top of the screen
         rdpq_set_mode_fill(RGBA32(0,0,0,0));
         rdpq_fill_rectangle(0, 0, screen->width, 30);
-        rdpq_text_printf(NULL, MYFONT, 40, 20, "Additive blending with %s (press A to toggle) -- %d us", use_rdp ? "RDP" : "RSP", TIMER_MICROS(last_frame));
+        rdpq_text_printf(NULL, MYFONT, 40, 20, "RSP gather experiment -- %d us", TIMER_MICROS(last_frame));
         
 
         if (use_rdp) {
@@ -241,17 +242,39 @@ int main(void) {
                 debugf("texture[%d] 0x%x vs 0x%x\n", i, ((uint16_t*)(texsurf.buffer))[i], result[i]);
             }
 
+            const int TILE_NUM_X = 6;
+            const int TILE_NUM_Y = 4;
+
+            for (int tiley=0;tiley<TILE_NUM_Y;tiley++) {
+            for (int tilex=0;tilex<TILE_NUM_X;tilex++) {
             uint16_t offsets[16*16]={0};
             const int TEXW=16;
             const int TEXH=16;
             const int TILEW=16;
             const int TILEH=16;
             uint16_t counter =0;
+            float ang = time;
+            float scale = 1.0f + 0.9f*sin(time*1.0f);
+            float cosa = cos(ang);
+            float sina = sin(ang);
             for (int y=0;y<TILEH;y++) {
             for (int x=0;x<TILEW;x++) {
-                offsets[counter]=2*counter;
-                counter++;
-                //offsets[y*TILEH+x] = y*TEXH+x;
+                int tx = (x+tilex*TILEW);
+                int ty = (y+tiley*TILEH);
+                tx -= (TILE_NUM_X*0.5f)*TILEW;
+                ty -= (TILE_NUM_Y*0.5f)*TILEH;
+
+                tx *= scale;
+                ty *= scale;
+                tx += 16.0;
+                ty += 16.0;
+                float fx = tx*cosa + ty*sina;
+                float fy = -tx*sina + ty*cosa;
+                if (fx < 0) fx = -fx;
+                if (fy < 0) fy = -fy;
+                int ix = (int)(fx+0.5f) % TEXW;
+                int iy = (int)(fy+0.5f) % TEXH;
+                offsets[y*TILEH+x] = 2*(iy*TEXH+ix); //2*(y*TEXH+x);
             }
             }
             data_cache_hit_writeback(offsets, sizeof(offsets));
@@ -261,18 +284,20 @@ int main(void) {
             data_cache_hit_writeback_invalidate(tile, sizeof(tile));
             rsp_fill_store_tile(tile);
 
-            uint32_t dsty=100;
-            uint32_t dstx=70;
+            uint32_t dsty=100 + tiley*TILEH;
+            uint32_t dstx=70 + tilex*TILEW;
             rsp_fill_store_tile(tile);
             rspq_wait();
 
             for (int y=0;y<16;y++) {
-                memcpy(screen->buffer + (screen->stride*(dsty+y)+dstx), &tile[y*16], sizeof(uint16_t)*16);
+                memcpy(screen->buffer + (screen->stride*(dsty+y)+dstx*sizeof(uint16_t)), &tile[y*16], sizeof(uint16_t)*16);
             }
             
             debugf("tile:\n");
             for (int i=0;i<8;i++) {
                 debugf("tile[%d] 0x%x\n", i, tile[i]);
+            }
+            }
             }
 
 
@@ -283,10 +308,9 @@ int main(void) {
             // rdpq_fence();
             // rdpq_detach();
 
-            // Draw the flare using RSP additive blending (will not overflow)
             display_show(screen);
-            debugf("HALT\n");
-            while (true) {}
+            // debugf("HALT\n");
+            // while (true) {}
         }
 
         // Wait until RSP+RDP are idle. This is normally not required, but we force it here
