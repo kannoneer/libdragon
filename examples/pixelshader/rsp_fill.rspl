@@ -7,6 +7,9 @@ include "rsp_queue.inc"
 #define SMALL_NUM_PIXELS 64
 #define SMALL_NUM_BYTES 128
 
+#define TEX_NUM_PIXELS 256
+#define TEX_NUM_BYTES 512
+
 #define RESULT_MISS 0xffff
 #define KEY_EMPTY 0x7fff
 
@@ -27,6 +30,11 @@ state {
   u16 TILE_BUFFER[TILE_NUM_PIXELS];
   alignas(16)
   u16 SMALL_BUFFER[SMALL_NUM_PIXELS];
+  alignas(16)
+  u16 ADDRESS_BUFFER[TILE_NUM_PIXELS];  
+  
+  alignas(16)  
+  u16 TEXTURE_BUFFER[TEX_NUM_PIXELS];  
   
   alignas(16)
   u16 CACHE[CACHE_LINE_NUM_BYTES];
@@ -284,7 +292,75 @@ command<3> FillCmd_CacheTest(u32 _, u32 dataAddress)
     printf("\n");
     
   }
-  
-
 }
 
+macro gather8(vec16 dest, vec16 dmemAddresses)
+{
+  store(dmemAddresses, TEMP_VEC);
+
+  // TODO: is read-after-write to DMEM honored here?
+  u16 i0 = load(TEMP_VEC, 0);
+  u16 i1 = load(TEMP_VEC, 2);
+  u16 i2 = load(TEMP_VEC, 4);
+  u16 i3 = load(TEMP_VEC, 6);
+  u16 i4 = load(TEMP_VEC, 8);
+  u16 i5 = load(TEMP_VEC, 10);
+  u16 i6 = load(TEMP_VEC, 12);
+  u16 i7 = load(TEMP_VEC, 14);
+  
+  dest.x = load(i0);
+  dest.y = load(i1);
+  dest.z = load(i2);
+  dest.w = load(i3);
+  dest.X = load(i4);
+  dest.Y = load(i5);
+  dest.Z = load(i6);
+  dest.W = load(i7);
+}
+
+command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
+{
+  u32 rdram = dataAddress;
+  dma_in(ADDRESS_BUFFER, rdram);
+  vec16 values;
+  vec16 addr;
+  
+  addr:sint = load(ADDRESS_BUFFER);
+  printf("addr1: %v\n", addr);
+
+  vec16 ofs;
+  u16 from = TEXTURE_BUFFER;
+  ofs.x = from; // FIXME DMEM address constant offset
+  ofs.y = from;
+  ofs.z = from;
+  ofs.w = from;
+  ofs.X = from;
+  ofs.Y = from;
+  ofs.Z = from;
+  ofs.W = from;
+  addr:sint = addr:sint + ofs:sint;
+  printf("ofs:  %v\n", ofs);
+  printf("addr: %v\n", addr);
+  
+  gather8(values, addr);
+  printf("values: %v\n", values);
+  store(values, TILE_BUFFER);
+}
+
+command<5> FillCmd_LoadTexture(u32 _, u32 dataAddress)
+{
+  u32 rdram = dataAddress;
+  dma_in(TEXTURE_BUFFER, rdram, TEX_NUM_BYTES);
+}
+
+command<6> FillCmd_StoreTile(u32 _, u32 dataAddress)
+{
+  u32 rdram = dataAddress;
+  dma_out(TILE_BUFFER, rdram, TILE_NUM_BYTES);
+}
+
+command<7> FillCmd_StoreTexture(u32 _, u32 dataAddress)
+{
+  u32 rdram = dataAddress;
+  dma_out(TEXTURE_BUFFER, rdram, TEX_NUM_BYTES);
+}

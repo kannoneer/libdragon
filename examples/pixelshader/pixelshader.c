@@ -97,6 +97,31 @@ void rsp_fill_cachetest(surface_t *tex, uint32_t ofs) {
     rspq_write(ovl_fill_id, RSP_FILL_CMD_CACHETEST, 0, address + ofs);
 }
 
+void rsp_fill_gathertest(uint16_t* offsets) {
+    uintptr_t address = PhysicalAddr(offsets);
+    rspq_write(ovl_fill_id, RSP_FILL_CMD_GATHERTEST, 0, address);
+}
+
+void rsp_fill_load_texture(uint16_t* pixels)
+{
+    uintptr_t address = PhysicalAddr(pixels);
+    // assertf((address & 0x0f) == 0, "physical texture load address should be 16-byte aligned"); // unaligned DMA should work
+    rspq_write(ovl_fill_id, RSP_FILL_CMD_LOAD_TEXTURE, 0, address);
+}
+
+void rsp_fill_store_texture(uint16_t* dest_pixels)
+{
+    uintptr_t address = PhysicalAddr(dest_pixels);
+    // assertf((address & 0x0f) == 0, "physical texture store address should be 16-byte aligned");
+    rspq_write(ovl_fill_id, RSP_FILL_CMD_STORE_TEXTURE, 0, address);
+}
+
+void rsp_fill_store_tile(uint16_t* dest_pixels)
+{
+    uintptr_t address = PhysicalAddr(dest_pixels);
+    // assertf((address & 0x0f) == 0, "physical tile dest address should be 16-byte aligned");
+    rspq_write(ovl_fill_id, RSP_FILL_CMD_STORE_TILE, 0, address);
+}
 
 void rsp_blend_set_source(surface_t *src) {
     assertf(surface_get_format(src) == FMT_RGBA16, 
@@ -195,8 +220,43 @@ int main(void) {
             //    int y = 100;
             //    rsp_fill_downsample_tile(&downscaled, screen, x*16, y*16, x*8, y*8, 0);
             //}
-            rsp_fill_cachetest(&texsurf, 4);
+            // rsp_fill_cachetest(&texsurf, 2);
+            // rsp_fill_cachetest(&texsurf, 4);
+            // rsp_fill_cachetest(&texsurf, 512+8);
+            // rsp_fill_cachetest(&texsurf, 512+10);
+
+            uint16_t* tex = (uint16_t*)texsurf.buffer;
+            //for (int i=0;i<8;i++) {
+            //    tex[i] = i;
+            //}
+            data_cache_hit_writeback_invalidate(texsurf.buffer, 8*2);
+
+            rsp_fill_load_texture(texsurf.buffer);
+            uint16_t result[16*16]={0};
+            data_cache_hit_writeback_invalidate(result, sizeof(result));
+            rsp_fill_store_texture(result);
             rspq_wait();
+            debugf("texture:\n");
+            for (int i=0;i<8;i++) {
+                debugf("texture[%d] 0x%x vs 0x%x\n", i, ((uint16_t*)(texsurf.buffer))[i], result[i]);
+            }
+
+            uint16_t offsets[16*16]={0};
+            for (int i=0;i<8;i++) {
+                offsets[i] = (7-i) * 2;
+            }
+            data_cache_hit_writeback(offsets, sizeof(offsets));
+
+            rsp_fill_gathertest(offsets);
+            uint16_t tile[16*16]={0};
+            data_cache_hit_writeback_invalidate(tile, sizeof(tile));
+            rsp_fill_store_tile(tile);
+            rspq_wait();
+            debugf("tile:\n");
+            for (int i=0;i<8;i++) {
+                debugf("tile[%d] 0x%x\n", i, tile[i]);
+            }
+
 
             // rdpq_attach(screen, NULL);
             // rdpq_set_mode_copy(false);
@@ -206,6 +266,8 @@ int main(void) {
 
             // Draw the flare using RSP additive blending (will not overflow)
             display_show(screen);
+            debugf("HALT\n");
+            while (true) {}
         }
 
         // Wait until RSP+RDP are idle. This is normally not required, but we force it here

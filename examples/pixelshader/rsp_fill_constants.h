@@ -8,5 +8,9 @@ enum {
     RSP_FILL_CMD_DRAW_CONSTANT          = 0x1,
     RSP_FILL_CMD_DOWNSAMPLE          = 0x2,
     RSP_FILL_CMD_CACHETEST          = 0x3,
+    RSP_FILL_CMD_GATHERTEST          = 0x4,
+    RSP_FILL_CMD_LOAD_TEXTURE          = 0x5,
+    RSP_FILL_CMD_STORE_TILE          = 0x6,
+    RSP_FILL_CMD_STORE_TEXTURE          = 0x7,
 };
 #endif
