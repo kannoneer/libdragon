@@ -141,18 +141,34 @@ void rsp_blend_process_line(surface_t *dest, int x0, int y0, int numlines) {
     }
 }
 
+#include "vihacks.h"
 
 
+void set_blur(bool on)
+{
+    //uint32_t ofs = (on ? 512 : 0)<<16;
+    static uint32_t xmove;
+    uint32_t ofsx = on ? (uint32_t)(1024*0.25f) : 0;
+    uint32_t ofsy = on ? (uint32_t)(1024*0.5f) : 0;
+    //xmove = (xmove + 16) % 2048;
+    //debugf("xmove: %lu\n", xmove);
+    my_vi_write_safe(VI_X_SCALE, VI_X_SCALE_SET(display_get_width()) | (ofsx<<16));
+    my_vi_write_safe(VI_Y_SCALE, VI_Y_SCALE_SET(display_get_height()) | (ofsy<<16));
+}
 
 
 int main(void) {
     debug_init_isviewer();
     debug_init_usblog();
-    display_init(RESOLUTION_640x480, DEPTH_16_BPP, 2, GAMMA_NONE, FILTERS_RESAMPLE);
+    //display_init((resolution_t){320, 240, INTERLACE_OFF}, DEPTH_16_BPP, 2, GAMMA_NONE, FILTERS_RESAMPLE_ANTIALIAS_DEDITHER);
+    display_init((resolution_t){640, 480, INTERLACE_HALF}, DEPTH_16_BPP, 2, GAMMA_NONE, FILTERS_RESAMPLE);
     dfs_init(DFS_DEFAULT_LOCATION);
     joypad_init();
     rdpq_init();
     rdpq_debug_start();
+
+    bool blur = true;
+    bool do_dither = true;
 
     sprite_t* bkg = sprite_load("rom:/background.sprite");
     sprite_t* flare1 = sprite_load("rom:/flare1.sprite");
@@ -174,9 +190,13 @@ int main(void) {
     uint32_t last_frame = 0;
     uint32_t cur_frame = 0;
 
+    float anim = 5.0f;
+
     while (1) {
         cur_frame = TICKS_READ();
         float time = get_ticks_ms() / 1000.0f;
+        // anim = time;
+    set_blur(blur);
 
         surface_t *screen = display_get();
         rdpq_attach(screen, NULL);
@@ -186,9 +206,9 @@ int main(void) {
         rdpq_tex_blit(&bkgsurf, 0, 0, NULL);
 
         // Draw help text on the top of the screen
-        rdpq_set_mode_fill(RGBA32(0,0,0,0));
+        rdpq_set_mode_fill(RGBA32(0,0,0,255));
         rdpq_fill_rectangle(0, 0, screen->width, 30);
-        rdpq_text_printf(NULL, MYFONT, 40, 20, "RSP gather experiment -- %d us", TIMER_MICROS(last_frame));
+        rdpq_text_printf(NULL, MYFONT, 40, 20, "RSP gather experiment (%s, %s) -- %d us", blur ? "Blur" : "Sharp", do_dither ? "Dither" : "-", TIMER_MICROS(last_frame));
         
 
         if (use_rdp) {
@@ -242,25 +262,35 @@ int main(void) {
                 debugf("texture[%d] 0x%x vs 0x%x\n", i, ((uint16_t*)(texsurf.buffer))[i], result[i]);
             }
 
-            const int TILE_NUM_X = 6;
-            const int TILE_NUM_Y = 4;
-
-            for (int tiley=0;tiley<TILE_NUM_Y;tiley++) {
-            for (int tilex=0;tilex<TILE_NUM_X;tilex++) {
-            uint16_t offsets[16*16]={0};
             const int TEXW=16;
             const int TEXH=16;
             const int TILEW=16;
             const int TILEH=16;
-            uint16_t counter =0;
-            float ang = time;
-            float scale = 1.0f + 0.9f*sin(time*1.0f);
+            const int TILE_NUM_X = display_get_width()/TILEW;
+            const int TILE_NUM_Y = (display_get_height()-32)/TILEH;
+
+            float ang = 0.1f*anim;
+            float scale = 0.5f + 0.4f*cos(anim*0.5f);
+            scale = scale;
             float cosa = cos(ang);
             float sina = sin(ang);
+
+            for (int tiley=0;tiley<TILE_NUM_Y;tiley++) {
+            for (int tilex=0;tilex<TILE_NUM_X;tilex++) {
+            uint16_t offsets[16*16]={0};
+            uint16_t counter =0;
+
+            float dither[2][2][2] = {
+                {{0.25f, 0.00f}, {0.5f, 0.75f}},
+                {{0.75f, 0.50f}, {0.0f, 0.25f}},
+            };
+
             for (int y=0;y<TILEH;y++) {
             for (int x=0;x<TILEW;x++) {
-                int tx = (x+tilex*TILEW);
-                int ty = (y+tiley*TILEH);
+                int tpixx = (x+tilex*TILEW);
+                int tpixy = (y+tiley*TILEH);
+                float tx = tpixx;
+                float ty = tpixy;
                 tx -= (TILE_NUM_X*0.5f)*TILEW;
                 ty -= (TILE_NUM_Y*0.5f)*TILEH;
 
@@ -272,8 +302,18 @@ int main(void) {
                 float fy = -tx*sina + ty*cosa;
                 if (fx < 0) fx = -fx;
                 if (fy < 0) fy = -fy;
-                int ix = (int)(fx+0.5f) % TEXW;
-                int iy = (int)(fy+0.5f) % TEXH;
+                if (tpixx < 0) tpixx = -tpixx;
+                if (tpixy < 0) tpixy = -tpixy;
+                int ia=tpixy&1, ib=tpixx&1;
+                float dx = dither[ia][ib][0];
+                float dy = dither[ia][ib][1];
+                //debugf("tx=%d, ty=%d, dither[%d][%d]={%f, %f}\n", tx, ty, ia, ib, dx, dy);
+                if (do_dither) {
+                    fx += dx;
+                    fy += dy;
+                }
+                int ix = (int)(fx) % TEXW;
+                int iy = (int)(fy) % TEXH;
                 offsets[y*TILEH+x] = 2*(iy*TEXH+ix); //2*(y*TEXH+x);
             }
             }
@@ -284,8 +324,8 @@ int main(void) {
             data_cache_hit_writeback_invalidate(tile, sizeof(tile));
             rsp_fill_store_tile(tile);
 
-            uint32_t dsty=100 + tiley*TILEH;
-            uint32_t dstx=70 + tilex*TILEW;
+            uint32_t dsty=32 + tiley*TILEH;
+            uint32_t dstx=0 + tilex*TILEW;
             rsp_fill_store_tile(tile);
             rspq_wait();
 
@@ -293,9 +333,11 @@ int main(void) {
                 memcpy(screen->buffer + (screen->stride*(dsty+y)+dstx*sizeof(uint16_t)), &tile[y*16], sizeof(uint16_t)*16);
             }
             
+            if (false) {
             debugf("tile:\n");
             for (int i=0;i<8;i++) {
                 debugf("tile[%d] 0x%x\n", i, tile[i]);
+            }
             }
             }
             }
@@ -323,5 +365,12 @@ int main(void) {
         if (keys.a) {
             use_rdp = !use_rdp;
         }
+
+        if (keys.c_left) { blur = !blur; set_blur(blur); };
+        if (keys.c_right) { do_dither = !do_dither; };
+
+        keys = joypad_get_buttons_held(JOYPAD_PORT_1);
+        if (keys.d_up) anim += 0.15f;
+        if (keys.d_down) anim -= 0.15f;
     }
 }
