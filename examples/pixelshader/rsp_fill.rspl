@@ -12,6 +12,9 @@ include "rsp_queue.inc"
 #define TEX_NUM_PIXELS 256
 #define TEX_NUM_BYTES 512 // 2^TEX_NUM_ADDRESS_BITS
 
+#define MASK_BLOCK_INDEX 0xfe00
+#define MASK_BLOCK_OFFSET 0x1ff
+
 #define RESULT_MISS 0xffff
 #define KEY_EMPTY 0x7fff
 
@@ -56,6 +59,12 @@ state {
   u16 LAST_SLOT = {7};
   
   u32 DATA_START = {0};
+  u16 TEX_ACTIVE_BLOCK_INDEX;
+  alignas(4)
+  vec16 CONSTANT_COLOR_BLUE = {0x3e,0x3e,0x3e,0x3e,0x3e,0x3e,0x3e,0x3e};
+  vec16 CONSTANT_COLOR_GREEN = {0x7C0,0x7C0,0x7C0,0x7C0,0x7C0,0x7C0,0x7C0,0x7C0};
+  vec16 CONSTANT_COLOR_RED = { 0xF800, 0xF800, 0xF800, 0xF800, 0xF800, 0xF800, 0xF800, 0xF800};
+  
 }
 
 command<0> FillCmd_SetScreenSize(u32 unused, u32 sizeXY, u32 stride)
@@ -340,7 +349,6 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
   u32 baseAddress = load(TEXTURE_BASE_ADDRESS);
   printf("texture base address: 0x%x\n", baseAddress);
 
-
   // vec32 = base, offset
   // actually we have only 12-bit offsets possible
   // --> 64k textures? assume word alignment --> 128k
@@ -348,20 +356,74 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
   // maps to 32 4k textures, maybe enough for a scene?
   // still need a "base" address for DMEM loads
 
+  vec16 indexMask;
+  indexMask.x = MASK_BLOCK_INDEX;
+  indexMask.y = MASK_BLOCK_INDEX;
+  indexMask.z = MASK_BLOCK_INDEX;
+  indexMask.w = MASK_BLOCK_INDEX;
+  indexMask.X = MASK_BLOCK_INDEX;
+  indexMask.Y = MASK_BLOCK_INDEX;
+  indexMask.Z = MASK_BLOCK_INDEX;
+  indexMask.W = MASK_BLOCK_INDEX;
+  
+  vec16 activeIndex;
+  {
+    u16 ind = load(TEX_ACTIVE_BLOCK_INDEX);
+    activeIndex.x = ind;
+    activeIndex.y = ind;
+    activeIndex.z = ind;
+    activeIndex.w = ind;
+    activeIndex.X = ind;
+    activeIndex.Y = ind;
+    activeIndex.Z = ind;
+    activeIndex.W = ind;
+  }
+  
+  vec16 newValues;
+
   while (counter > 0) {
+    values = load(CONSTANT_COLOR_BLUE);
+    
     //printf("counter: %v\n", counter);
     addr:sint = load(dmemAddressSource);
     //printf("dmemAddressSource: %v, addr1: %v\n", dmemAddressSource, addr);
-
-    vec16 blockInds = addr;
-    // blockInds >>= TEX_NUM_ADDRESS_BITS;
-    // printf("addr: 0x%x\nblck: 0x%\n", addr, blockInds);
-
-    addr:sint = addr:sint + ofs:sint;
+    u16 test = addr.x;
+    printf("addr.x = 0x%x\n", test);
+    vec16 blockInds;
+    blockInds = addr & indexMask;
+    {
+      vec16 unused = blockInds == activeIndex;
+    }
+    u16 vcc = get_vcc();
+    printf("addr: %v\nblck: %v\n", addr, blockInds);
+    printf("resident vcc: 0x%x\n", vcc);
+    //printf("blck: 0x%x\n", blockInds);
+    
+    if (vcc != 0) {
+      addr:sint = addr:sint + ofs:sint;
+      
+      @Barrier("values") gather8(newValues, addr);
+      printf("newValues: %v\n", newValues);
+      printf("values1:   %v\n", values);
+      @Barrier("values") values = select(newValues, values);
+      printf("values2:   %v\n", values); // FIXME breaks without this print
+      
+      
+      @Barrier("values") store(values, dmemDest);
+      
+      dmemAddressSource = dmemAddressSource + 16;
+      dmemDest = dmemDest + 16;
+      counter = counter - 1;
+    } else {
+      // current block isn't valid
+      values = load(CONSTANT_COLOR_RED);
+      store(values, dmemDest);
+      dmemAddressSource = dmemAddressSource + 16;
+      dmemDest = dmemDest + 16;
+      counter = counter - 1;
+    }
     //printf("ofs:  %v\n", ofs);
     //printf("addr: %v\n", addr);
-    
-    
     
     // We wish to check if any offset is greater than what we have stored.
     // Actually, we could just round the offset and compare high bits?
@@ -370,9 +432,9 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
     // in parallel.
     
     // Bits
-    //   PAGE is 4 bits v LSB
+    //   PAGE is 4 bits v LSB (actually 7)
     //   fedcba9876543210
-    //       DRAM_ADDRESS is 12 bits
+    //       DRAM_ADDRESS is 12 bits (actually 9)
     
     // We wish to keep track of
     // - which lanes can be sampled right now
@@ -394,14 +456,7 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
     //  5. extract the new page address
     //  6. fetch the page from RDRAM. update current page id
     //  7. go to step 1
-    
-    @Barrier("values") gather8(values, addr);
-    printf("values: %v\n", values); // FIXME breaks without this print
-    @Barrier("values") store(values, dmemDest);
-    
-    dmemAddressSource = dmemAddressSource + 16;
-    dmemDest = dmemDest + 16;
-    counter = counter - 1;
+
   }
 }
 
@@ -409,6 +464,9 @@ command<5> FillCmd_LoadTexture(u32 _, u32 dataAddress)
 {
   u32 rdram = dataAddress;
   store(rdram, TEXTURE_BASE_ADDRESS);
+  
+  u32 block = rdram & MASK_BLOCK_INDEX;
+  store(block, TEX_ACTIVE_BLOCK_INDEX);
 
   dma_in(TEXTURE_BUFFER, rdram, TEX_NUM_BYTES);
   vec16 ofs;
