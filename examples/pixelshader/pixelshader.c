@@ -148,7 +148,7 @@ void set_blur(bool on)
 {
     //uint32_t ofs = (on ? 512 : 0)<<16;
     static uint32_t xmove;
-    uint32_t ofsx = on ? (uint32_t)(1024*0.25f) : 0;
+    uint32_t ofsx = on ? (uint32_t)(1024*0.5f) : 0;
     uint32_t ofsy = on ? (uint32_t)(1024*0.5f) : 0;
     //xmove = (xmove + 16) % 2048;
     //debugf("xmove: %lu\n", xmove);
@@ -341,8 +341,6 @@ int main(void) {
             }
             }
             }
-
-
 
             // rdpq_attach(screen, NULL);
             // rdpq_set_mode_copy(false);

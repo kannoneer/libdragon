@@ -46,6 +46,8 @@ state {
   vec16 TEST_KEYS = {KEY_EMPTY,KEY_EMPTY,KEY_EMPTY,KEY_EMPTY,KEY_EMPTY,KEY_EMPTY,KEY_EMPTY,KEY_EMPTY};
   alignas(4)
   vec16 TEST_VALUES = {0,0,0,0,0,0,0,0};
+  alignas(4)
+  vec16 ADDRESS_OFFSET_VECTOR;
   u16 LAST_KEY = {KEY_EMPTY};
   u16 LAST_SLOT = {7};
   
@@ -329,29 +331,38 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
   u32 dmemAddressSource = ADDRESS_BUFFER;
   u32 dmemDest = TILE_BUFFER;
   
-  vec16 ofs;
-  u16 from = TEXTURE_BUFFER;
-  ofs.x = from; // FIXME DMEM address constant offset
-  ofs.y = from;
-  ofs.z = from;
-  ofs.w = from;
-  ofs.X = from;
-  ofs.Y = from;
-  ofs.Z = from;
-  ofs.W = from;
+  vec16 ofs = load(ADDRESS_OFFSET_VECTOR);
+  
+  // vec16 ofs;
+  // u16 from = TEXTURE_BUFFER;
+  // ofs.x = from; // FIXME DMEM address constant offset
+  // ofs.y = from;
+  // ofs.z = from;
+  // ofs.w = from;
+  // ofs.X = from;
+  // ofs.Y = from;
+  // ofs.Z = from;
+  // ofs.W = from;
+  
+  // vec32 = base, offset
+  // actually we have only 12-bit offsets possible
+  // --> 64k textures? assume word alignment --> 128k
+  // 128k bytes = 181x181 RGB555 texture
+  // maps to 32 4k textures, maybe enough for a scene?
+  // still need a "base" address for DMEM loads
 
   while (counter > 0) {
-    printf("counter: %v\n", counter);
+    //printf("counter: %v\n", counter);
     addr:sint = load(dmemAddressSource);
-    printf("dmemAddressSource: %v, addr1: %v\n", dmemAddressSource, addr);
+    //printf("dmemAddressSource: %v, addr1: %v\n", dmemAddressSource, addr);
 
     addr:sint = addr:sint + ofs:sint;
-    printf("ofs:  %v\n", ofs);
-    printf("addr: %v\n", addr);
+    //printf("ofs:  %v\n", ofs);
+    //printf("addr: %v\n", addr);
     
-    gather8(values, addr);
-    printf("values: %v\n", values);
-    store(values, dmemDest);
+    @Barrier("values") gather8(values, addr);
+    printf("values: %v\n", values); // FIXME breaks without this print
+    @Barrier("values") store(values, dmemDest);
     
     dmemAddressSource = dmemAddressSource + 16;
     dmemDest = dmemDest + 16;
@@ -363,6 +374,17 @@ command<5> FillCmd_LoadTexture(u32 _, u32 dataAddress)
 {
   u32 rdram = dataAddress;
   dma_in(TEXTURE_BUFFER, rdram, TEX_NUM_BYTES);
+  vec16 ofs;
+  u16 from = TEXTURE_BUFFER;
+  ofs.x = from; // FIXME DMEM address constant offset
+  ofs.y = from;
+  ofs.z = from;
+  ofs.w = from;
+  ofs.X = from;
+  ofs.Y = from;
+  ofs.Z = from;
+  ofs.W = from;
+  store(ofs, ADDRESS_OFFSET_VECTOR);
 }
 
 command<6> FillCmd_StoreTile(u32 _, u32 dataAddress)
