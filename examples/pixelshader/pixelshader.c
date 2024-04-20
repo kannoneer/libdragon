@@ -8,6 +8,7 @@
  * RSP before using RDP to draw it.
  */
 
+#include <stdlib.h>
 #include <libdragon.h>
 #include "rsp_blend_constants.h"
 #include "rsp_fill_constants.h"
@@ -181,6 +182,9 @@ int main(void) {
     surface_t flrsurf = sprite_get_pixels(flare1);
     surface_t texsurf = sprite_get_pixels(texture);
 
+    uint16_t* texture_data = malloc_uncached_aligned(16, texsurf.height * texsurf.stride);
+    memcpy(texture_data, texsurf.buffer, texsurf.height * texsurf.stride);
+
     // surface_t downscaled = surface_alloc(FMT_RGBA16, display_get_width()/2, display_get_height()/2);
 
     rsp_overlays_init();  // init our custom overlay
@@ -262,8 +266,8 @@ int main(void) {
                 debugf("texture[%d] 0x%x vs 0x%x\n", i, ((uint16_t*)(texsurf.buffer))[i], result[i]);
             }
 
-            const int TEXW=16;
-            const int TEXH=16;
+            const int TEXW=texsurf.width;
+            const int TEXH=texsurf.height;
             const int TILEW=16;
             const int TILEH=16;
             const int TILE_NUM_X = display_get_width()/TILEW;
@@ -314,7 +318,7 @@ int main(void) {
                 }
                 int ix = (int)(fx) % TEXW;
                 int iy = (int)(fy) % TEXH;
-                offsets[y*TILEH+x] = 2*(iy*TEXH+ix); //2*(y*TEXH+x);
+                offsets[y*TILEW+x] = 2*(iy*TEXW+ix); //2*(y*TEXH+x);
             }
             }
             data_cache_hit_writeback(offsets, sizeof(offsets));
@@ -333,11 +337,15 @@ int main(void) {
                 memcpy(screen->buffer + (screen->stride*(dsty+y)+dstx*sizeof(uint16_t)), &tile[y*16], sizeof(uint16_t)*16);
             }
             
-            if (false) {
+            if (true) {
             debugf("tile:\n");
             for (int i=0;i<8;i++) {
                 debugf("tile[%d] 0x%x\n", i, tile[i]);
             }
+
+            debugf("HALT\n");
+            // while (true) {}
+
             }
             }
             }
@@ -349,8 +357,6 @@ int main(void) {
             // rdpq_detach();
 
             display_show(screen);
-            // debugf("HALT\n");
-            // while (true) {}
         }
 
         // Wait until RSP+RDP are idle. This is normally not required, but we force it here
