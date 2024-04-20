@@ -382,6 +382,7 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
   vec16 newValues;
 
   while (counter > 0) {
+    u32 lanesLoaded = 0xffffff00;
     values = load(CONSTANT_COLOR_BLUE);
     
     //printf("counter: %v\n", counter);
@@ -394,11 +395,14 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
     {
       vec16 unused = blockInds == activeIndex;
     }
-    u16 vcc = get_vcc();
+    u32 vcc = get_vcc();
+    vcc &= 0x0f;
     printf("addr: %v\nblck: %v\n", addr, blockInds);
     printf("resident vcc: 0x%x\n", vcc);
     //printf("blck: 0x%x\n", blockInds);
     
+    lanesLoaded |= vcc;
+
     if (vcc != 0) {
       addr:sint = addr:sint + ofs:sint;
       
@@ -408,20 +412,32 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
       @Barrier("values") values = select(newValues, values);
       printf("values2:   %v\n", values); // FIXME breaks without this print
       
+      // find the next block
+      // 
+      u32 lanesInProgress = ~lanesLoaded;
+      printf("loaded: 0x%x, in progress: 0x%x\n", lanesLoaded, lanesInProgress);
+      u16 bitsLeft=8;
+      while (bitsLeft > 0) {
+        u32 wip=lanesInProgress & 1;
+        if (wip) {
+          // TODO load a new block
+        }
+        bitsLeft = bitsLeft - 1;
+      }
       
-      @Barrier("values") store(values, dmemDest);
-      
-      dmemAddressSource = dmemAddressSource + 16;
-      dmemDest = dmemDest + 16;
-      counter = counter - 1;
     } else {
-      // current block isn't valid
+      // current block contains no valid addresses
       values = load(CONSTANT_COLOR_RED);
-      store(values, dmemDest);
-      dmemAddressSource = dmemAddressSource + 16;
-      dmemDest = dmemDest + 16;
-      counter = counter - 1;
     }
+    
+    // if (vcc == 0x0f) {
+    //   values = load(CONSTANT_COLOR_GREEN);
+    // }
+    
+    @Barrier("values") store(values, dmemDest);
+    dmemAddressSource = dmemAddressSource + 16;
+    dmemDest = dmemDest + 16;
+    counter = counter - 1;
     //printf("ofs:  %v\n", ofs);
     //printf("addr: %v\n", addr);
     

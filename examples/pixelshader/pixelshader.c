@@ -161,19 +161,19 @@ void set_blur(bool on)
 int main(void) {
     debug_init_isviewer();
     debug_init_usblog();
-    //display_init((resolution_t){320, 240, INTERLACE_OFF}, DEPTH_16_BPP, 2, GAMMA_NONE, FILTERS_RESAMPLE_ANTIALIAS_DEDITHER);
-    display_init((resolution_t){640, 480, INTERLACE_HALF}, DEPTH_16_BPP, 2, GAMMA_NONE, FILTERS_RESAMPLE);
+    display_init((resolution_t){320, 240, INTERLACE_OFF}, DEPTH_16_BPP, 2, GAMMA_NONE, FILTERS_RESAMPLE);
+    // display_init((resolution_t){640, 480, INTERLACE_HALF}, DEPTH_16_BPP, 2, GAMMA_NONE, FILTERS_RESAMPLE);
     dfs_init(DFS_DEFAULT_LOCATION);
     joypad_init();
     rdpq_init();
     rdpq_debug_start();
 
-    bool blur = true;
-    bool do_dither = true;
+    bool blur = false;
+    bool do_dither = false;
 
     sprite_t* bkg = sprite_load("rom:/background.sprite");
     sprite_t* flare1 = sprite_load("rom:/flare1.sprite");
-    sprite_t* texture = sprite_load("rom:/texture.rgba16.sprite");
+    sprite_t* texture = sprite_load("rom:/texture_32.rgba16.sprite");
     rdpq_font_t *font = rdpq_font_load("rom:/encode.font64");
     enum { MYFONT = 1 };
     rdpq_text_register_font(MYFONT, font);
@@ -182,6 +182,7 @@ int main(void) {
     surface_t flrsurf = sprite_get_pixels(flare1);
     surface_t texsurf = sprite_get_pixels(texture);
 
+    assertf(surface_get_format(&texsurf) == FMT_RGBA16, "RGB555 expected");
     uint16_t* texture_data = malloc_uncached_aligned(16, texsurf.height * texsurf.stride);
     memcpy(texture_data, texsurf.buffer, texsurf.height * texsurf.stride);
 
@@ -200,7 +201,7 @@ int main(void) {
         cur_frame = TICKS_READ();
         float time = get_ticks_ms() / 1000.0f;
         // anim = time;
-    set_blur(blur);
+    // set_blur(blur);
 
         surface_t *screen = display_get();
         rdpq_attach(screen, NULL);
@@ -250,20 +251,18 @@ int main(void) {
             // rsp_fill_cachetest(&texsurf, 512+8);
             // rsp_fill_cachetest(&texsurf, 512+10);
 
-            assertf(surface_get_format(&texsurf) == FMT_RGBA16, "RGB555 expected");
             //for (int i=0;i<8;i++) {
             //    tex[i] = i;
             //}
-            data_cache_hit_writeback_invalidate(texsurf.buffer, 8*2);
 
-            rsp_fill_load_texture(texsurf.buffer);
+            rsp_fill_load_texture(texture_data);
             uint16_t result[16*16]={0};
             data_cache_hit_writeback_invalidate(result, sizeof(result));
             rsp_fill_store_texture(result);
             rspq_wait();
-            debugf("texture:\n");
+            debugf("texture (texture_data = 0x%p\n", texture_data);
             for (int i=0;i<8;i++) {
-                debugf("texture[%d] 0x%x vs 0x%x\n", i, ((uint16_t*)(texsurf.buffer))[i], result[i]);
+                debugf("texture[%d] 0x%x vs 0x%x\n", i, ((uint16_t*)(texture_data))[i], result[i]);
             }
 
             const int TEXW=texsurf.width;
@@ -274,7 +273,7 @@ int main(void) {
             const int TILE_NUM_Y = (display_get_height()-32)/TILEH;
 
             float ang = 0.1f*anim;
-            float scale = 0.5f + 0.4f*cos(anim*0.5f);
+            float scale = 1.5f + 0.4f*cos(anim*0.5f);
             scale = scale;
             float cosa = cos(ang);
             float sina = sin(ang);
@@ -318,10 +317,15 @@ int main(void) {
                 }
                 int ix = (int)(fx) % TEXW;
                 int iy = (int)(fy) % TEXH;
-                offsets[y*TILEW+x] = 2*(iy*TEXW+ix); //2*(y*TEXH+x);
+                offsets[y*TILEW+x] = iy*texsurf.stride + sizeof(uint16_t)*ix;
             }
             }
             data_cache_hit_writeback(offsets, sizeof(offsets));
+            
+            debugf("offsets:\n");
+            for (int i=0;i<8;i++) {
+                debugf("offsets[%d]=0x%x\n", i, offsets[i]);
+            }
 
             rsp_fill_gathertest(offsets);
             uint16_t tile[16*16]={0};
@@ -343,7 +347,7 @@ int main(void) {
                 debugf("tile[%d] 0x%x\n", i, tile[i]);
             }
 
-            debugf("HALT\n");
+            // debugf("HALT\n");
             // while (true) {}
 
             }
