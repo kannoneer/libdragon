@@ -7,8 +7,10 @@ include "rsp_queue.inc"
 #define SMALL_NUM_PIXELS 64
 #define SMALL_NUM_BYTES 128
 
+#define TEX_NUM_ADDRESS_BITS 9
+#define TEX_NUM_BLOCK_BITS 5 // 16 - TEX_NUM_ADDRESS_BITS
 #define TEX_NUM_PIXELS 256
-#define TEX_NUM_BYTES 512
+#define TEX_NUM_BYTES 512 // 2^TEX_NUM_ADDRESS_BITS
 
 #define RESULT_MISS 0xffff
 #define KEY_EMPTY 0x7fff
@@ -48,6 +50,8 @@ state {
   vec16 TEST_VALUES = {0,0,0,0,0,0,0,0};
   alignas(4)
   vec16 ADDRESS_OFFSET_VECTOR;
+  alignas(4)
+  u32 TEXTURE_BASE_ADDRESS; //RDRAM texture data address
   u16 LAST_KEY = {KEY_EMPTY};
   u16 LAST_SLOT = {7};
   
@@ -333,17 +337,10 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
   
   vec16 ofs = load(ADDRESS_OFFSET_VECTOR);
   
-  // vec16 ofs;
-  // u16 from = TEXTURE_BUFFER;
-  // ofs.x = from; // FIXME DMEM address constant offset
-  // ofs.y = from;
-  // ofs.z = from;
-  // ofs.w = from;
-  // ofs.X = from;
-  // ofs.Y = from;
-  // ofs.Z = from;
-  // ofs.W = from;
-  
+  u32 baseAddress = load(TEXTURE_BASE_ADDRESS);
+  printf("texture base address: 0x%x\n", baseAddress);
+
+
   // vec32 = base, offset
   // actually we have only 12-bit offsets possible
   // --> 64k textures? assume word alignment --> 128k
@@ -356,9 +353,47 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
     addr:sint = load(dmemAddressSource);
     //printf("dmemAddressSource: %v, addr1: %v\n", dmemAddressSource, addr);
 
+    vec16 blockInds = addr;
+    // blockInds >>= TEX_NUM_ADDRESS_BITS;
+    // printf("addr: 0x%x\nblck: 0x%\n", addr, blockInds);
+
     addr:sint = addr:sint + ofs:sint;
     //printf("ofs:  %v\n", ofs);
     //printf("addr: %v\n", addr);
+    
+    
+    
+    // We wish to check if any offset is greater than what we have stored.
+    // Actually, we could just round the offset and compare high bits?
+    // That way we can find any invalid page.
+    // Problem: We can have at worst 8 different pages! Hard to do
+    // in parallel.
+    
+    // Bits
+    //   PAGE is 4 bits v LSB
+    //   fedcba9876543210
+    //       DRAM_ADDRESS is 12 bits
+    
+    // We wish to keep track of
+    // - which lanes can be sampled right now
+    // - which lanes have been filled already
+    // then 
+    // 1. check if any lanes can be sampled
+    //    this means checking pages==resident, this sets vcc
+    // 2. if we can sample pages, do a gather
+    //    Question: does it make sense to gather if only some are
+    //              present? a loop would take
+    //              rightshift + and + branch + load. 3 instr per
+    //              lane. so not a clear win over regular gather
+    //              + vmrg.
+    //     so gather returns garbage in some lanes, but we'll vmrg
+    //     only the valid ones to 'result' vector.
+    //  3. check if vcc&0xf == 0xf, if true, we are done
+    //  4. otherwise, use a loop to find which vcc value was zero.
+    //     that is the lane which couldn't be read from memory.
+    //  5. extract the new page address
+    //  6. fetch the page from RDRAM. update current page id
+    //  7. go to step 1
     
     @Barrier("values") gather8(values, addr);
     printf("values: %v\n", values); // FIXME breaks without this print
@@ -373,10 +408,12 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
 command<5> FillCmd_LoadTexture(u32 _, u32 dataAddress)
 {
   u32 rdram = dataAddress;
+  store(rdram, TEXTURE_BASE_ADDRESS);
+
   dma_in(TEXTURE_BUFFER, rdram, TEX_NUM_BYTES);
   vec16 ofs;
   u16 from = TEXTURE_BUFFER;
-  ofs.x = from; // FIXME DMEM address constant offset
+  ofs.x = from; // FIXME easier way to construct a constant offset?
   ofs.y = from;
   ofs.z = from;
   ofs.w = from;
