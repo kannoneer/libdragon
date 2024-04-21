@@ -363,17 +363,8 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
   indexMask = indexMask.x;
   
   vec16 activeIndex;
-  {
-    u16 ind = load(TEX_ACTIVE_BLOCK_INDEX);
-    activeIndex.x = ind;
-    activeIndex.y = ind;
-    activeIndex.z = ind;
-    activeIndex.w = ind;
-    activeIndex.X = ind;
-    activeIndex.Y = ind;
-    activeIndex.Z = ind;
-    activeIndex.W = ind;
-  }
+  activeIndex.x = load(TEX_ACTIVE_BLOCK_INDEX).x;
+  activeIndex = activeIndex.x;
   
   vec16 newValues;
 
@@ -407,7 +398,6 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
     // printf("addr: %v\nblck: %v\n", addr, blockInds);
     // printf("actv: %v\n", activeIndex);
     // printf("resident vcc: 0x%x\n", vcc);
-    
     
     lanesLoaded |= vcc;
 
@@ -456,7 +446,7 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
       // printf("rdram = ");
       rdram = load(TEXTURE_BASE_ADDRESS);
       // printf("0x%x + 0x%x = ", rdram, nextBlock);
-      rdram += nextBlock; //HACK always load 0 block
+      rdram += nextBlock;
       // printf("0x%x\n", rdram);
       u32<$t2> t2;
       u32<$t3> at_temp;
@@ -518,40 +508,6 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
     dmemAddressSource = dmemAddressSource + 16;
     dmemDest = dmemDest + 16;
     counter = counter - 1;
-    //printf("ofs:  %v\n", ofs);
-    //printf("addr: %v\n", addr);
-    
-    // We wish to check if any offset is greater than what we have stored.
-    // Actually, we could just round the offset and compare high bits?
-    // That way we can find any invalid page.
-    // Problem: We can have at worst 8 different pages! Hard to do
-    // in parallel.
-    
-    // Bits
-    //   PAGE is 4 bits v LSB (actually 7)
-    //   fedcba9876543210
-    //       DRAM_ADDRESS is 12 bits (actually 9)
-    
-    // We wish to keep track of
-    // - which lanes can be sampled right now
-    // - which lanes have been filled already
-    // then 
-    // 1. check if any lanes can be sampled
-    //    this means checking pages==resident, this sets vcc
-    // 2. if we can sample pages, do a gather
-    //    Question: does it make sense to gather if only some are
-    //              present? a loop would take
-    //              rightshift + and + branch + load. 3 instr per
-    //              lane. so not a clear win over regular gather
-    //              + vmrg.
-    //     so gather returns garbage in some lanes, but we'll vmrg
-    //     only the valid ones to 'result' vector.
-    //  3. check if vcc&0xf == 0xf, if true, we are done
-    //  4. otherwise, use a loop to find which vcc value was zero.
-    //     that is the lane which couldn't be read from memory.
-    //  5. extract the new page address
-    //  6. fetch the page from RDRAM. update current page id
-    //  7. go to step 1
   }
 }
 
