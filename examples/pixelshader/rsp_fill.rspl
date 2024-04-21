@@ -360,13 +360,7 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
 
   vec16 indexMask;
   indexMask.x = MASK_BLOCK_INDEX;
-  indexMask.y = MASK_BLOCK_INDEX;
-  indexMask.z = MASK_BLOCK_INDEX;
-  indexMask.w = MASK_BLOCK_INDEX;
-  indexMask.X = MASK_BLOCK_INDEX;
-  indexMask.Y = MASK_BLOCK_INDEX;
-  indexMask.Z = MASK_BLOCK_INDEX;
-  indexMask.W = MASK_BLOCK_INDEX;
+  indexMask = indexMask.x;
   
   vec16 activeIndex;
   {
@@ -487,13 +481,7 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
       // printf("nextBlock: 0x%x, loaded next block: 0x%x\n", nextBlock, testNextBlock);
       {
         activeIndex.x = nextBlock;
-        activeIndex.y = nextBlock;
-        activeIndex.z = nextBlock;
-        activeIndex.w = nextBlock;
-        activeIndex.X = nextBlock;
-        activeIndex.Y = nextBlock;
-        activeIndex.Z = nextBlock;
-        activeIndex.W = nextBlock;
+        activeIndex = activeIndex.x;
       }
       // printf("rdram: 0x%x\nactiveIndex: %v\n", rdram, activeIndex);
       
@@ -523,13 +511,7 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
     //   color *= 256;
     //   //color += numCacheReads;
     //   values.x = color;
-    //   values.y = color;
-    //   values.z = color;
-    //   values.w = color;
-    //   values.X = color;
-    //   values.Y = color;
-    //   values.Z = color;
-    //   values.W = color;
+    //   values = values.x;
     // }
     
     @Barrier("values") store(values, dmemDest);
@@ -585,14 +567,8 @@ command<5> FillCmd_LoadTexture(u32 _, u32 dataAddress)
   //dma_in(TEXTURE_BUFFER, rdram, TEX_NUM_BYTES);
   vec16 ofs;
   u16 from = TEXTURE_BUFFER;
-  ofs.x = from; // FIXME easier way to construct a constant offset?
-  ofs.y = from;
-  ofs.z = from;
-  ofs.w = from;
-  ofs.X = from;
-  ofs.Y = from;
-  ofs.Z = from;
-  ofs.W = from;
+  ofs.x = from;
+  ofs = ofs.x;
   store(ofs, ADDRESS_OFFSET_VECTOR);
   
   u32 zero = 0;
