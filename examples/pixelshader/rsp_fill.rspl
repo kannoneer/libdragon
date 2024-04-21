@@ -342,7 +342,7 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
   
   u32 counter=32;
   u32 dmemAddressSource = ADDRESS_BUFFER;
-  u32 dmemDest = TILE_BUFFER;
+  u32<$s4> dmemDest = TILE_BUFFER;
   
   vec16 ofs = load(ADDRESS_OFFSET_VECTOR);
   
@@ -385,25 +385,33 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
     u32 lanesLoaded = 0xffffff00;
     values = load(CONSTANT_COLOR_BLUE);
     
+    tryAgain:
+    printf("[%d] lanesLoaded: 0x%x\n", counter, lanesLoaded);
+    if (lanesLoaded == 0xffffffff) {
+      goto writePixels;
+    }
     //printf("counter: %v\n", counter);
     addr:sint = load(dmemAddressSource);
     //printf("dmemAddressSource: %v, addr1: %v\n", dmemAddressSource, addr);
-    u16 test = addr.x;
-    printf("addr.x = 0x%x\n", test);
+    {
+      u16 test = addr.x;
+      printf("addr.x = 0x%x\n", test);
+    }
+    
     vec16 blockInds;
     blockInds = addr & indexMask;
     {
       vec16 unused = blockInds == activeIndex;
     }
     u32 vcc = get_vcc();
-    vcc &= 0x0f;
+    vcc &= 0xff;
     printf("addr: %v\nblck: %v\n", addr, blockInds);
     printf("resident vcc: 0x%x\n", vcc);
     //printf("blck: 0x%x\n", blockInds);
     
     lanesLoaded |= vcc;
 
-    if (vcc != 0) {
+    {
       addr:sint = addr:sint + ofs:sint;
       
       @Barrier("values") gather8(newValues, addr);
@@ -414,26 +422,66 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
       
       // find the next block
       // 
+      store(blockInds, TEMP_VEC);
       u32 lanesInProgress = ~lanesLoaded;
       printf("loaded: 0x%x, in progress: 0x%x\n", lanesLoaded, lanesInProgress);
       u16 bitsLeft=8;
+      u16 nextBlock = 0xffff;
       while (bitsLeft > 0) {
         u32 wip=lanesInProgress & 1;
+        //printf("bitsLeft: %v, lanesInProgress: 0x%x, wip: %v\n", bitsLeft, lanesInProgress, wip);
         if (wip) {
-          // TODO load a new block
+          // load a new block
+          u16 idx = 8;
+          idx -= bitsLeft;
+          idx *= 2;
+          nextBlock = load(idx, TEMP_VEC);
+          //printf("blockInds: %v\n", blockInds);
+          //printf("idx: %v, nextBlock: 0x%x\n", idx, nextBlock);
+          goto newBlockFound;
+         
         }
+        lanesInProgress >>= 1;
         bitsLeft = bitsLeft - 1;
       }
-      
-    } else {
-      // current block contains no valid addresses
-      values = load(CONSTANT_COLOR_RED);
+      newBlockFound:
+      printf("nextBlock: 0x%x\n", nextBlock);
+      rdram = load(TEXTURE_BASE_ADDRESS);
+      rdram += nextBlock;
+      u32<$t2> t2;
+      //u32<$at> at;
+      u32 t2temp = t2;
+      //u32 attemp = at;
+      //u32 dmem_reg = TEXTURE_BUFFER;
+      //u32 num_bytes= TEX_NUM_BYTES;
+      //printf("dma_in(0x%x, 0x%x, %v)\n", dmem_reg, rdram, num_bytes);
+      u32 dmemDestTemp = dmemDest;
+      dma_in(TEXTURE_BUFFER, rdram, TEX_NUM_BYTES);
+      dmemDest = dmemDestTemp;
+      t2 = t2temp;
+      //at = attemp;
+      store(nextBlock, TEX_ACTIVE_BLOCK_INDEX);
+      {
+        activeIndex.x = nextBlock;
+        activeIndex.y = nextBlock;
+        activeIndex.z = nextBlock;
+        activeIndex.w = nextBlock;
+        activeIndex.X = nextBlock;
+        activeIndex.Y = nextBlock;
+        activeIndex.Z = nextBlock;
+        activeIndex.W = nextBlock;
+      }
+      printf("rdram: 0x%x\nactiveIndex: %v\n", rdram, activeIndex);
+      goto tryAgain;
     }
     
     // if (vcc == 0x0f) {
     //   values = load(CONSTANT_COLOR_GREEN);
     // }
     
+    writePixels:
+    u32 temp = TILE_BUFFER;
+    printf("Writing values=%v to DMEM at 0x%x (TILE_BUFFER=0x%x)\n", values, dmemDest, temp);
     @Barrier("values") store(values, dmemDest);
     dmemAddressSource = dmemAddressSource + 16;
     dmemDest = dmemDest + 16;

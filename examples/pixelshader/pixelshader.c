@@ -329,14 +329,16 @@ int main(void) {
 
             rsp_fill_gathertest(offsets);
             uint16_t tile[16*16]={0};
+            for (int i=0;i<sizeof(tile)/2;i++) {
+                tile[i] = 0x0000fffe;
+            }
             data_cache_hit_writeback_invalidate(tile, sizeof(tile));
             rsp_fill_store_tile(tile);
 
-            uint32_t dsty=32 + tiley*TILEH;
-            uint32_t dstx=0 + tilex*TILEW;
-            rsp_fill_store_tile(tile);
             rspq_wait();
 
+            uint32_t dsty=32 + tiley*TILEH;
+            uint32_t dstx=0 + tilex*TILEW;
             for (int y=0;y<16;y++) {
                 memcpy(screen->buffer + (screen->stride*(dsty+y)+dstx*sizeof(uint16_t)), &tile[y*16], sizeof(uint16_t)*16);
             }
