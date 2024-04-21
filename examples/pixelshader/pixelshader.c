@@ -173,7 +173,8 @@ int main(void) {
 
     sprite_t* bkg = sprite_load("rom:/background.sprite");
     sprite_t* flare1 = sprite_load("rom:/flare1.sprite");
-    sprite_t* texture = sprite_load("rom:/texture_32.rgba16.sprite");
+    // sprite_t* texture = sprite_load("rom:/texture_64.rgba16.sprite");
+    sprite_t* texture = sprite_load("rom:/cover_128.rgba16.sprite");
     rdpq_font_t *font = rdpq_font_load("rom:/encode.font64");
     enum { MYFONT = 1 };
     rdpq_text_register_font(MYFONT, font);
@@ -213,8 +214,7 @@ int main(void) {
         // Draw help text on the top of the screen
         rdpq_set_mode_fill(RGBA32(0,0,0,255));
         rdpq_fill_rectangle(0, 0, screen->width, 30);
-        rdpq_text_printf(NULL, MYFONT, 40, 20, "RSP gather experiment (%s, %s) -- %d us", blur ? "Blur" : "Sharp", do_dither ? "Dither" : "-", TIMER_MICROS(last_frame));
-        
+        rdpq_text_printf(NULL, MYFONT, 40, 20, "RSP gather %dx%d (%s, %s) -- %d us", texsurf.width, texsurf.height, blur ? "Blur" : "Sharp", do_dither ? "Dither" : "-", TIMER_MICROS(last_frame));
 
         if (use_rdp) {
             // Draw the flare using RDP additive blending (will overflow)
@@ -283,7 +283,7 @@ int main(void) {
             // }
 
             float ang = 0.1f*anim;
-            float scale = 1.5f + 0.4f*cos(anim*0.5f);
+            float scale = 1.5f + 0.9f*cos(anim*0.5f);
             scale = scale;
             float cosa = cos(ang);
             float sina = sin(ang);
@@ -313,6 +313,9 @@ int main(void) {
                 ty += 16.0;
                 float fx = tx*cosa + ty*sina;
                 float fy = -tx*sina + ty*cosa;
+                
+                // fx += 3.0f * cos(tpixx*0.1f);
+                // fy += 3.0f * sin(tpixx*0.15f);
                 if (fx < 0) fx = -fx;
                 if (fy < 0) fy = -fy;
                 if (tpixx < 0) tpixx = -tpixx;
@@ -332,10 +335,10 @@ int main(void) {
             }
             data_cache_hit_writeback(offsets, sizeof(offsets));
             
-            debugf("offsets:\n");
-            for (int i=0;i<8;i++) {
-                debugf("offsets[%d]=0x%x\n", i, offsets[i]);
-            }
+            // debugf("offsets:\n");
+            // for (int i=0;i<8;i++) {
+            //     debugf("offsets[%d]=0x%x\n", i, offsets[i]);
+            // }
 
             rsp_fill_gathertest(offsets);
             uint16_t tile[16*16]={0};
@@ -353,7 +356,7 @@ int main(void) {
                 memcpy(screen->buffer + (screen->stride*(dsty+y)+dstx*sizeof(uint16_t)), &tile[y*16], sizeof(uint16_t)*16);
             }
             
-            if (true) {
+            if (false) {
             debugf("tile:\n");
             for (int i=0;i<8;i++) {
                 debugf("tile[%d] 0x%x\n", i, tile[i]);
