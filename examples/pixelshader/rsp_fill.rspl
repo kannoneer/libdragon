@@ -386,7 +386,10 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
     values = load(CONSTANT_COLOR_BLUE);
     
     tryAgain:
-    printf("[%d] lanesLoaded: 0x%x\n", counter, lanesLoaded);
+    {
+      u16 indx = TEX_ACTIVE_BLOCK_INDEX;
+      printf("[%d] lanesLoaded: 0x%x, block: %v\n", counter, lanesLoaded, indx);
+    }
     if (lanesLoaded == 0xffffffff) {
       goto writePixels;
     }
@@ -395,7 +398,7 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
     //printf("dmemAddressSource: %v, addr1: %v\n", dmemAddressSource, addr);
     {
       u16 test = addr.x;
-      printf("addr.x = 0x%x\n", test);
+      //printf("addr.x = 0x%x\n", test);
     }
     
     vec16 blockInds;
@@ -406,21 +409,27 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
     u32 vcc = get_vcc();
     vcc &= 0xff;
     printf("addr: %v\nblck: %v\n", addr, blockInds);
+    printf("actv: %v\n", activeIndex);
     printf("resident vcc: 0x%x\n", vcc);
-    //printf("blck: 0x%x\n", blockInds);
+    
     
     lanesLoaded |= vcc;
 
     {
-      addr:sint = addr:sint + ofs:sint;
+      addr:sint -= blockInds; // addr is now relative to block start
+      addr:sint = addr:sint + ofs:sint; // addr is now in DMEM space
       
       @Barrier("values") gather8(newValues, addr);
-      printf("newValues: %v\n", newValues);
-      printf("values1:   %v\n", values);
+      //printf("newValues: %v\n", newValues);
+      //printf("values1:   %v\n", values);
       @Barrier("values") values = select(newValues, values);
-      printf("values2:   %v\n", values); // FIXME breaks without this print
+      //printf("values2:   %v\n", values); // FIXME breaks without this print
+      //printf("lanesLoaded: 0x%x\n", lanesLoaded);
+      if (lanesLoaded == 0xffffffff) {
+        goto writePixels;
+      }
       
-      // find the next block
+      // find the next block index because we have some lanes left
       // 
       store(blockInds, TEMP_VEC);
       u32 lanesInProgress = ~lanesLoaded;
@@ -438,29 +447,40 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
           nextBlock = load(idx, TEMP_VEC);
           //printf("blockInds: %v\n", blockInds);
           //printf("idx: %v, nextBlock: 0x%x\n", idx, nextBlock);
-          goto newBlockFound;
-         
+          goto nextBlockFound;
         }
         lanesInProgress >>= 1;
         bitsLeft = bitsLeft - 1;
       }
-      newBlockFound:
+      nextBlockFound:
       printf("nextBlock: 0x%x\n", nextBlock);
+      if (nextBlock == 0xffff) {
+        printf("ERROR: next block not found!\n");
+      }
+      printf("rdram = ");
       rdram = load(TEXTURE_BASE_ADDRESS);
-      rdram += nextBlock;
+      printf("0x%x + 0x%x = ", rdram, nextBlock);
+      rdram += nextBlock; //HACK always load 0 block
+      printf("0x%x\n", rdram);
       u32<$t2> t2;
-      //u32<$at> at;
+      u32<$t3> at_temp;
       u32 t2temp = t2;
+      // asm("or $t3, $zero, $at");
       //u32 attemp = at;
-      //u32 dmem_reg = TEXTURE_BUFFER;
-      //u32 num_bytes= TEX_NUM_BYTES;
-      //printf("dma_in(0x%x, 0x%x, %v)\n", dmem_reg, rdram, num_bytes);
+      u32 dmem_reg = TEXTURE_BUFFER;
+      u32 num_bytes= TEX_NUM_BYTES;
+      printf("dma_in(0x%x, 0x%x, %v)\n", dmem_reg, rdram, num_bytes);
       u32 dmemDestTemp = dmemDest;
-      dma_in(TEXTURE_BUFFER, rdram, TEX_NUM_BYTES);
+      dma_in(TEXTURE_BUFFER, rdram, 512);
+      
+      // asm("or $at, $zero, $t3");
+      
       dmemDest = dmemDestTemp;
       t2 = t2temp;
       //at = attemp;
-      store(nextBlock, TEX_ACTIVE_BLOCK_INDEX);
+      @Barrier("active") store(nextBlock, TEX_ACTIVE_BLOCK_INDEX);
+      @Barrier("active") u16 testNextBlock = load(TEX_ACTIVE_BLOCK_INDEX);
+      printf("nextBlock: 0x%x, loaded next block: 0x%x\n", nextBlock, testNextBlock);
       {
         activeIndex.x = nextBlock;
         activeIndex.y = nextBlock;
@@ -472,6 +492,13 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
         activeIndex.W = nextBlock;
       }
       printf("rdram: 0x%x\nactiveIndex: %v\n", rdram, activeIndex);
+      
+      u32 index = 0;
+      while (index < 16) {
+        u16 value = load(index, TEXTURE_BUFFER);
+        printf("TEXTURE_BUFFER[%v] = 0x%x\n", index, value);
+        index = index + 2;
+      }
       goto tryAgain;
     }
     
@@ -482,6 +509,7 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
     writePixels:
     u32 temp = TILE_BUFFER;
     printf("Writing values=%v to DMEM at 0x%x (TILE_BUFFER=0x%x)\n", values, dmemDest, temp);
+    
     @Barrier("values") store(values, dmemDest);
     dmemAddressSource = dmemAddressSource + 16;
     dmemDest = dmemDest + 16;
@@ -520,7 +548,6 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
     //  5. extract the new page address
     //  6. fetch the page from RDRAM. update current page id
     //  7. go to step 1
-
   }
 }
 
@@ -529,10 +556,11 @@ command<5> FillCmd_LoadTexture(u32 _, u32 dataAddress)
   u32 rdram = dataAddress;
   store(rdram, TEXTURE_BASE_ADDRESS);
   
-  u32 block = rdram & MASK_BLOCK_INDEX;
+  //u32 block = rdram & MASK_BLOCK_INDEX;
+  u32 block = 0xffffffff;
   store(block, TEX_ACTIVE_BLOCK_INDEX);
 
-  dma_in(TEXTURE_BUFFER, rdram, TEX_NUM_BYTES);
+  //dma_in(TEXTURE_BUFFER, rdram, TEX_NUM_BYTES);
   vec16 ofs;
   u16 from = TEXTURE_BUFFER;
   ofs.x = from; // FIXME easier way to construct a constant offset?

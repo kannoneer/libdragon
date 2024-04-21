@@ -272,6 +272,16 @@ int main(void) {
             const int TILE_NUM_X = display_get_width()/TILEW;
             const int TILE_NUM_Y = (display_get_height()-32)/TILEH;
 
+            const int CACHE_LINE_NUM_BYTES = 512;
+
+            // for (int i=0;i<4;i++) {
+                // uintptr_t block_bits = i * CACHE_LINE_NUM_BYTES;
+                // uint16_t* ptr = ((void*)texture_data) + block_bits;
+                // for (int pixel=0;pixel<8;pixel++) {
+                    // debugf("texture_data[0x%x + 2*%d] = 0x%x\n", block_bits,  pixel, ptr[pixel]);
+                // }
+            // }
+
             float ang = 0.1f*anim;
             float scale = 1.5f + 0.4f*cos(anim*0.5f);
             scale = scale;
