@@ -197,6 +197,7 @@ int main(void) {
 
     uint32_t last_frame = 0;
     uint32_t cur_frame = 0;
+    uint32_t rsp_took = 0;
 
     float anim = 5.0f;
 
@@ -217,6 +218,8 @@ int main(void) {
         rdpq_set_mode_fill(RGBA32(0,0,0,255));
         rdpq_fill_rectangle(0, 0, screen->width, 30);
         rdpq_text_printf(NULL, MYFONT, 40, 20, "RSP gather %dx%d (%s, %s) -- %d us", texsurf.width, texsurf.height, blur ? "Blur" : "Sharp", do_dither ? "Dither" : "-", TIMER_MICROS(last_frame));
+        int rsp_percentage = 100 * ((float)TIMER_MICROS(rsp_took)) / ((float)(TIMER_MICROS(last_frame)+1));
+        debugf("rsp_took: %d us (%d %%)\n", TIMER_MICROS(rsp_took), rsp_percentage);
 
         if (use_rdp) {
             // Draw the flare using RDP additive blending (will overflow)
@@ -348,6 +351,8 @@ int main(void) {
             }
             data_cache_hit_writeback(address_data, TILEH*TILEW*TILE_NUM_Y*TILE_NUM_X*sizeof(uint16_t));
 
+            uint32_t rsp_start = TICKS_READ();
+
             for (int tiley=0;tiley<TILE_NUM_Y;tiley++) {
             for (int tilex = 0; tilex < TILE_NUM_X; tilex++) {
                 uint16_t *offsets = address_data + (tiley * TILE_NUM_X + tilex) * ADDRESS_BATCH_COUNT;
@@ -359,7 +364,6 @@ int main(void) {
                 const uint32_t dstx = 0 + tilex * TILEW;
                 uint16_t *dest = (uint16_t *)(screen->buffer + (screen->stride * dsty + dstx * sizeof(uint16_t)));
                 rsp_fill_store_tile(dest, screen->stride);
-
 
                 // debugf("HALT\n");
                 // while (true) {}
@@ -376,6 +380,8 @@ int main(void) {
             // rdpq_detach();
 
             rspq_wait();
+
+            rsp_took = TICKS_READ() - rsp_start;
             display_show(screen);
         }
 
