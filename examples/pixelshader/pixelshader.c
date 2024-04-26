@@ -157,6 +157,20 @@ void set_blur(bool on)
     my_vi_write_safe(VI_Y_SCALE, VI_Y_SCALE_SET(display_get_height()) | (ofsy<<16));
 }
 
+// Maps a pixel coordinate "c" and the framebuffer size into an array index.
+static int xy_to_tiled(int cx, int cy, int stride) {
+    const int SIZE = 8;
+    const int SHIFT = 3; // findMSB(SIZE);
+    const int MASK = SIZE - 1;
+    const int B2 = (1 << SHIFT) << SHIFT;
+    const int bw = stride >> SHIFT;
+    int bx = cx >> SHIFT;  // which block the pixel is in
+    int by = cy >> SHIFT;
+    int lx = cx & MASK;    // pixels offset inside the block
+    int ly = cy & MASK;
+    return by*B2*bw + bx*B2 + ly*SIZE + lx;
+}
+
 
 int main(void) {
     debug_init_isviewer();
@@ -184,9 +198,20 @@ int main(void) {
     surface_t texsurf = sprite_get_pixels(texture);
 
     assertf(surface_get_format(&texsurf) == FMT_RGBA16, "RGB555 expected");
+    //uint16_t* linear_texture_data = malloc_uncached_aligned(16, texsurf.height * texsurf.stride);
+    //memcpy(linear_texture_data, texsurf.buffer, texsurf.height * texsurf.stride);
+    debugf("malloc\n");
     uint16_t* texture_data = malloc_uncached_aligned(16, texsurf.height * texsurf.stride);
-    memcpy(texture_data, texsurf.buffer, texsurf.height * texsurf.stride);
 
+    for (int y=0;y<texsurf.height;y++) {
+    for (int x=0;x<texsurf.width;x++) {
+        u_uint16_t* src = texsurf.buffer + texsurf.stride*y + x*sizeof(uint16_t);
+        u_uint16_t* dst = &texture_data[xy_to_tiled(x, y, texsurf.stride/2)];
+        *dst = *src;
+    }
+    }
+
+    debugf("address\n");
     uint16_t* address_data = malloc_uncached_aligned(16, texsurf.height * texsurf.width);
 
     // surface_t downscaled = surface_alloc(FMT_RGBA16, display_get_width()/2, display_get_height()/2);
@@ -338,7 +363,9 @@ int main(void) {
                     }
                     int ix = (int)(fx) % TEXW;
                     int iy = (int)(fy) % TEXH;
-                    offsets[y*TILEW+x] = iy*texsurf.stride + sizeof(uint16_t)*ix;
+                    int address = sizeof(uint16_t) * xy_to_tiled(ix, iy, texsurf.stride / 2);
+                    offsets[y*TILEW+x] = address;
+                    //offsets[y*TILEW+x] = iy*texsurf.stride + sizeof(uint16_t)*ix;
                 }
                 }
                 // data_cache_hit_writeback(offsets, ADDRESS_BATCH_COUNT*sizeof(uint16_t));
@@ -380,6 +407,16 @@ int main(void) {
             // rdpq_detach();
 
             rspq_wait();
+
+            // if (true) {
+            //     for (int y = 0; y < texsurf.height; y++) {
+            //         for (int x = 0; x < texsurf.width; x++) {
+            //             u_uint16_t *src = &texture_data[xy_to_tiled(x, y, texsurf.stride / 2)];
+            //             u_uint16_t *dst = screen->buffer + screen->stride * y + x * sizeof(uint16_t);
+            //             *dst = *src;
+            //         }
+            //     }
+            // }
 
             rsp_took = TICKS_READ() - rsp_start;
             display_show(screen);
