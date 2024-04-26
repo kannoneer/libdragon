@@ -531,10 +531,22 @@ command<5> FillCmd_LoadTexture(u32 _, u32 dataAddress)
   store(zero, NUM_CACHE_READS);
 }
 
-command<6> FillCmd_StoreTile(u32 _, u32 dataAddress)
+command<6> FillCmd_StoreTile(u32 _, u32 dataAddress, u32 stride)
 {
-  u32 rdram = dataAddress;
-  dma_out(TILE_BUFFER, rdram, TILE_NUM_BYTES);
+  u32<$s4> dmem = TILE_BUFFER;
+  u32<$s0> rdram = dataAddress;
+  u32<$t1> pitch = stride;
+  u32<$t0> transferSize;
+  
+  // Transfer a block of 16x16 RGB555 pixels
+  asm("li $t0, DMA_SIZE(32,16)"); // macro defined in libdragon's rsp.inc
+  
+  //   t0: transfer size as width/height (use DMA_SIZE macro)
+  //   t1: pitch (ignored if height==1)
+  //   s0: RDRAM address
+  //   s4: DMEM address. After DMA, updated with unalignment
+  // function DMAOut(u32<$s4> dmem, u32<$s0> rdram, u32<$t0> size, u32<$t1> pitch);
+  DMAOut(dmem, rdram, transferSize, pitch);
 }
 
 command<7> FillCmd_StoreTexture(u32 _, u32 dataAddress)

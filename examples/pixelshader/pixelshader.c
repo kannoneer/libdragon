@@ -99,8 +99,8 @@ void rsp_fill_cachetest(surface_t *tex, uint32_t ofs) {
 }
 
 void rsp_fill_gathertest(uint16_t* offsets) {
-    uintptr_t address = PhysicalAddr(offsets);
-    rspq_write(ovl_fill_id, RSP_FILL_CMD_GATHERTEST, 0, address);
+    uintptr_t offsetsPtr = PhysicalAddr(offsets);
+    rspq_write(ovl_fill_id, RSP_FILL_CMD_GATHERTEST, 0, offsetsPtr);
 }
 
 void rsp_fill_load_texture(uint16_t* pixels)
@@ -117,11 +117,11 @@ void rsp_fill_store_texture(uint16_t* dest_pixels)
     rspq_write(ovl_fill_id, RSP_FILL_CMD_STORE_TEXTURE, 0, address);
 }
 
-void rsp_fill_store_tile(uint16_t* dest_pixels)
+void rsp_fill_store_tile(uint16_t* dest_pixels, uint32_t stride)
 {
-    uintptr_t address = PhysicalAddr(dest_pixels);
+    uintptr_t destPtr = PhysicalAddr(dest_pixels);
     // assertf((address & 0x0f) == 0, "physical tile dest address should be 16-byte aligned");
-    rspq_write(ovl_fill_id, RSP_FILL_CMD_STORE_TILE, 0, address);
+    rspq_write(ovl_fill_id, RSP_FILL_CMD_STORE_TILE, 0, destPtr, stride);
 }
 
 void rsp_blend_set_source(surface_t *src) {
@@ -341,31 +341,18 @@ int main(void) {
             // }
 
             rsp_fill_gathertest(offsets);
-            uint16_t tile[16*16]={0};
-            for (int i=0;i<sizeof(tile)/2;i++) {
-                tile[i] = 0x0000fffe;
-            }
-            data_cache_hit_writeback_invalidate(tile, sizeof(tile));
-            rsp_fill_store_tile(tile);
+
+                //memcpy(screen->buffer + (screen->stride*(dsty+y)+dstx*sizeof(uint16_t)), &tile[y*16], sizeof(uint16_t)*16);
+            //rsp_fill_store_tile(tile, TILEW*sizeof(uint16_t));
+            const uint32_t dsty=32 + tiley*TILEH;
+            const uint32_t dstx=0 + tilex*TILEW;
+            uint16_t* dest = (uint16_t*)(screen->buffer + (screen->stride*dsty+dstx*sizeof(uint16_t)));
+            rsp_fill_store_tile(dest, screen->stride);
 
             rspq_wait();
 
-            uint32_t dsty=32 + tiley*TILEH;
-            uint32_t dstx=0 + tilex*TILEW;
-            for (int y=0;y<16;y++) {
-                memcpy(screen->buffer + (screen->stride*(dsty+y)+dstx*sizeof(uint16_t)), &tile[y*16], sizeof(uint16_t)*16);
-            }
-            
-            if (false) {
-            debugf("tile:\n");
-            for (int i=0;i<8;i++) {
-                debugf("tile[%d] 0x%x\n", i, tile[i]);
-            }
-
             // debugf("HALT\n");
             // while (true) {}
-
-            }
             }
             }
 
