@@ -360,12 +360,14 @@ int main(void) {
                 uint16_t *dest = (uint16_t *)(screen->buffer + (screen->stride * dsty + dstx * sizeof(uint16_t)));
                 rsp_fill_store_tile(dest, screen->stride);
 
-                rspq_wait();
 
                 // debugf("HALT\n");
                 // while (true) {}
             }
             }
+
+            // rspq_wait only at the end:
+            // 216746 us --> 20000 us
 
             // rdpq_attach(screen, NULL);
             // rdpq_set_mode_copy(false);
@@ -373,6 +375,7 @@ int main(void) {
             // rdpq_fence();
             // rdpq_detach();
 
+            rspq_wait();
             display_show(screen);
         }
 
