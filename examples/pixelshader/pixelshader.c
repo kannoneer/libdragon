@@ -131,6 +131,37 @@ void rsp_fill_compute_tex_coords(uint16_t x, uint16_t y, uint32_t time)
     rspq_write(ovl_fill_id, RSP_FILL_CMD_COMPUTE_TEX_COORDS, 0, x | (y << 16), time);
 }
 
+void rsp_fill_load_tex_matrix(float matrix[2][2], float coord_ofs[2])
+{
+    int16_t fixed_matrix[2][2];
+    const float to_s7_8 = 0x100;
+    fixed_matrix[0][0] = roundf(matrix[0][0] * to_s7_8);
+    fixed_matrix[0][1] = roundf(matrix[0][1] * to_s7_8);
+    fixed_matrix[1][0] = roundf(matrix[1][0] * to_s7_8);
+    fixed_matrix[1][1] = roundf(matrix[1][1] * to_s7_8);
+    int16_t x = roundf(coord_ofs[0] * to_s7_8);
+    int16_t y = roundf(coord_ofs[1] * to_s7_8);
+
+    for (int col=0;col<2;col++) {
+    for (int row=0;row<2;row++) {
+        debugf("matrix[%d][%d] = %f\n", col, row, matrix[col][row]);
+    }
+    }
+
+    for (int col=0;col<2;col++) {
+    for (int row=0;row<2;row++) {
+        debugf("fixed_matrix[%d][%d] = %d\n", col, row, fixed_matrix[col][row]);
+    }
+    }
+
+    debugf("xy: (%d, %d)\n", x, y);
+
+    rspq_write(ovl_fill_id, RSP_FILL_CMD_LOAD_TEX_MATRIX, 0,
+        fixed_matrix[0][0] | (fixed_matrix[0][1] << 16),
+        fixed_matrix[1][0] | (fixed_matrix[1][1] << 16),
+        x | (y << 16));
+}
+
 // RSP_FILL_CMD_COMPUTE_TEX_COORDS
 
 void rsp_blend_set_source(surface_t *src) {
@@ -333,6 +364,8 @@ int main(void) {
 
             float ang = 0.1f*anim;
             float scale = 1.5f + 0.9f*cos(anim*0.5f);
+
+            #if 0
             scale = scale;
             float cosa = cos(ang);
             float sina = sin(ang);
@@ -397,6 +430,93 @@ int main(void) {
                 }
             }
             data_cache_hit_writeback(address_data, TILEH*TILEW*TILE_NUM_Y*TILE_NUM_X*sizeof(uint16_t));
+            #endif
+            #if 1
+            scale = scale;
+            float cosa = cos(ang);
+            float sina = sin(ang);
+
+            // [  cos(a)  sin(a) ]
+            // [ -sin(a)  cos(a) ]
+            //
+
+            float matrix[2][2] = {{cosa, -sina}, {sina, cosa}}; // column-major order
+            matrix[0][0] *= scale;
+            matrix[0][1] *= scale;
+            matrix[1][0] *= scale;
+            matrix[1][1] *= scale;
+
+            float coord_ofs[2] = {
+                -(TILE_NUM_X * 0.5f) * TILEW,
+                -(TILE_NUM_Y * 0.5f) * TILEH,
+            };
+            rsp_fill_load_tex_matrix(matrix, coord_ofs);
+
+            #if 0
+            for (int tiley=0;tiley<TILE_NUM_Y;tiley++) {
+            for (int tilex=0;tilex<TILE_NUM_X;tilex++) {
+                //uint16_t offsets[16*16]={0};
+                uint16_t* offsets = address_data + (tiley*TILE_NUM_X + tilex) * ADDRESS_BATCH_COUNT;
+                uint16_t counter =0;
+
+                float dither[2][2][2] = {
+                    {{0.25f, 0.00f}, {0.5f, 0.75f}},
+                    {{0.75f, 0.50f}, {0.0f, 0.25f}},
+                };
+
+                for (int y=0;y<TILEH;y++) {
+                for (int x=0;x<TILEW;x++) {
+                    int tpixx = (x+tilex*TILEW);
+                    int tpixy = (y+tiley*TILEH);
+                    float tx = tpixx;
+                    float ty = tpixy;
+                    tx += coord_ofs[0];
+                    ty += coord_ofs[1];
+
+                    // tx *= scale;
+                    // ty *= scale;
+                    // tx += 16.0;
+                    // ty += 16.0;
+                    // float fx = tx*cosa + ty*sina;
+                    // float fy = -tx*sina + ty*cosa;
+                    float fx = tx * matrix[0][0] + ty * matrix[1][0]; // matrix[col][row]
+                    float fy = tx * matrix[0][1] + ty * matrix[1][1];
+                    
+                    // fx += 3.0f * cos(tpixx*0.1f);
+                    // fy += 3.0f * sin(tpixx*0.15f);
+                    if (fx < 0) fx = -fx;
+                    if (fy < 0) fy = -fy;
+                    if (tpixx < 0) tpixx = -tpixx;
+                    if (tpixy < 0) tpixy = -tpixy;
+                    int ia=tpixy&1, ib=tpixx&1;
+                    float dx = dither[ia][ib][0];
+                    float dy = dither[ia][ib][1];
+                    //debugf("tx=%d, ty=%d, dither[%d][%d]={%f, %f}\n", tx, ty, ia, ib, dx, dy);
+                    if (do_dither) {
+                        fx += dx;
+                        fy += dy;
+                    }
+                    int ix = (int)(fx) % TEXW;
+                    int iy = (int)(fy) % TEXH;
+                    if (USE_TILED_TEXTURE) {
+                        int address = sizeof(uint16_t) * xy_to_tiled(ix, iy, texsurf.stride / 2);
+                        offsets[y*TILEW+x] = address;
+                    } else {
+                        offsets[y*TILEW+x] = iy*texsurf.stride + sizeof(uint16_t)*ix;
+                    }
+                }
+                }
+                // data_cache_hit_writeback(offsets, ADDRESS_BATCH_COUNT*sizeof(uint16_t));
+                
+                // debugf("offsets:\n");
+                // for (int i=0;i<8;i++) {
+                //     debugf("offsets[%d]=0x%x\n", i, offsets[i]);
+                // }
+                }
+            }
+            data_cache_hit_writeback(address_data, TILEH*TILEW*TILE_NUM_Y*TILE_NUM_X*sizeof(uint16_t));
+            #endif
+            #endif
 
             uint32_t rsp_start = TICKS_READ();
 
@@ -406,6 +526,10 @@ int main(void) {
             for (int tilex = 0; tilex < TILE_NUM_X; tilex++) {
 
                 rsp_fill_compute_tex_coords(tilex*TILEW, tiley*TILEH, rsptime);
+
+                rspq_wait();
+                debugf("HALT\n");
+                while (true) {}
 
                 uint16_t *offsets = address_data + (tiley * TILE_NUM_X + tilex) * ADDRESS_BATCH_COUNT;
                 rsp_fill_gathertest(offsets);
