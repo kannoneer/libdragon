@@ -37,23 +37,16 @@ state {
   u16 SMALL_BUFFER[SMALL_NUM_PIXELS];
   alignas(16)
   u16 ADDRESS_BUFFER[TILE_NUM_PIXELS];  
-  
   alignas(16)  
   u16 TEXTURE_BUFFER[TEX_NUM_PIXELS];  
-  
   alignas(16)
   u16 CACHE[CACHE_LINE_NUM_BYTES];
-  alignas(4)
+
   vec16 TEMP_VEC;
-  alignas(4)
   vec16 LANE_INDS = {7,6,5,4,3,2,1,0};
-  alignas(4)
   vec16 TEST_KEYS = {KEY_EMPTY,KEY_EMPTY,KEY_EMPTY,KEY_EMPTY,KEY_EMPTY,KEY_EMPTY,KEY_EMPTY,KEY_EMPTY};
-  alignas(4)
   vec16 TEST_VALUES = {0,0,0,0,0,0,0,0};
-  alignas(4)
   vec16 ADDRESS_OFFSET_VECTOR;
-  alignas(4)
   u32 TEXTURE_BASE_ADDRESS; //RDRAM texture data address
   u16 LAST_KEY = {KEY_EMPTY};
   u16 LAST_SLOT = {7};
@@ -61,11 +54,14 @@ state {
   u32 DATA_START = {0};
   u16 TEX_ACTIVE_BLOCK_INDEX;
   u32 NUM_CACHE_READS;
-  alignas(4)
+  alignas(16)
   vec16 CONSTANT_COLOR_BLUE = {0x3e,0x3e,0x3e,0x3e,0x3e,0x3e,0x3e,0x3e};
+  alignas(16)
   vec16 CONSTANT_COLOR_GREEN = {0x7C0,0x7C0,0x7C0,0x7C0,0x7C0,0x7C0,0x7C0,0x7C0};
+  alignas(16)
   vec16 CONSTANT_COLOR_RED = { 0xF800, 0xF800, 0xF800, 0xF800, 0xF800, 0xF800, 0xF800, 0xF800};
-  
+  alignas(16) // definitely needed or loads don't work
+  vec16 PER_LANE_OFFSET = {0,1,2,3,4,5,6,7};
 }
 
 command<0> FillCmd_SetScreenSize(u32 unused, u32 sizeXY, u32 stride)
@@ -337,7 +333,7 @@ macro gather8(vec16 dest, vec16 dmemAddresses)
 command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
 {
   u32 rdram = dataAddress;
-  dma_in(ADDRESS_BUFFER, rdram, TILE_NUM_BYTES);
+  // dma_in(ADDRESS_BUFFER, rdram, TILE_NUM_BYTES);
   vec16 values;
   vec16 addr;
   
@@ -348,7 +344,7 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
   vec16 ofs = load(ADDRESS_OFFSET_VECTOR);
   
   u32 baseAddress = load(TEXTURE_BASE_ADDRESS);
-  u32 numCacheReads = load(NUM_CACHE_READS);
+  u32 numCacheReads = 0; // load(NUM_CACHE_READS);
   // printf("texture base address: 0x%x\n", baseAddress);
 
   // vec32 = base, offset
@@ -494,11 +490,12 @@ command<4> FillCmd_GatherTest(u32 _, u32 dataAddress)
     // printf("Writing values=%v to DMEM at 0x%x (TILE_BUFFER=0x%x)\n", values, dmemDest, temp);
     // }
     
-    // // Cache read count debug viz
+    // Cache read count debug viz
     // {
     //   u16 color = numCacheReads;
-    //   color &= 0x0f;
-    //   color *= 256;
+    //   //color ^= 0x0f;
+    //   color *= 8;
+    //   color *= 2;
     //   //color += numCacheReads;
     //   values.x = color;
     //   values = values.x;
@@ -531,6 +528,7 @@ command<5> FillCmd_LoadTexture(u32 _, u32 dataAddress)
   store(zero, NUM_CACHE_READS);
 }
 
+  
 command<6> FillCmd_StoreTile(u32 _, u32 dataAddress, u32 stride)
 {
   u32<$s4> dmem = TILE_BUFFER;
@@ -540,12 +538,7 @@ command<6> FillCmd_StoreTile(u32 _, u32 dataAddress, u32 stride)
   
   // Transfer a block of 16x16 RGB555 pixels
   asm("li $t0, DMA_SIZE(32,16)"); // macro defined in libdragon's rsp.inc
-  
-  //   t0: transfer size as width/height (use DMA_SIZE macro)
-  //   t1: pitch (ignored if height==1)
-  //   s0: RDRAM address
-  //   s4: DMEM address. After DMA, updated with unalignment
-  // function DMAOut(u32<$s4> dmem, u32<$s0> rdram, u32<$t0> size, u32<$t1> pitch);
+
   DMAOut(dmem, rdram, transferSize, pitch);
 }
 
@@ -554,3 +547,68 @@ command<7> FillCmd_StoreTexture(u32 _, u32 dataAddress)
   u32 rdram = dataAddress;
   dma_out(TEXTURE_BUFFER, rdram, TEX_NUM_BYTES);
 }
+
+command<8> FillCmd_ComputeTexCoords(u32 _, u32 topLeftCoords, u32 time)
+{
+  u16 cx = topLeftCoords & 0xffff;
+  u16 cy = topLeftCoords >> 16;
+  vec16 perLaneOfsX = load(PER_LANE_OFFSET);
+  vec16 one;
+  one.x = 1;
+  one = one.x;
+  
+  vec16 eight;
+  eight.x = 8;
+  eight = eight.x;
+  
+  vec16 vxRow = cx;
+  vxRow += perLaneOfsX;
+  vec16 vx = vxRow;
+  vec16 vy = cy;
+  
+  vec16 times;
+  times.x = time;
+  times = times.x;
+  printf("c=(%v,%v), times=%v\n", cx, cy, times);
+  printf("per lane ofs x: %v\n", perLaneOfsX);
+  printf("per lane ofs y: %v\n", one);
+  printf("vx: %v\n", vx);
+  printf("vy: %v\n", vy);
+  
+  vec16 texCoordMask;
+  texCoordMask.x = 0x7f;
+  texCoordMask = texCoordMask.x;
+  vec16 texSize;
+  texSize.x = 128;
+  texSize = texSize.x;
+  
+  u32 counterY = 16;
+  u32 dmemAddressDest = ADDRESS_BUFFER;
+  while (counterY > 0) {
+    u32 counterX = 2;
+    vx = vxRow;
+    while (counterX > 0) {
+      vec16 xtile = vx;
+      vec16 ytile = vy;
+      xtile &= texCoordMask;
+      ytile &= texCoordMask;
+      
+      printf("tiled: (%v), (%v)\n", xtile, ytile);
+      
+      vec16 addr = ytile;
+      addr *= texSize;
+      addr += xtile;
+      addr *= 2;
+      
+      store(addr, dmemAddressDest);
+      
+      vx += eight;
+      counterX -= 1;  
+      dmemAddressDest += 16;
+    }
+  
+    vy += one;
+    counterY -= 1;
+  }
+}
+

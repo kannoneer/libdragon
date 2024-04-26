@@ -18,6 +18,8 @@ static uint32_t ovl_fill_id;
 static void rsp_blend_assert_handler(rsp_snapshot_t *state, uint16_t code);
 static void rsp_fill_assert_handler(rsp_snapshot_t *state, uint16_t code);
 
+const int USE_TILED_TEXTURE = 0;
+
 enum {
     // Overlay commands. This must match the command table in the RSP code
     RSP_BLEND_CMD_SET_SOURCE   = 0x0,
@@ -124,6 +126,13 @@ void rsp_fill_store_tile(uint16_t* dest_pixels, uint32_t stride)
     rspq_write(ovl_fill_id, RSP_FILL_CMD_STORE_TILE, 0, destPtr, stride);
 }
 
+void rsp_fill_compute_tex_coords(uint16_t x, uint16_t y, uint32_t time)
+{
+    rspq_write(ovl_fill_id, RSP_FILL_CMD_COMPUTE_TEX_COORDS, 0, x | (y << 16), time);
+}
+
+// RSP_FILL_CMD_COMPUTE_TEX_COORDS
+
 void rsp_blend_set_source(surface_t *src) {
     assertf(surface_get_format(src) == FMT_RGBA16, 
         "rsp_blend only handles RGB555 surfaces");
@@ -141,6 +150,7 @@ void rsp_blend_process_line(surface_t *dest, int x0, int y0, int numlines) {
         line += dest->stride;
     }
 }
+
 
 #include "vihacks.h"
 
@@ -203,12 +213,18 @@ int main(void) {
     debugf("malloc\n");
     uint16_t* texture_data = malloc_uncached_aligned(16, texsurf.height * texsurf.stride);
 
-    for (int y=0;y<texsurf.height;y++) {
-    for (int x=0;x<texsurf.width;x++) {
-        u_uint16_t* src = texsurf.buffer + texsurf.stride*y + x*sizeof(uint16_t);
-        u_uint16_t* dst = &texture_data[xy_to_tiled(x, y, texsurf.stride/2)];
-        *dst = *src;
+    if (USE_TILED_TEXTURE) {
+        for (int y=0;y<texsurf.height;y++) {
+        for (int x=0;x<texsurf.width;x++) {
+            u_uint16_t* src = texsurf.buffer + texsurf.stride*y + x*sizeof(uint16_t);
+            u_uint16_t* dst = &texture_data[xy_to_tiled(x, y, texsurf.stride/2)];
+            *dst = *src;
+        }
+        }
     }
+    else
+    {
+        memcpy(texture_data, texsurf.buffer, texsurf.height * texsurf.stride);
     }
 
     debugf("address\n");
@@ -271,7 +287,7 @@ int main(void) {
             // rsp_blend_process_line(screen, 30, 60, flrsurf.height);
 
             // Wait for RSP to finish processing
-            rspq_wait();
+            // rspq_wait();
             //for (int x=0;x<10;x++) {
             //    int y = 100;
             //    rsp_fill_downsample_tile(&downscaled, screen, x*16, y*16, x*8, y*8, 0);
@@ -286,13 +302,15 @@ int main(void) {
             //}
 
             rsp_fill_load_texture(texture_data);
-            uint16_t result[16*16]={0};
-            data_cache_hit_writeback_invalidate(result, sizeof(result));
-            rsp_fill_store_texture(result);
-            rspq_wait();
-            debugf("texture (texture_data = 0x%p\n", texture_data);
-            for (int i=0;i<8;i++) {
-                debugf("texture[%d] 0x%x vs 0x%x\n", i, ((uint16_t*)(texture_data))[i], result[i]);
+            if (false) {
+            //uint16_t result[16*16]={0};
+            //data_cache_hit_writeback_invalidate(result, sizeof(result));
+            // rsp_fill_store_texture(result);
+            // rspq_wait();
+            // debugf("texture (texture_data = 0x%p\n", texture_data);
+            // for (int i=0;i<8;i++) {
+            //     debugf("texture[%d] 0x%x vs 0x%x\n", i, ((uint16_t*)(texture_data))[i], result[i]);
+            // }
             }
 
             const int TEXW=texsurf.width;
@@ -318,7 +336,6 @@ int main(void) {
             scale = scale;
             float cosa = cos(ang);
             float sina = sin(ang);
-
 
             for (int tiley=0;tiley<TILE_NUM_Y;tiley++) {
             for (int tilex=0;tilex<TILE_NUM_X;tilex++) {
@@ -363,9 +380,12 @@ int main(void) {
                     }
                     int ix = (int)(fx) % TEXW;
                     int iy = (int)(fy) % TEXH;
-                    int address = sizeof(uint16_t) * xy_to_tiled(ix, iy, texsurf.stride / 2);
-                    offsets[y*TILEW+x] = address;
-                    //offsets[y*TILEW+x] = iy*texsurf.stride + sizeof(uint16_t)*ix;
+                    if (USE_TILED_TEXTURE) {
+                        int address = sizeof(uint16_t) * xy_to_tiled(ix, iy, texsurf.stride / 2);
+                        offsets[y*TILEW+x] = address;
+                    } else {
+                        offsets[y*TILEW+x] = iy*texsurf.stride + sizeof(uint16_t)*ix;
+                    }
                 }
                 }
                 // data_cache_hit_writeback(offsets, ADDRESS_BATCH_COUNT*sizeof(uint16_t));
@@ -380,8 +400,13 @@ int main(void) {
 
             uint32_t rsp_start = TICKS_READ();
 
+            uint32_t rsptime = time * 1000;
+
             for (int tiley=0;tiley<TILE_NUM_Y;tiley++) {
             for (int tilex = 0; tilex < TILE_NUM_X; tilex++) {
+
+                rsp_fill_compute_tex_coords(tilex*TILEW, tiley*TILEH, rsptime);
+
                 uint16_t *offsets = address_data + (tiley * TILE_NUM_X + tilex) * ADDRESS_BATCH_COUNT;
                 rsp_fill_gathertest(offsets);
 
