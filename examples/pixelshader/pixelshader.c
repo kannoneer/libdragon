@@ -131,17 +131,19 @@ void rsp_fill_compute_tex_coords(uint16_t x, uint16_t y, uint32_t time)
     rspq_write(ovl_fill_id, RSP_FILL_CMD_COMPUTE_TEX_COORDS, 0, x | (y << 16), time);
 }
 
+int32_t shared_tex_matrix[2][2];
+
 void rsp_fill_load_tex_matrix(float matrix[2][2], float coord_ofs[2])
 {
-    int16_t fixed_matrix[2][2];
-    const float to_s7_8 = 0x100;
-    fixed_matrix[0][0] = roundf(matrix[0][0] * to_s7_8);
-    fixed_matrix[0][1] = roundf(matrix[0][1] * to_s7_8);
-    fixed_matrix[1][0] = roundf(matrix[1][0] * to_s7_8);
-    fixed_matrix[1][1] = roundf(matrix[1][1] * to_s7_8);
-    int16_t x = roundf(coord_ofs[0] * to_s7_8);
-    int16_t y = roundf(coord_ofs[1] * to_s7_8);
+    const float to_fixed = 0x10000;
+    shared_tex_matrix[0][0] = roundf(matrix[0][0] * to_fixed);
+    shared_tex_matrix[0][1] = roundf(matrix[0][1] * to_fixed);
+    shared_tex_matrix[1][0] = roundf(matrix[1][0] * to_fixed);
+    shared_tex_matrix[1][1] = roundf(matrix[1][1] * to_fixed);
+    int32_t x = roundf(coord_ofs[0] * to_fixed);
+    int32_t y = roundf(coord_ofs[1] * to_fixed);
 
+    if (true) {
     for (int col=0;col<2;col++) {
     for (int row=0;row<2;row++) {
         debugf("matrix[%d][%d] = %f\n", col, row, matrix[col][row]);
@@ -150,16 +152,17 @@ void rsp_fill_load_tex_matrix(float matrix[2][2], float coord_ofs[2])
 
     for (int col=0;col<2;col++) {
     for (int row=0;row<2;row++) {
-        debugf("fixed_matrix[%d][%d] = %d\n", col, row, fixed_matrix[col][row]);
+        debugf("shared_tex_matrix[%d][%d] = %ld\n", col, row, shared_tex_matrix[col][row]);
     }
     }
 
-    debugf("xy: (%d, %d)\n", x, y);
+    debugf("xy: (%ld, %ld)\n", x, y);
+    }
 
-    rspq_write(ovl_fill_id, RSP_FILL_CMD_LOAD_TEX_MATRIX, 0,
-        fixed_matrix[0][0] | (fixed_matrix[0][1] << 16),
-        fixed_matrix[1][0] | (fixed_matrix[1][1] << 16),
-        x | (y << 16));
+    data_cache_hit_writeback_invalidate(shared_tex_matrix, sizeof(shared_tex_matrix));
+
+    uint32_t matrixPtr = PhysicalAddr(shared_tex_matrix);
+    rspq_write(ovl_fill_id, RSP_FILL_CMD_LOAD_TEX_MATRIX, 0, matrixPtr, x, y);
 }
 
 // RSP_FILL_CMD_COMPUTE_TEX_COORDS
@@ -276,7 +279,7 @@ int main(void) {
     while (1) {
         cur_frame = TICKS_READ();
         float time = get_ticks_ms() / 1000.0f;
-        // anim = time;
+        anim = time;
     // set_blur(blur);
 
         surface_t *screen = display_get();
@@ -451,6 +454,9 @@ int main(void) {
                 -(TILE_NUM_Y * 0.5f) * TILEH,
             };
             rsp_fill_load_tex_matrix(matrix, coord_ofs);
+                rspq_wait();
+                debugf("HALT\n");
+                while (true) {}
 
             #if 0
             for (int tiley=0;tiley<TILE_NUM_Y;tiley++) {
@@ -528,8 +534,8 @@ int main(void) {
                 rsp_fill_compute_tex_coords(tilex*TILEW, tiley*TILEH, rsptime);
 
                 rspq_wait();
-                debugf("HALT\n");
-                while (true) {}
+                // debugf("HALT\n");
+                // while (true) {}
 
                 uint16_t *offsets = address_data + (tiley * TILE_NUM_X + tilex) * ADDRESS_BATCH_COUNT;
                 rsp_fill_gathertest(offsets);

@@ -62,8 +62,8 @@ state {
   vec16 CONSTANT_COLOR_RED = { 0xF800, 0xF800, 0xF800, 0xF800, 0xF800, 0xF800, 0xF800, 0xF800};
   alignas(16) // definitely needed or loads don't work
   vec16 PER_LANE_OFFSET = {0,1,2,3,4,5,6,7};
-  u16 TEX_MATRIX[4];
-  u16 TEX_OFFSET[2];
+  u32 TEX_MATRIX[4];
+  u32 TEX_OFFSET[2];
 }
 
 command<0> FillCmd_SetScreenSize(u32 unused, u32 sizeXY, u32 stride)
@@ -561,11 +561,11 @@ command<8> FillCmd_ComputeTexCoords(u32 _, u32 topLeftCoords, u32 time)
   s16 c11 = load(TEX_MATRIX, 6);
   s16 xofs = load(TEX_OFFSET, 0);
   s16 yofs = load(TEX_OFFSET, 2);
-  printf("ComputeTexCoords:\n");
-  printf("Tex matrix:\n");
-  printf("[ %f %f ]\n", c00, c10);
-  printf("[ %f %f ]\n", c01, c11);
-  printf("ofs: (%f %f)\n", xofs, yofs);
+  // printf("ComputeTexCoords:\n");
+  // printf("Tex matrix:\n");
+  // printf("[ %f %f ]\n", c00, c10);
+  // printf("[ %f %f ]\n", c01, c11);
+  // printf("ofs: (%f %f)\n", xofs, yofs);
   
   vec16 vc00 = c00;
   vec16 vc01 = c01;
@@ -591,11 +591,11 @@ command<8> FillCmd_ComputeTexCoords(u32 _, u32 topLeftCoords, u32 time)
   vec16 times;
   times.x = time;
   times = times.x;
-  printf("c=(%v,%v), times=%v\n", cx, cy, times);
-  printf("per lane ofs x: %v\n", perLaneOfsX);
-  printf("per lane ofs y: %v\n", one);
-  printf("vx: %v\n", vx);
-  printf("vy: %v\n", vy);
+  // printf("c=(%v,%v), times=%v\n", cx, cy, times);
+  // printf("per lane ofs x: %v\n", perLaneOfsX);
+  // printf("per lane ofs y: %v\n", one);
+  // printf("vx: %v\n", vx);
+  // printf("vy: %v\n", vy);
   
   vec16 texCoordMask;
   texCoordMask.x = 0x7f;
@@ -604,9 +604,11 @@ command<8> FillCmd_ComputeTexCoords(u32 _, u32 topLeftCoords, u32 time)
   texSize.x = 128;
   texSize = texSize.x;
   vec16 toFixed;
-  toFixed.x = 0x100; // s7.8 fixed point
+  toFixed.x = 0x010; // s11.4 fixed point
   toFixed = toFixed.x;
-
+  
+  // FIXME 7.8 fixed point doesn't work with multiplication
+  // FIXME 7.8 fixed point doesn't have enough range
   
   u32 counterY = 16;
   u32 dmemAddressDest = ADDRESS_BUFFER;
@@ -620,35 +622,36 @@ command<8> FillCmd_ComputeTexCoords(u32 _, u32 topLeftCoords, u32 time)
       xtile *= toFixed;
       ytile *= toFixed;
       
-      printf("xtile: %v\n", xtile);
-      printf("vc00: %v\n", vc00);
+      // printf("xtile: %v\n", xtile);
+      // printf("vc00: %v\n", vc00);
       
       //TODO use muladd +*
       vec16 ax:sint = vc00 * xtile;
-      ax >>= 8;
+      ax >>= 4;
       vec16 by = vc10 * ytile;
+      by >>= 4;
       vec16 cx = vc01 * xtile;
+      cx >>= 4;
       vec16 dy = vc11 * ytile;
+      dy >>= 4;
       
-      printf("ax: %v\n", ax);
-      
+      // printf("ax: %v\n", ax);
+
       xtile = ax;
-      
-      // xtile = ax;
-      // xtile += cx;
-      // ytile = by;
-      // ytile += dy;
+      xtile += by;
+      ytile = cx;
+      ytile += dy;
       
       xtile += vxofs;
       ytile += vyofs;
       
-      xtile >>= 8;
-      ytile >>= 8;
+      xtile >>= 4;
+      ytile >>= 4;
       
       xtile &= texCoordMask;
       ytile &= texCoordMask;
       
-      printf("tiled: (%v), (%v)\n", xtile, ytile);
+      // printf("tiled: (%v), (%v)\n", xtile, ytile);
       
       vec16 addr = ytile;
       addr *= texSize;
@@ -667,22 +670,19 @@ command<8> FillCmd_ComputeTexCoords(u32 _, u32 topLeftCoords, u32 time)
   }
 }
 
-command<9> FillCmd_LoadTexMatrix(u32 _, u32 column0, u32 column1, u32 xyoffset)
+command<9> FillCmd_LoadTexMatrix(u32 _, u32 matrixRdram, u32 inx, u32 iny)
 {
-  s16 c00 = column0 & 0xffff;
-  s16 c01 = column0 >> 16;
-  s16 c10 = column1 & 0xffff;
-  s16 c11 = column1 >> 16;
-  s16 xofs = xyoffset & 0xffff;
-  s16 yofs = xyoffset >> 16;
+  u32 xofs = inx;
+  u32 yofs = iny;
+  dma_in(TEX_MATRIX, matrixRdram);
   printf("Tex matrix:\n");
+  s32 c00 = load(TEX_MATRIX, 0);
+  s32 c01 = load(TEX_MATRIX, 4);
+  s32 c10 = load(TEX_MATRIX, 8);
+  s32 c11 = load(TEX_MATRIX, 12);
   printf("[ %f %f ]\n", c00, c10);
   printf("[ %f %f ]\n", c01, c11);
   printf("ofs: (%f %f)\n", xofs, yofs);
-  store(c00, TEX_MATRIX, 0);
-  store(c01, TEX_MATRIX, 2);
-  store(c10, TEX_MATRIX, 4);
-  store(c11, TEX_MATRIX, 6);
   store(xofs, TEX_OFFSET, 0);
-  store(xofs, TEX_OFFSET, 2);
+  store(xofs, TEX_OFFSET, 4);
 }
