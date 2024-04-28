@@ -60,8 +60,8 @@ state {
   vec16 CONSTANT_COLOR_GREEN = {0x7C0,0x7C0,0x7C0,0x7C0,0x7C0,0x7C0,0x7C0,0x7C0};
   alignas(16)
   vec16 CONSTANT_COLOR_RED = { 0xF800, 0xF800, 0xF800, 0xF800, 0xF800, 0xF800, 0xF800, 0xF800};
-  alignas(16) // definitely needed or loads don't work
-  vec16 PER_LANE_OFFSET = {0,1,2,3,4,5,6,7};
+  alignas(32)
+  vec32 PER_LANE_OFFSET = {0.0,1.0,2.0,3.0,4.0,5.0,6.0,7.0};
   u32 TEX_MATRIX[4];
   u32 TEX_OFFSET[2];
 }
@@ -552,28 +552,95 @@ command<7> FillCmd_StoreTexture(u32 _, u32 dataAddress)
 
 command<8> FillCmd_ComputeTexCoords(u32 _, u32 topLeftCoords, u32 time)
 {
-  u16 cx = topLeftCoords & 0xffff;
-  u16 cy = topLeftCoords >> 16;
   
-  s16 c00 = load(TEX_MATRIX, 0);
-  s16 c01 = load(TEX_MATRIX, 2);
-  s16 c10 = load(TEX_MATRIX, 4);
-  s16 c11 = load(TEX_MATRIX, 6);
-  s16 xofs = load(TEX_OFFSET, 0);
-  s16 yofs = load(TEX_OFFSET, 2);
-  // printf("ComputeTexCoords:\n");
-  // printf("Tex matrix:\n");
-  // printf("[ %f %f ]\n", c00, c10);
-  // printf("[ %f %f ]\n", c01, c11);
-  // printf("ofs: (%f %f)\n", xofs, yofs);
+  u32 cx = topLeftCoords & 0xffff;
+  u32 cy = topLeftCoords >> 16;
+  cx <<= 16;
+  cy <<= 16;
   
-  vec16 vc00 = c00;
-  vec16 vc01 = c01;
-  vec16 vc10 = c10;
-  vec16 vc11 = c11;
-  vec16 vxofs = xofs;
-  vec16 vyofs = yofs;
+  vec32 vxRow; // reset at row start
+  vec32 vyRow; // reset at row start
+  vec32 ones;
+  ones.x = 1;
+  ones = ones.x;
+
+  vec32 eights;
+  eights.x = 8;
+  eights = eights.x;
+
+
+  {
+    s32 c00 = load(TEX_MATRIX, 0);
+    s32 c01 = load(TEX_MATRIX, 4);
+    s32 c10 = load(TEX_MATRIX, 8);
+    s32 c11 = load(TEX_MATRIX, 12);
+    s32 xofs = load(TEX_OFFSET, 0);
+    s32 yofs = load(TEX_OFFSET, 4);
   
+    printf("ComputeTexCoords:\n");
+    printf("Tex matrix:\n");
+    printf("[ %v %v ]\n", c00, c10);
+    printf("[ %v %v ]\n", c01, c11);
+    printf("c:   (%v, %v)\n", cx, cy);
+    printf("ofs: (%v, %v)\n", xofs, yofs);
+    
+    // printf("dx, dy: (%d, %d)\n", dx, dy);
+    xofs += cx;
+    yofs += cy;
+
+    vxRow.x = xofs;
+    vxRow = vxRow.x;
+    vec32 stepX = load(PER_LANE_OFFSET);
+    vxRow += stepX;
+    
+    vyRow.x = yofs;
+    vyRow = vyRow.x;
+  }
+  
+  printf("vxRow: %v\n", vxRow);
+  printf("vyRow: %v\n", vyRow);
+
+  vec16 texCoordMask;
+  texCoordMask.x = 0x7f;
+  texCoordMask = texCoordMask.x;
+
+  vec32 vx = vxRow;
+  vec32 vy = vyRow;
+  //vec32 xrow = yrow;
+
+  u32 counterY = 16;
+  u32 dmemAddressDest = ADDRESS_BUFFER;
+  while (counterY > 0) {
+    u32 counterX = 2;
+    vx = vxRow;
+    while (counterX > 0) {
+      vec16 texx = vx:sint;
+      vec16 texy = vy:sint;
+      texx &= texCoordMask;
+      texy &= texCoordMask;
+      
+      // printf("vx:  %v%v\n", vx);
+      // printf("vy:  %v%v\n", vy);
+      // printf("tx:  %v%v\n", texx);
+      // printf("ty:  %v%v\n", texy);
+      
+      vec16 addr = texy;
+      addr *= 128;
+      addr += texx;
+      addr *= 2;
+      
+      store(addr, dmemAddressDest);
+      
+      vx += eights;
+      counterX -= 1;  
+      dmemAddressDest += 16;
+    }
+  
+    vy += ones;
+    counterY -= 1;
+  }
+
+  /*
   vec16 perLaneOfsX = load(PER_LANE_OFFSET);
   vec16 one;
   one.x = 1;
@@ -668,6 +735,7 @@ command<8> FillCmd_ComputeTexCoords(u32 _, u32 topLeftCoords, u32 time)
     vy += one;
     counterY -= 1;
   }
+  */
 }
 
 command<9> FillCmd_LoadTexMatrix(u32 _, u32 matrixRdram, u32 inx, u32 iny)
