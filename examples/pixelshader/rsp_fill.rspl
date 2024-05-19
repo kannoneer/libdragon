@@ -559,15 +559,22 @@ command<8> FillCmd_ComputeTexCoords(u32 _, u32 topLeftCoords, u32 time)
   cy <<= 16;
   
   vec32 vxRow; // reset at row start
-  vec32 vyRow; // reset at row start
-  vec32 ones;
+  vec32 vy;
+  vec16 ones;
   ones.x = 1;
   ones = ones.x;
 
-  vec32 eights;
+  vec16 eights;
   eights.x = 8;
   eights = eights.x;
-
+  
+  vec32 vxofs;
+  vec32 vyofs;
+  
+  //vec32 vc00;
+  //vec32 vc00;
+  //vec32 vc00;
+  //vec32 vc00;
 
   {
     s32 c00 = load(TEX_MATRIX, 0);
@@ -585,27 +592,27 @@ command<8> FillCmd_ComputeTexCoords(u32 _, u32 topLeftCoords, u32 time)
     printf("ofs: (%v, %v)\n", xofs, yofs);
     
     // printf("dx, dy: (%d, %d)\n", dx, dy);
-    xofs += cx;
-    yofs += cy;
+    vxofs = xofs;
+    vyofs = yofs;
 
-    vxRow.x = xofs;
+    vxRow.x = cx;
     vxRow = vxRow.x;
     vec32 stepX = load(PER_LANE_OFFSET);
     vxRow += stepX;
     
-    vyRow.x = yofs;
-    vyRow = vyRow.x;
+    vy.x = cy;
+    vy = vy.x;
   }
   
   printf("vxRow: %v\n", vxRow);
-  printf("vyRow: %v\n", vyRow);
+  printf("vy: %v\n", vy);
 
   vec16 texCoordMask;
   texCoordMask.x = 0x7f;
   texCoordMask = texCoordMask.x;
 
   vec32 vx = vxRow;
-  vec32 vy = vyRow;
+ 
   //vec32 xrow = yrow;
 
   u32 counterY = 16;
@@ -614,8 +621,13 @@ command<8> FillCmd_ComputeTexCoords(u32 _, u32 topLeftCoords, u32 time)
     u32 counterX = 2;
     vx = vxRow;
     while (counterX > 0) {
-      vec16 texx = vx:sint;
-      vec16 texy = vy:sint;
+      vec32 px = vx; //vxofs;
+      vec32 py = vy; //vyofs;
+      
+      // px = 
+      
+      vec16 texx = px:sint;
+      vec16 texy = py:sint;
       texx &= texCoordMask;
       texy &= texCoordMask;
       
@@ -631,12 +643,12 @@ command<8> FillCmd_ComputeTexCoords(u32 _, u32 topLeftCoords, u32 time)
       
       store(addr, dmemAddressDest);
       
-      vx += eights;
+      vx:sint += eights;
       counterX -= 1;  
       dmemAddressDest += 16;
     }
   
-    vy += ones;
+    vy:sint += ones;
     counterY -= 1;
   }
 

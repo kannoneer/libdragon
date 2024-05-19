@@ -531,8 +531,8 @@ int main(void) {
                 rsp_fill_compute_tex_coords(tilex*TILEW, tiley*TILEH, rsptime);
 
                 rspq_wait();
-                debugf("HALT\n");
-                while (true) {}
+                // debugf("HALT\n");
+                // while (true) {}
 
                 uint16_t *offsets = address_data + (tiley * TILE_NUM_X + tilex) * ADDRESS_BATCH_COUNT;
                 rsp_fill_gathertest(offsets);
