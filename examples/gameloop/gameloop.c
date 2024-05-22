@@ -110,7 +110,7 @@ void render()
     rdpq_sprite_blit(player_sprite, player.pos.x, player.pos.y, &(rdpq_blitparms_t){
         .s0 = player.frame * PLAYER_SPRITE_SIZE,
         .width = PLAYER_SPRITE_SIZE,
-        // .flip_x = player.facing == FACING_LEFT
+        .flip_x = player.facing == FACING_LEFT
     });
 
     rdpq_detach_show();
@@ -152,6 +152,7 @@ int main()
     apple.pos.x = 200;
     apple.pos.y = 75;
 
+    // Make the first frame have a 33 ms delta.
     uint32_t last_ticks = get_ticks() - TICKS_FROM_MS(33);
 
     while (1)
