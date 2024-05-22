@@ -78,7 +78,7 @@ void update(float dt)
 
     const int hit_radius = 20;
 
-    if (distance_squared(&player.pos, &apple.pos) < hit_radius * hit_radius) {
+    if (distance_squared(&player.pos, &apple.pos) < (hit_radius * hit_radius)) {
         wav64_play(&sfx_hit, CHANNEL_SFX);
         const int margin = 20;
         apple.pos.x = margin + rand() % (display_get_width() - 2 * margin);
@@ -106,6 +106,7 @@ void render()
     rdpq_attach_clear(disp, NULL);
 
     rdpq_set_mode_standard();
+    rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY);
     rdpq_sprite_blit(apple_sprite, apple.pos.x, apple.pos.y - apple.drop, NULL);
     rdpq_sprite_blit(player_sprite, player.pos.x, player.pos.y, &(rdpq_blitparms_t){
         .s0 = player.frame * PLAYER_SPRITE_SIZE,
