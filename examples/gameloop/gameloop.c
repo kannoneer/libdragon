@@ -136,6 +136,8 @@ int main()
 
 	wav64_open(&sfx_hit, "rom:/blip.wav64");
 
+    // Sprites drawn by Pixel Frog and licensed under CC0
+    // at https://pixelfrog-assets.itch.io/pixel-adventure-1
     player_sprite = sprite_load("rom:/ninjafrog.sprite");
     apple_sprite = sprite_load("rom:/apple.sprite");
 
